@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
         AND ( ${maxQty}::numeric IS NULL OR v.qty <= ${maxQty}::numeric )
         AND ( ${hasCost} IS NOT TRUE OR v.costo_ars IS NOT NULL )
         AND ( ${showAll} IS TRUE OR ep.product_id IS NOT NULL )
-      ORDER BY v.product_id, v.product_presentation_id
+      ORDER BY lower(p.nombre) ASC, v.qty ASC
       LIMIT ${limit}::int OFFSET ${offset}::int
     `;
     return Response.json(rows);
