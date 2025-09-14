@@ -7,8 +7,8 @@ type Row = {
   nombre: string;
   qty: number;
   costo_ars: number | null;
-  chosen_uom?: string | null;   // UOM elegida en app
-  enabled?: boolean;            // en lista activa (whitelist)
+  chosen_uom?: string | null;
+  enabled?: boolean;
 };
 
 export default function Page() {
@@ -16,11 +16,11 @@ export default function Page() {
   const [rows, setRows] = useState<Row[]>([]);
   const [allowedUoms, setAllowedUoms] = useState<string[]>([]);
 
-  // filtros / estado UI
+  // filtros / estado
   const [q, setQ] = useState('');
   const [minQty, setMinQty] = useState('');
   const [maxQty, setMaxQty] = useState('');
-  const [onlyEnabled, setOnlyEnabled] = useState(true); // Solo activos por defecto
+  const [onlyEnabled, setOnlyEnabled] = useState(true); // auto por defecto
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -29,19 +29,15 @@ export default function Page() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  // cargar opciones de UOM (una vez)
+  // cargar opciones UOM una vez
   useEffect(() => {
-    fetch('/api/uoms')
-      .then(r => r.json())
-      .then(setAllowedUoms)
-      .catch(console.error);
+    fetch('/api/uoms').then(r => r.json()).then(setAllowedUoms).catch(console.error);
   }, []);
 
   async function fetchPage(newOffset: number, reset = false) {
     setLoading(true);
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 15000);
-
     try {
       const url = new URL('/api/price-list', window.location.origin);
       url.searchParams.set('limit', String(limit));
@@ -67,19 +63,13 @@ export default function Page() {
     }
   }
 
-  // primer carga
-  useEffect(() => { fetchPage(0, true); }, []);
+  // auto-apply: busca al cambiar cualquier filtro (con debounce)
+  useEffect(() => {
+    const t = setTimeout(() => { setOffset(0); fetchPage(0, true); }, 350);
+    return () => clearTimeout(t);
+  }, [q, minQty, maxQty, onlyEnabled, hasCost]);
 
-  // buscar con filtros actuales
-  async function search() {
-    setOffset(0);
-    await fetchPage(0, true);
-  }
-
-  // recargar automáticamente al cambiar los toggles
-  useEffect(() => { search(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [onlyEnabled, hasCost]);
-
-  // habilitar/deshabilitar (whitelist)
+  // acciones por fila
   async function toggleEnabled(productId: number, enabled: boolean) {
     await fetch('/api/enabled', {
       method: 'PATCH',
@@ -89,7 +79,6 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_id === productId ? { ...r, enabled } : r));
   }
 
-  // elegir UOM app para la presentación
   async function setUomFor(ppid: number, codigo: string) {
     await fetch('/api/uom-choice', {
       method: 'PATCH',
@@ -103,7 +92,7 @@ export default function Page() {
     <main className="p-4 max-w-7xl mx-auto space-y-3">
       <h1 className="text-2xl font-semibold">MGq Price Admin</h1>
 
-      {/* Filtros */}
+      {/* Filtros (auto-apply) */}
       <div className="flex flex-wrap gap-2 items-center">
         <input
           className="border rounded px-3 py-2 w-64"
@@ -139,13 +128,6 @@ export default function Page() {
           />{' '}
           Con costo
         </label>
-        <button
-          className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-          disabled={loading}
-          onClick={search}
-        >
-          {loading ? 'Cargando...' : 'Aplicar filtros'}
-        </button>
       </div>
 
       {/* Tabla */}
@@ -177,15 +159,10 @@ export default function Page() {
                   <select
                     className="border rounded px-2 py-1"
                     value={r.chosen_uom ?? ''}
-                    onChange={e => {
-                      const value = e.target.value;
-                      if (value) setUomFor(r.product_presentation_id, value);
-                    }}
+                    onChange={e => { const v = e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}
                   >
                     <option value="" disabled>Seleccione…</option>
-                    {allowedUoms.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
                 <td className="p-2 text-right">{r.costo_ars ?? '-'}</td>
@@ -200,11 +177,7 @@ export default function Page() {
         <button
           className="px-4 py-2 rounded border disabled:opacity-50"
           disabled={loading || !hasMore}
-          onClick={async () => {
-            const next = offset + limit;
-            setOffset(next);
-            await fetchPage(next);
-          }}
+          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}
         >
           {loading ? 'Cargando…' : (hasMore ? 'Cargar más' : 'No hay más')}
         </button>
