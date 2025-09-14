@@ -9,27 +9,23 @@ type Row = {
   costo_ars: number | null;        // Prov/Costo (entero ARS)
   chosen_uom?: string | null;      // Prov/UOM: UN | GR | ML
   enabled?: boolean;               // whitelist
-  prov_url?: string | null;        // editable
-  prov_desc?: string | null;       // editable
+  prov_url?: string | null;
+  prov_desc?: string | null;
 };
 
 export default function Page() {
   const [rows, setRows] = useState<Row[]>([]);
   const [allowedUoms, setAllowedUoms] = useState<string[]>([]);
 
-  // filtros / estado
   const [q, setQ] = useState('');
   const [onlyEnabled, setOnlyEnabled] = useState(true);
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // edición inline (URL / Desc)
-  const [editUrlId, setEditUrlId] = useState<number|null>(null);
-  const [urlDraft, setUrlDraft] = useState('');
-  const [editDescId, setEditDescId] = useState<number|null>(null);
-  const [descDraft, setDescDraft] = useState('');
+  // drafts para edición inline
+  const [qtyDraft, setQtyDraft] = useState<Record<number,string>>({});
+  const [costDraft, setCostDraft] = useState<Record<number,string>>({});
 
-  // paginado
   const limit = 500;
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -68,13 +64,11 @@ export default function Page() {
     }
   }
 
-  // auto-apply (debounce)
   useEffect(() => {
     const t = setTimeout(() => { setOffset(0); fetchPage(0, true); }, 350);
     return () => clearTimeout(t);
   }, [q, onlyEnabled, hasCost]);
 
-  // acciones por fila
   async function toggleEnabled(productId: number, enabled: boolean) {
     await fetch('/api/enabled', {
       method: 'PATCH',
@@ -93,7 +87,7 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_presentation_id === ppid ? { ...r, chosen_uom: codigo } : r));
   }
 
-  // CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR)
+  // Prov/CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR)
   const costoUnit = (costo_ars: number | null, qty: number | null | undefined, uom?: string | null) => {
     if (costo_ars == null || !qty || qty <= 0) return '-';
     let v = costo_ars / qty;
@@ -101,177 +95,136 @@ export default function Page() {
     return fmtInt(Math.round(v));
   };
 
-  // guardar URL / DESC
-  async function saveUrl(productId: number) {
-    await fetch('/api/product', {
-      method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ productId, prov_url: urlDraft })
+  // helpers input
+  const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
+  const onQtyBlur = async (ppid: number) => {
+    const raw = onlyDigits(qtyDraft[ppid] ?? '');
+    if (!raw) { setQtyDraft(prev=>({ ...prev, [ppid]: '' })); return; }
+    const val = Number(raw);
+    if (!Number.isInteger(val) || val<=0) return;
+    const res = await fetch('/api/presentation', {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ productPresentationId: ppid, qty: val })
     });
-    setRows(prev => prev.map(r => r.product_id===productId ? { ...r, prov_url: urlDraft || null } : r));
-    setEditUrlId(null);
-    setUrlDraft('');
-  }
-  async function saveDesc(productId: number) {
-    await fetch('/api/product', {
-      method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ productId, prov_desc: descDraft })
+    if (!res.ok) { alert(await res.text()); return; }
+    setRows(prev => prev.map(r => r.product_presentation_id===ppid ? { ...r, qty: val } : r));
+    setQtyDraft(prev=>({ ...prev, [ppid]: '' }));
+  };
+  const onCostBlur = async (ppid: number) => {
+    const raw = onlyDigits(costDraft[ppid] ?? '');
+    if (raw==='') { setCostDraft(prev=>({ ...prev, [ppid]: '' })); return; }
+    const val = Number(raw);
+    if (!Number.isInteger(val) || val<0) return;
+    const res = await fetch('/api/cost', {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ productPresentationId: ppid, costo: val })
     });
-    setRows(prev => prev.map(r => r.product_id===productId ? { ...r, prov_desc: descDraft } : r));
-    setEditDescId(null);
-    setDescDraft('');
-  }
-
-  // descargar descripción .txt
-  function downloadDesc(productId: number, text: string) {
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `prov_desc_${productId}.txt`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  }
+    if (!res.ok) { alert(await res.text()); return; }
+    setRows(prev => prev.map(r => r.product_presentation_id===ppid ? { ...r, costo_ars: val } : r));
+    setCostDraft(prev=>({ ...prev, [ppid]: '' }));
+  };
+  const onKeyCommit = (e: React.KeyboardEvent<HTMLInputElement>, commit: ()=>void, cancel: ()=>void) => {
+    if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); commit(); }
+    if (e.key === 'Escape') cancel();
+  };
 
   return (
     <main className="p-4 max-w-7xl mx-auto space-y-3">
       <h1 className="text-2xl font-semibold">MGq Admin</h1>
 
-      {/* Filtros (auto-apply) */}
+      {/* Filtros */}
       <div className="flex flex-wrap gap-2 items-center">
-        <input
-          className="border rounded px-3 py-2 w-64"
-          placeholder="Buscar por nombre o ID"
-          value={q}
-          onChange={e => setQ(e.target.value)}
-        />
-        <label className="px-2">
-          <input
-            type="checkbox"
-            checked={onlyEnabled}
-            onChange={e => setOnlyEnabled(e.target.checked)}
-          />{' '}
-          Solo activos
-        </label>
-        <label className="px-2">
-          <input
-            type="checkbox"
-            checked={hasCost}
-            onChange={e => setHasCost(e.target.checked)}
-          />{' '}
-          Con costo
-        </label>
+        <input className="border rounded px-3 py-2 w-64" placeholder="Buscar por nombre o ID"
+          value={q} onChange={e => setQ(e.target.value)} />
+        <label className="px-2"><input type="checkbox" checked={onlyEnabled}
+          onChange={e => setOnlyEnabled(e.target.checked)} /> Solo activos</label>
+        <label className="px-2"><input type="checkbox" checked={hasCost}
+          onChange={e => setHasCost(e.target.checked)} /> Con costo</label>
       </div>
 
-      {/* Tabla */}
       <div className="overflow-auto rounded-xl border">
         <table className="min-w-full text-sm">
           <thead className="bg-white text-black">
             <tr>
               <th className="p-2">Hab</th>
               <th className="p-2 text-left">Producto</th>
-              <th className="p-2 text-center leading-tight">Prov<br />Pres</th>
-              <th className="p-2 text-center leading-tight">Prov<br />UOM</th>
-              <th className="p-2 text-center leading-tight">Prov<br />URL</th>
-              <th className="p-2 text-center leading-tight">Prov<br />Desc</th>
-              <th className="p-2 text-center leading-tight">Prov<br />Costo</th>
-              <th className="p-2 text-center leading-tight">Prov<br />CostoUn</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Pres</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>UOM</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>URL</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Costo</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>CostoUn</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.product_presentation_id} className="border-t align-top">
-                {/* Hab */}
                 <td className="p-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={!!r.enabled}
-                    onChange={e => toggleEnabled(r.product_id, e.target.checked)}
-                    title="Habilitar en la app"
-                  />
+                  <input type="checkbox" checked={!!r.enabled}
+                    onChange={e => toggleEnabled(r.product_id, e.target.checked)} title="Habilitar en la app" />
                 </td>
-
-                {/* Producto */}
                 <td className="p-2">{r.nombre}</td>
 
-                {/* Prov/Pres */}
-                <td className="p-2 text-center">{fmtInt(r.qty)}</td>
+                {/* Prov/Pres (editable inline) */}
+                <td className="p-2 text-center">
+                  <input
+                    className="border rounded px-2 py-1 w-24 text-right"
+                    inputMode="numeric"
+                    placeholder={fmtInt(r.qty)}
+                    value={qtyDraft[r.product_presentation_id] ?? ''}
+                    onChange={e => setQtyDraft(prev=>({ ...prev, [r.product_presentation_id]: e.target.value }))}
+                    onBlur={() => onQtyBlur(r.product_presentation_id)}
+                    onKeyDown={e => onKeyCommit(e, () => onQtyBlur(r.product_presentation_id),
+                      () => setQtyDraft(prev=>({ ...prev, [r.product_presentation_id]: '' })))}
+                    title="Editar cantidad de presentación del proveedor"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">{fmtInt(r.qty)}</div>
+                </td>
 
                 {/* Prov/UOM */}
                 <td className="p-2 text-center">
-                  <select
-                    className="border rounded px-2 py-1"
-                    value={r.chosen_uom ?? ''}
-                    onChange={e => { const v = e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}
-                  >
+                  <select className="border rounded px-2 py-1"
+                    value={r.chosen_uom ?? ''} onChange={e => { const v=e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}>
                     <option value="" disabled>Seleccione…</option>
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
 
-                {/* Prov/URL (link + editar) */}
+                {/* Prov/URL */}
                 <td className="p-2 text-center">
-                  {editUrlId === r.product_id ? (
-                    <div className="flex flex-col items-stretch gap-1">
-                      <input
-                        className="border rounded px-2 py-1 w-44"
-                        placeholder="https://..."
-                        value={urlDraft}
-                        onChange={e=>setUrlDraft(e.target.value)}
-                      />
-                      <div className="flex gap-2 justify-center">
-                        <button className="px-2 py-1 border rounded" onClick={()=>saveUrl(r.product_id)}>Guardar</button>
-                        <button className="px-2 py-1 border rounded" onClick={()=>{setEditUrlId(null); setUrlDraft('');}}>Cancelar</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center gap-2">
-                      {r.prov_url ? (
-                        <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">
-                          ↗︎
-                        </a>
-                      ) : <span className="text-gray-400">–</span>}
-                      <button
-                        className="px-2 py-1 border rounded"
-                        title="Editar URL"
-                        onClick={()=>{ setEditUrlId(r.product_id); setUrlDraft(r.prov_url ?? ''); }}
-                      >✎</button>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-center gap-2">
+                    {r.prov_url
+                      ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
+                      : <span className="text-gray-400">–</span>}
+                  </div>
                 </td>
 
-                {/* Prov/Desc (descargar .txt + editar) */}
+                {/* Prov/Desc */}
                 <td className="p-2 text-center">
-                  {editDescId === r.product_id ? (
-                    <div className="flex flex-col items-stretch gap-1">
-                      <textarea
-                        className="border rounded px-2 py-1 w-56 h-20"
-                        placeholder="Descripción del proveedor…"
-                        value={descDraft}
-                        onChange={e=>setDescDraft(e.target.value)}
-                      />
-                      <div className="flex gap-2 justify-center">
-                        <button className="px-2 py-1 border rounded" onClick={()=>saveDesc(r.product_id)}>Guardar</button>
-                        <button className="px-2 py-1 border rounded" onClick={()=>{setEditDescId(null); setDescDraft('');}}>Cancelar</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center gap-2">
-                      {r.prov_desc
-                        ? <button className="px-2 py-1 border rounded" title="Descargar .txt"
-                                  onClick={()=>downloadDesc(r.product_id!, r.prov_desc!)}>⬇︎</button>
-                        : <span className="text-gray-400">–</span>}
-                      <button
-                        className="px-2 py-1 border rounded"
-                        title="Editar descripción"
-                        onClick={()=>{ setEditDescId(r.product_id); setDescDraft(r.prov_desc ?? ''); }}
-                      >✎</button>
-                    </div>
-                  )}
+                  {r.prov_desc
+                    ? <button className="px-2 py-1 border rounded" title="Descargar .txt"
+                        onClick={()=>{ const blob=new Blob([r.prov_desc!],{type:'text/plain;charset=utf-8'});
+                                     const url=URL.createObjectURL(blob); const a=document.createElement('a');
+                                     a.href=url; a.download=`prov_desc_${r.product_id}.txt`; document.body.appendChild(a);
+                                     a.click(); a.remove(); URL.revokeObjectURL(url); }}>⬇︎</button>
+                    : <span className="text-gray-400">–</span>}
                 </td>
 
-                {/* Prov/Costo */}
-                <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
+                {/* Prov/Costo (editable inline) */}
+                <td className="p-2 text-right">
+                  <input
+                    className="border rounded px-2 py-1 w-28 text-right"
+                    inputMode="numeric"
+                    placeholder={fmtInt(r.costo_ars)}
+                    value={costDraft[r.product_presentation_id] ?? ''}
+                    onChange={e => setCostDraft(prev=>({ ...prev, [r.product_presentation_id]: e.target.value }))}
+                    onBlur={() => onCostBlur(r.product_presentation_id)}
+                    onKeyDown={e => onKeyCommit(e, () => onCostBlur(r.product_presentation_id),
+                      () => setCostDraft(prev=>({ ...prev, [r.product_presentation_id]: '' })))}
+                    title="Editar costo del proveedor"
+                  />
+                  <div className="text-xs text-gray-500 mt-1">{fmtInt(r.costo_ars)}</div>
+                </td>
 
                 {/* Prov/CostoUn */}
                 <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
@@ -281,13 +234,10 @@ export default function Page() {
         </table>
       </div>
 
-      {/* Paginado */}
       <div className="py-3">
-        <button
-          className="px-4 py-2 rounded border disabled:opacity-50"
+        <button className="px-4 py-2 rounded border disabled:opacity-50"
           disabled={loading || !hasMore}
-          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}
-        >
+          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}>
           {loading ? 'Cargando…' : (hasMore ? 'Cargar más' : 'No hay más')}
         </button>
       </div>
