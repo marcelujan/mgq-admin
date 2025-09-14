@@ -5,10 +5,10 @@ type Row = {
   product_id: number;
   product_presentation_id: number;
   nombre: string;
-  qty: number;
+  qty: number;                     // Presentación del proveedor (enteros)
   costo_ars: number | null;
-  chosen_uom?: string | null;
-  enabled?: boolean;
+  chosen_uom?: string | null;      // UOM elegida en app
+  enabled?: boolean;               // en lista activa (whitelist)
 };
 
 export default function Page() {
@@ -20,7 +20,7 @@ export default function Page() {
   const [q, setQ] = useState('');
   const [minQty, setMinQty] = useState('');
   const [maxQty, setMaxQty] = useState('');
-  const [onlyEnabled, setOnlyEnabled] = useState(true); // auto por defecto
+  const [onlyEnabled, setOnlyEnabled] = useState(true); // Solo activos por defecto
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -28,6 +28,10 @@ export default function Page() {
   const limit = 500;
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+
+  // formateador: miles con punto y sin decimales
+  const fmtInt = (n: number | null | undefined) =>
+    n == null ? '-' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
 
   // cargar opciones UOM una vez
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function Page() {
     }
   }
 
-  // auto-apply: busca al cambiar cualquier filtro (con debounce)
+  // auto-apply de filtros (con debounce)
   useEffect(() => {
     const t = setTimeout(() => { setOffset(0); fetchPage(0, true); }, 350);
     return () => clearTimeout(t);
@@ -137,7 +141,7 @@ export default function Page() {
             <tr>
               <th className="p-2">Hab</th>
               <th className="p-2 text-left">Producto</th>
-              <th className="p-2">Qty</th>
+              <th className="p-2">Presentación (prov.)</th>
               <th className="p-2">UOM app</th>
               <th className="p-2">Costo</th>
             </tr>
@@ -154,7 +158,7 @@ export default function Page() {
                   />
                 </td>
                 <td className="p-2">{r.nombre}</td>
-                <td className="p-2 text-center">{r.qty}</td>
+                <td className="p-2 text-center">{fmtInt(r.qty)}</td>
                 <td className="p-2 text-center">
                   <select
                     className="border rounded px-2 py-1"
