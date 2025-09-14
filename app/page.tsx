@@ -5,8 +5,8 @@ type Row = {
   product_id: number;
   product_presentation_id: number;
   nombre: string;
-  qty: number;                     // Presentación del proveedor (enteros)
-  costo_ars: number | null;
+  qty: number;                     // Presentación del proveedor (entero)
+  costo_ars: number | null;        // Costo del proveedor (entero ARS)
   chosen_uom?: string | null;      // UOM elegida en app
   enabled?: boolean;               // whitelist
 };
@@ -88,6 +88,13 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_presentation_id === ppid ? { ...r, chosen_uom: codigo } : r));
   }
 
+  // cálculo de costo unitario: Costo / Pres (se muestra entero, con miles)
+  const costoUnit = (costo_ars: number | null, qty: number | null | undefined) => {
+    if (costo_ars == null || !qty || qty <= 0) return '-';
+    const v = Math.round(costo_ars / qty); // entero
+    return fmtInt(v);
+  };
+
   return (
     <main className="p-4 max-w-7xl mx-auto space-y-3">
       <h1 className="text-2xl font-semibold">MGq Admin</h1>
@@ -125,13 +132,10 @@ export default function Page() {
             <tr>
               <th className="p-2">Hab</th>
               <th className="p-2 text-left">Producto</th>
-              <th className="p-2 text-center leading-tight">
-                Prov<br />Pres
-              </th>
-              <th className="p-2 text-center leading-tight">
-                Prov<br />UOM
-              </th>
-              <th className="p-2">Costo</th>
+              <th className="p-2 text-center leading-tight">Prov<br />Pres</th>
+              <th className="p-2 text-center leading-tight">Prov<br />UOM</th>
+              <th className="p-2 text-center leading-tight">Prov<br />Costo</th>
+              <th className="p-2 text-center leading-tight">Prov<br />CostoUn</th>
             </tr>
           </thead>
           <tbody>
@@ -157,7 +161,8 @@ export default function Page() {
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
-                <td className="p-2 text-right">{r.costo_ars ?? '-'}</td>
+                <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
+                <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty)}</td>
               </tr>
             ))}
           </tbody>
