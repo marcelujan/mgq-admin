@@ -5,33 +5,38 @@ type Row = {
   product_id: number;
   product_presentation_id: number;
   nombre: string;
-  qty: number;                     // Presentación del proveedor (entero)
-  costo_ars: number | null;        // Costo del proveedor (entero ARS)
-  chosen_uom?: string | null;      // UOM elegida en app: UN | GR | ML
+  qty: number;                     // Prov/Pres (entero)
+  costo_ars: number | null;        // Prov/Costo (entero ARS)
+  chosen_uom?: string | null;      // Prov/UOM: UN | GR | ML
   enabled?: boolean;               // whitelist
+  prov_url?: string | null;        // editable
+  prov_desc?: string | null;       // editable
 };
 
 export default function Page() {
-  // datos
   const [rows, setRows] = useState<Row[]>([]);
   const [allowedUoms, setAllowedUoms] = useState<string[]>([]);
 
   // filtros / estado
   const [q, setQ] = useState('');
-  const [onlyEnabled, setOnlyEnabled] = useState(true); // Solo activos por defecto
+  const [onlyEnabled, setOnlyEnabled] = useState(true);
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // edición inline (URL / Desc)
+  const [editUrlId, setEditUrlId] = useState<number|null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
+  const [editDescId, setEditDescId] = useState<number|null>(null);
+  const [descDraft, setDescDraft] = useState('');
 
   // paginado
   const limit = 500;
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  // formateador: miles con punto y sin decimales
   const fmtInt = (n: number | null | undefined) =>
     n == null ? '-' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
 
-  // cargar opciones UOM una vez
   useEffect(() => {
     fetch('/api/uoms').then(r => r.json()).then(setAllowedUoms).catch(console.error);
   }, []);
@@ -88,13 +93,45 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_presentation_id === ppid ? { ...r, chosen_uom: codigo } : r));
   }
 
-  // CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR), entero, con miles
+  // CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR)
   const costoUnit = (costo_ars: number | null, qty: number | null | undefined, uom?: string | null) => {
     if (costo_ars == null || !qty || qty <= 0) return '-';
     let v = costo_ars / qty;
     if (uom === 'ML' || uom === 'GR') v *= 1000;
     return fmtInt(Math.round(v));
   };
+
+  // guardar URL / DESC
+  async function saveUrl(productId: number) {
+    await fetch('/api/product', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ productId, prov_url: urlDraft })
+    });
+    setRows(prev => prev.map(r => r.product_id===productId ? { ...r, prov_url: urlDraft || null } : r));
+    setEditUrlId(null);
+    setUrlDraft('');
+  }
+  async function saveDesc(productId: number) {
+    await fetch('/api/product', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ productId, prov_desc: descDraft })
+    });
+    setRows(prev => prev.map(r => r.product_id===productId ? { ...r, prov_desc: descDraft } : r));
+    setEditDescId(null);
+    setDescDraft('');
+  }
+
+  // descargar descripción .txt
+  function downloadDesc(productId: number, text: string) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `prov_desc_${productId}.txt`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <main className="p-4 max-w-7xl mx-auto space-y-3">
@@ -135,13 +172,16 @@ export default function Page() {
               <th className="p-2 text-left">Producto</th>
               <th className="p-2 text-center leading-tight">Prov<br />Pres</th>
               <th className="p-2 text-center leading-tight">Prov<br />UOM</th>
+              <th className="p-2 text-center leading-tight">Prov<br />URL</th>
+              <th className="p-2 text-center leading-tight">Prov<br />Desc</th>
               <th className="p-2 text-center leading-tight">Prov<br />Costo</th>
               <th className="p-2 text-center leading-tight">Prov<br />CostoUn</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.product_presentation_id} className="border-t">
+              <tr key={r.product_presentation_id} className="border-t align-top">
+                {/* Hab */}
                 <td className="p-2 text-center">
                   <input
                     type="checkbox"
@@ -150,8 +190,14 @@ export default function Page() {
                     title="Habilitar en la app"
                   />
                 </td>
+
+                {/* Producto */}
                 <td className="p-2">{r.nombre}</td>
+
+                {/* Prov/Pres */}
                 <td className="p-2 text-center">{fmtInt(r.qty)}</td>
+
+                {/* Prov/UOM */}
                 <td className="p-2 text-center">
                   <select
                     className="border rounded px-2 py-1"
@@ -162,7 +208,72 @@ export default function Page() {
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
+
+                {/* Prov/URL (link + editar) */}
+                <td className="p-2 text-center">
+                  {editUrlId === r.product_id ? (
+                    <div className="flex flex-col items-stretch gap-1">
+                      <input
+                        className="border rounded px-2 py-1 w-44"
+                        placeholder="https://..."
+                        value={urlDraft}
+                        onChange={e=>setUrlDraft(e.target.value)}
+                      />
+                      <div className="flex gap-2 justify-center">
+                        <button className="px-2 py-1 border rounded" onClick={()=>saveUrl(r.product_id)}>Guardar</button>
+                        <button className="px-2 py-1 border rounded" onClick={()=>{setEditUrlId(null); setUrlDraft('');}}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      {r.prov_url ? (
+                        <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">
+                          ↗︎
+                        </a>
+                      ) : <span className="text-gray-400">–</span>}
+                      <button
+                        className="px-2 py-1 border rounded"
+                        title="Editar URL"
+                        onClick={()=>{ setEditUrlId(r.product_id); setUrlDraft(r.prov_url ?? ''); }}
+                      >✎</button>
+                    </div>
+                  )}
+                </td>
+
+                {/* Prov/Desc (descargar .txt + editar) */}
+                <td className="p-2 text-center">
+                  {editDescId === r.product_id ? (
+                    <div className="flex flex-col items-stretch gap-1">
+                      <textarea
+                        className="border rounded px-2 py-1 w-56 h-20"
+                        placeholder="Descripción del proveedor…"
+                        value={descDraft}
+                        onChange={e=>setDescDraft(e.target.value)}
+                      />
+                      <div className="flex gap-2 justify-center">
+                        <button className="px-2 py-1 border rounded" onClick={()=>saveDesc(r.product_id)}>Guardar</button>
+                        <button className="px-2 py-1 border rounded" onClick={()=>{setEditDescId(null); setDescDraft('');}}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      {r.prov_desc
+                        ? <button className="px-2 py-1 border rounded" title="Descargar .txt"
+                                  onClick={()=>downloadDesc(r.product_id!, r.prov_desc!)}>⬇︎</button>
+                        : <span className="text-gray-400">–</span>}
+                      <button
+                        className="px-2 py-1 border rounded"
+                        title="Editar descripción"
+                        onClick={()=>{ setEditDescId(r.product_id); setDescDraft(r.prov_desc ?? ''); }}
+                      >✎</button>
+                    </div>
+                  )}
+                </td>
+
+                {/* Prov/Costo */}
                 <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
+
+                {/* Prov/CostoUn */}
                 <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
               </tr>
             ))}
