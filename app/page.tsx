@@ -147,8 +147,9 @@ export default function Page() {
               <th className="p-2 text-center leading-tight">
                 Prov<br />UOM
               </th>
-              <th className="p-2">Costo</th>
-            </tr>
+              <th className="p-2 text-center leading-tight">
+                Prov<br />Costo
+              </th>
           </thead>
           <tbody>
             {rows.map(r => (
