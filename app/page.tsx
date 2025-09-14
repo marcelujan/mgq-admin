@@ -7,7 +7,7 @@ type Row = {
   nombre: string;
   qty: number;                     // Presentación del proveedor (entero)
   costo_ars: number | null;        // Costo del proveedor (entero ARS)
-  chosen_uom?: string | null;      // UOM elegida en app
+  chosen_uom?: string | null;      // UOM elegida en app: UN | GR | ML
   enabled?: boolean;               // whitelist
 };
 
@@ -88,11 +88,12 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_presentation_id === ppid ? { ...r, chosen_uom: codigo } : r));
   }
 
-  // cálculo de costo unitario: Costo / Pres (se muestra entero, con miles)
-  const costoUnit = (costo_ars: number | null, qty: number | null | undefined) => {
+  // CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR), entero, con miles
+  const costoUnit = (costo_ars: number | null, qty: number | null | undefined, uom?: string | null) => {
     if (costo_ars == null || !qty || qty <= 0) return '-';
-    const v = Math.round(costo_ars / qty); // entero
-    return fmtInt(v);
+    let v = costo_ars / qty;
+    if (uom === 'ML' || uom === 'GR') v *= 1000;
+    return fmtInt(Math.round(v));
   };
 
   return (
@@ -162,7 +163,7 @@ export default function Page() {
                   </select>
                 </td>
                 <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
-                <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty)}</td>
+                <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
               </tr>
             ))}
           </tbody>
