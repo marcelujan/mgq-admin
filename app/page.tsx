@@ -21,19 +21,38 @@ export default function Page(){
 
   async function fetchPage(newOffset:number, reset=false){
     setLoading(true);
-    const url=new URL('/api/price-list', location.origin);
-    url.searchParams.set('limit', String(limit));
-    url.searchParams.set('offset', String(newOffset));
-    if(q) url.searchParams.set('q', q);
-    if(uom) url.searchParams.set('uom', uom);
-    if(minQty) url.searchParams.set('min_qty', minQty);
-    if(maxQty) url.searchParams.set('max_qty', maxQty);
-    if(onlyInterest) url.searchParams.set('only_interest','1');
-    if(hasCost) url.searchParams.set('has_cost','1');
-    if(hasPrice) url.searchParams.set('has_price','1');
-    const r=await fetch(url); const data:Row[]=await r.json();
-    setRows(p=>reset?data:[...p,...data]); setHasMore(data.length===limit); setLoading(false);
+    const ctl = new AbortController();
+    const t = setTimeout(()=>ctl.abort(), 15000); // 15s
+
+    try{
+      const url = new URL('/api/price-list', window.location.origin);
+      url.searchParams.set('limit', String(limit));
+      url.searchParams.set('offset', String(newOffset));
+      if(q) url.searchParams.set('q', q);
+      if(uom) url.searchParams.set('uom', uom);
+      if(minQty) url.searchParams.set('min_qty', minQty);
+      if(maxQty) url.searchParams.set('max_qty', maxQty);
+      if(onlyInterest) url.searchParams.set('only_interest','1');
+      if(hasCost) url.searchParams.set('has_cost','1');
+      if(hasPrice) url.searchParams.set('has_price','1');
+
+      const res = await fetch(url.toString(), { signal: ctl.signal });
+      if(!res.ok){
+        const txt = await res.text();
+        throw new Error(`API ${res.status}: ${txt.slice(0,200)}`);
+      }
+      const data: Row[] = await res.json();
+      setRows(prev => reset ? data : [...prev, ...data]);
+      setHasMore(data.length === limit);
+    } catch(e:any){
+      console.error(e);
+      alert("Error cargando lista: " + (e?.message ?? e));
+    } finally {
+      clearTimeout(t);
+      setLoading(false);
+    }
   }
+
   useEffect(()=>{ fetchPage(0,true); },[]);
   async function search(){ setOffset(0); await fetchPage(0,true); }
 
