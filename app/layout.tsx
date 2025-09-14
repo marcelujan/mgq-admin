@@ -1,5 +1,16 @@
 import './globals.css';
-export const metadata = { title: 'MGq Price Admin', description: 'Lista y reglas de precios' };
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'MGq Admin',
+  description: 'Panel de administración de MGq',
+  manifest: '/manifest.webmanifest',
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (<html lang="es"><head><link rel="manifest" href="/manifest.webmanifest" /><meta name="theme-color" content="#111827" /></head><body className="min-h-screen">{children}</body></html>);
+  return (
+    <html lang="es">
+      <body>{children}</body>
+    </html>
+  );
 }

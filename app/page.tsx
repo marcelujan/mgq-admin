@@ -8,7 +8,7 @@ type Row = {
   qty: number;                     // Presentación del proveedor (enteros)
   costo_ars: number | null;
   chosen_uom?: string | null;      // UOM elegida en app
-  enabled?: boolean;               // en lista activa (whitelist)
+  enabled?: boolean;               // whitelist
 };
 
 export default function Page() {
@@ -18,8 +18,6 @@ export default function Page() {
 
   // filtros / estado
   const [q, setQ] = useState('');
-  const [minQty, setMinQty] = useState('');
-  const [maxQty, setMaxQty] = useState('');
   const [onlyEnabled, setOnlyEnabled] = useState(true); // Solo activos por defecto
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -47,8 +45,6 @@ export default function Page() {
       url.searchParams.set('limit', String(limit));
       url.searchParams.set('offset', String(newOffset));
       if (q) url.searchParams.set('q', q);
-      if (minQty) url.searchParams.set('min_qty', minQty);
-      if (maxQty) url.searchParams.set('max_qty', maxQty);
       if (hasCost) url.searchParams.set('has_cost', '1');
       if (!onlyEnabled) url.searchParams.set('show_all', '1');
 
@@ -67,11 +63,11 @@ export default function Page() {
     }
   }
 
-  // auto-apply de filtros (con debounce)
+  // auto-apply (debounce)
   useEffect(() => {
     const t = setTimeout(() => { setOffset(0); fetchPage(0, true); }, 350);
     return () => clearTimeout(t);
-  }, [q, minQty, maxQty, onlyEnabled, hasCost]);
+  }, [q, onlyEnabled, hasCost]);
 
   // acciones por fila
   async function toggleEnabled(productId: number, enabled: boolean) {
@@ -94,7 +90,7 @@ export default function Page() {
 
   return (
     <main className="p-4 max-w-7xl mx-auto space-y-3">
-      <h1 className="text-2xl font-semibold">MGq Price Admin</h1>
+      <h1 className="text-2xl font-semibold">MGq Admin</h1>
 
       {/* Filtros (auto-apply) */}
       <div className="flex flex-wrap gap-2 items-center">
@@ -103,18 +99,6 @@ export default function Page() {
           placeholder="Buscar por nombre o ID"
           value={q}
           onChange={e => setQ(e.target.value)}
-        />
-        <input
-          className="border rounded px-2 py-2 w-28"
-          placeholder="Pres ≥"
-          value={minQty}
-          onChange={e => setMinQty(e.target.value)}
-        />
-        <input
-          className="border rounded px-2 py-2 w-28"
-          placeholder="Pres ≤"
-          value={maxQty}
-          onChange={e => setMaxQty(e.target.value)}
         />
         <label className="px-2">
           <input
@@ -147,9 +131,8 @@ export default function Page() {
               <th className="p-2 text-center leading-tight">
                 Prov<br />UOM
               </th>
-              <th className="p-2 text-center leading-tight">
-                Prov<br />Costo
-              </th>
+              <th className="p-2">Costo</th>
+            </tr>
           </thead>
           <tbody>
             {rows.map(r => (
