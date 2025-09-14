@@ -5,7 +5,7 @@ type Row = {
   product_id:number; product_presentation_id:number; nombre:string;
   qty:number; uom:string|null; costo_ars:number|null;
   precio_sugerido_ars:number|null; fecha_costo:string|null;
-  interest?: boolean;
+  interest?: boolean; enabled?: boolean;
 };
 
 export default function Page(){
@@ -16,13 +16,14 @@ export default function Page(){
   const [uom,setUom]=useState(''); const [minQty,setMinQty]=useState(''); const [maxQty,setMaxQty]=useState('');
   const [onlyInterest,setOnlyInterest]=useState(false);
   const [hasCost,setHasCost]=useState(false); const [hasPrice,setHasPrice]=useState(false);
+  const [onlyEnabled,setOnlyEnabled]=useState(true); // <- por defecto solo habilitados
 
   const limit=500; const [offset,setOffset]=useState(0); const [hasMore,setHasMore]=useState(true);
 
   async function fetchPage(newOffset:number, reset=false){
     setLoading(true);
     const ctl = new AbortController();
-    const t = setTimeout(()=>ctl.abort(), 15000); // 15s
+    const t = setTimeout(()=>ctl.abort(), 15000);
 
     try{
       const url = new URL('/api/price-list', window.location.origin);
@@ -35,6 +36,7 @@ export default function Page(){
       if(onlyInterest) url.searchParams.set('only_interest','1');
       if(hasCost) url.searchParams.set('has_cost','1');
       if(hasPrice) url.searchParams.set('has_price','1');
+      if(!onlyEnabled) url.searchParams.set('show_all','1'); // ver todo
 
       const res = await fetch(url.toString(), { signal: ctl.signal });
       if(!res.ok){
@@ -72,6 +74,10 @@ export default function Page(){
     await fetch('/api/interest',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:pid, interest:val})});
     setRows(prev=>prev.map(r=>r.product_id===pid?{...r,interest:val}:r));
   }
+  async function toggleEnabled(pid:number,val:boolean){
+    await fetch('/api/enabled',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:pid, enabled:val})});
+    setRows(prev=>prev.map(r=>r.product_id===pid?{...r,enabled:val}:r));
+  }
 
   return (<main className="p-4 max-w-7xl mx-auto space-y-3">
     <h1 className="text-2xl font-semibold">MGq Price Admin</h1>
@@ -82,6 +88,7 @@ export default function Page(){
       <input className="border rounded px-2 py-2 w-24" placeholder="UOM (UN)" value={uom} onChange={e=>setUom(e.target.value.toUpperCase())}/>
       <input className="border rounded px-2 py-2 w-28" placeholder="Qty ≥" value={minQty} onChange={e=>setMinQty(e.target.value)}/>
       <input className="border rounded px-2 py-2 w-28" placeholder="Qty ≤" value={maxQty} onChange={e=>setMaxQty(e.target.value)}/>
+      <label className="px-2"><input type="checkbox" checked={onlyEnabled} onChange={e=>setOnlyEnabled(e.target.checked)}/> Solo habilitados</label>
       <label className="px-2"><input type="checkbox" checked={onlyInterest} onChange={e=>setOnlyInterest(e.target.checked)}/> Solo interés</label>
       <label className="px-2"><input type="checkbox" checked={hasCost} onChange={e=>setHasCost(e.target.checked)}/> Con costo</label>
       <label className="px-2"><input type="checkbox" checked={hasPrice} onChange={e=>setHasPrice(e.target.checked)}/> Con sugerido</label>
@@ -102,8 +109,11 @@ export default function Page(){
             <tr key={r.product_presentation_id} className="border-t">
               <td className="p-2"><input type="checkbox" checked={selected.includes(r.product_id)} onChange={e=>toggleSelect(r.product_id,e.target.checked)} /></td>
               <td className="p-2">
-                <button className="mr-2" title="Marcar interés" onClick={()=>toggleInterest(r.product_id, !(r.interest??false))}>
+                <button className="mr-2" title="Interés" onClick={()=>toggleInterest(r.product_id, !(r.interest??false))}>
                   {(r.interest??false)?'★':'☆'}
+                </button>
+                <button className="mr-2" title="Habilitar/ocultar en app" onClick={()=>toggleEnabled(r.product_id, !(r.enabled??false))}>
+                  {(r.enabled??false)?'✅':'🚫'}
                 </button>
                 {r.nombre}
               </td>
