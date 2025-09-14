@@ -5,21 +5,19 @@ type Row = {
   product_id: number;
   product_presentation_id: number;
   nombre: string;
-  qty: number;                     // Prov/Pres
-  costo_ars: number | null;        // Prov/Costo
-  prov_act?: string | null;        // última actualización
+  qty: number;                     // Prov/Pres (entero)
+  costo_ars: number | null;        // Prov/Costo (entero ARS)
+  prov_act?: string | null;        // última act. de costo (ISO)
   chosen_uom?: string | null;      // Prov/UOM: UN | GR | ML
-  enabled?: boolean;
-
-  prov_lote?: string | null;
-  prov_vence?: string | null;
-  prov_grado?: string | null;
-  prov_origen?: string | null;
+  enabled?: boolean;               // whitelist
   prov_url?: string | null;
   prov_desc?: string | null;
-
-  obs?: string | null;
-  density?: number | string | null; // [g/mL]
+  prov_lote?: string | null;
+  prov_vence?: string | null;      // fecha de vencimiento (date)
+  prov_grado?: string | null;
+  prov_origen?: string | null;
+  obs?: string | null;             // Prov Obs
+  density?: number | string | null; // Dens [g/mL]
 };
 
 export default function Page() {
@@ -35,14 +33,18 @@ export default function Page() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
+  // formatos
   const fmtInt = (n: number | null | undefined) =>
     n == null ? '-' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Intl.DateTimeFormat('es-AR').format(new Date(iso)) : '-';
-  const fmtFloat = (x: number | string | null | undefined) =>
-    x == null ? '-' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 3 }).format(Number(x));
+  const fmtFixed2 = (x: number | string | null | undefined) =>
+    new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      .format(Number(x ?? 1));
 
-  useEffect(() => { fetch('/api/uoms').then(r => r.json()).then(setAllowedUoms).catch(console.error); }, []);
+  useEffect(() => {
+    fetch('/api/uoms').then(r => r.json()).then(setAllowedUoms).catch(console.error);
+  }, []);
 
   async function fetchPage(newOffset: number, reset = false) {
     setLoading(true);
@@ -93,7 +95,7 @@ export default function Page() {
     setRows(prev => prev.map(r => r.product_presentation_id === ppid ? { ...r, chosen_uom: codigo } : r));
   }
 
-  // CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR)
+  // Prov/CostoUn: (Costo / Pres) * (1000 si UOM es ML o GR)
   const costoUnit = (costo_ars: number | null, qty: number | null | undefined, uom?: string | null) => {
     if (costo_ars == null || !qty || qty <= 0) return '-';
     let v = costo_ars / qty;
@@ -107,8 +109,12 @@ export default function Page() {
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-2 items-center">
-        <input className="border rounded px-3 py-2 w-64" placeholder="Buscar por nombre o ID"
-          value={q} onChange={e => setQ(e.target.value)} />
+        <input
+          className="border rounded px-3 py-2 w-64"
+          placeholder="Buscar por nombre o ID"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
         <label className="px-2">
           <input type="checkbox" checked={onlyEnabled} onChange={e => setOnlyEnabled(e.target.checked)} />{' '}
           Solo activos
@@ -135,24 +141,31 @@ export default function Page() {
               <th className="p-2 text-center leading-tight">Prov<br/>Vence</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Grado</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Origen</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Obs</th>
               <th className="p-2 text-center leading-tight">Prov<br/>URL</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
-              <th className="p-2">Obs</th>
-              <th className="p-2">[g/mL]</th>
+              <th className="p-2 text-center">Dens [g/mL]</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.product_presentation_id} className="border-t align-top">
                 <td className="p-2 text-center">
-                  <input type="checkbox" checked={!!r.enabled}
-                    onChange={e => toggleEnabled(r.product_id, e.target.checked)} title="Habilitar en la app" />
+                  <input
+                    type="checkbox"
+                    checked={!!r.enabled}
+                    onChange={e => toggleEnabled(r.product_id, e.target.checked)}
+                    title="Habilitar en la app"
+                  />
                 </td>
                 <td className="p-2">{r.nombre}</td>
                 <td className="p-2 text-center">{fmtInt(r.qty)}</td>
                 <td className="p-2 text-center">
-                  <select className="border rounded px-2 py-1"
-                    value={r.chosen_uom ?? ''} onChange={e => { const v=e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}>
+                  <select
+                    className="border rounded px-2 py-1"
+                    value={r.chosen_uom ?? ''}
+                    onChange={e => { const v = e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}
+                  >
                     <option value="" disabled>Seleccione…</option>
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -164,6 +177,7 @@ export default function Page() {
                 <td className="p-2 text-center">{fmtDate(r.prov_vence)}</td>
                 <td className="p-2 text-center">{r.prov_grado ?? '–'}</td>
                 <td className="p-2 text-center">{r.prov_origen ?? '–'}</td>
+                <td className="p-2">{r.obs ?? '–'}</td>
                 <td className="p-2 text-center">
                   {r.prov_url
                     ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
@@ -171,7 +185,8 @@ export default function Page() {
                 </td>
                 <td className="p-2 text-center">
                   {r.prov_desc
-                    ? <button className="px-2 py-1 border rounded" title="Descargar .txt"
+                    ? <button
+                        className="px-2 py-1 border rounded" title="Descargar .txt"
                         onClick={()=>{
                           const blob=new Blob([r.prov_desc!],{type:'text/plain;charset=utf-8'});
                           const url=URL.createObjectURL(blob);
@@ -182,18 +197,20 @@ export default function Page() {
                         }}>⬇︎</button>
                     : <span className="text-gray-400">–</span>}
                 </td>
-                <td className="p-2">{r.obs ?? '–'}</td>
-                <td className="p-2 text-right">{fmtFloat(r.density ?? 1)}</td>
+                <td className="p-2 text-right">{fmtFixed2(r.density)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
+      {/* Paginado */}
       <div className="py-3">
-        <button className="px-4 py-2 rounded border disabled:opacity-50"
+        <button
+          className="px-4 py-2 rounded border disabled:opacity-50"
           disabled={loading || !hasMore}
-          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}>
+          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}
+        >
           {loading ? 'Cargando…' : (hasMore ? 'Cargar más' : 'No hay más')}
         </button>
       </div>
