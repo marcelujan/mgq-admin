@@ -22,10 +22,6 @@ export default function Page() {
   const [hasCost, setHasCost] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // drafts para edición inline
-  const [qtyDraft, setQtyDraft] = useState<Record<number,string>>({});
-  const [costDraft, setCostDraft] = useState<Record<number,string>>({});
-
   const limit = 500;
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -55,7 +51,7 @@ export default function Page() {
 
       setRows(prev => (reset ? data : [...prev, ...data]));
       setHasMore(data.length === limit);
-    } catch (e: any) {
+    } catch (e:any) {
       console.error(e);
       alert('Error cargando lista: ' + (e?.message ?? e));
     } finally {
@@ -64,6 +60,7 @@ export default function Page() {
     }
   }
 
+  // auto-apply
   useEffect(() => {
     const t = setTimeout(() => { setOffset(0); fetchPage(0, true); }, 350);
     return () => clearTimeout(t);
@@ -95,53 +92,29 @@ export default function Page() {
     return fmtInt(Math.round(v));
   };
 
-  // helpers input
-  const onlyDigits = (s: string) => s.replace(/[^\d]/g, '');
-  const onQtyBlur = async (ppid: number) => {
-    const raw = onlyDigits(qtyDraft[ppid] ?? '');
-    if (!raw) { setQtyDraft(prev=>({ ...prev, [ppid]: '' })); return; }
-    const val = Number(raw);
-    if (!Number.isInteger(val) || val<=0) return;
-    const res = await fetch('/api/presentation', {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ productPresentationId: ppid, qty: val })
-    });
-    if (!res.ok) { alert(await res.text()); return; }
-    setRows(prev => prev.map(r => r.product_presentation_id===ppid ? { ...r, qty: val } : r));
-    setQtyDraft(prev=>({ ...prev, [ppid]: '' }));
-  };
-  const onCostBlur = async (ppid: number) => {
-    const raw = onlyDigits(costDraft[ppid] ?? '');
-    if (raw==='') { setCostDraft(prev=>({ ...prev, [ppid]: '' })); return; }
-    const val = Number(raw);
-    if (!Number.isInteger(val) || val<0) return;
-    const res = await fetch('/api/cost', {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ productPresentationId: ppid, costo: val })
-    });
-    if (!res.ok) { alert(await res.text()); return; }
-    setRows(prev => prev.map(r => r.product_presentation_id===ppid ? { ...r, costo_ars: val } : r));
-    setCostDraft(prev=>({ ...prev, [ppid]: '' }));
-  };
-  const onKeyCommit = (e: React.KeyboardEvent<HTMLInputElement>, commit: ()=>void, cancel: ()=>void) => {
-    if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); commit(); }
-    if (e.key === 'Escape') cancel();
-  };
-
   return (
     <main className="p-4 max-w-7xl mx-auto space-y-3">
       <h1 className="text-2xl font-semibold">MGq Admin</h1>
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-2 items-center">
-        <input className="border rounded px-3 py-2 w-64" placeholder="Buscar por nombre o ID"
-          value={q} onChange={e => setQ(e.target.value)} />
-        <label className="px-2"><input type="checkbox" checked={onlyEnabled}
-          onChange={e => setOnlyEnabled(e.target.checked)} /> Solo activos</label>
-        <label className="px-2"><input type="checkbox" checked={hasCost}
-          onChange={e => setHasCost(e.target.checked)} /> Con costo</label>
+        <input
+          className="border rounded px-3 py-2 w-64"
+          placeholder="Buscar por nombre o ID"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
+        <label className="px-2">
+          <input type="checkbox" checked={onlyEnabled} onChange={e => setOnlyEnabled(e.target.checked)} />{' '}
+          Solo activos
+        </label>
+        <label className="px-2">
+          <input type="checkbox" checked={hasCost} onChange={e => setHasCost(e.target.checked)} />{' '}
+          Con costo
+        </label>
       </div>
 
+      {/* Tabla (solo lectura) */}
       <div className="overflow-auto rounded-xl border">
         <table className="min-w-full text-sm">
           <thead className="bg-white text-black">
@@ -159,72 +132,61 @@ export default function Page() {
           <tbody>
             {rows.map(r => (
               <tr key={r.product_presentation_id} className="border-t align-top">
-                <td className="p-2 text-center">
-                  <input type="checkbox" checked={!!r.enabled}
-                    onChange={e => toggleEnabled(r.product_id, e.target.checked)} title="Habilitar en la app" />
-                </td>
-                <td className="p-2">{r.nombre}</td>
-
-                {/* Prov/Pres (editable inline) */}
+                {/* Hab */}
                 <td className="p-2 text-center">
                   <input
-                    className="border rounded px-2 py-1 w-24 text-right"
-                    inputMode="numeric"
-                    placeholder={fmtInt(r.qty)}
-                    value={qtyDraft[r.product_presentation_id] ?? ''}
-                    onChange={e => setQtyDraft(prev=>({ ...prev, [r.product_presentation_id]: e.target.value }))}
-                    onBlur={() => onQtyBlur(r.product_presentation_id)}
-                    onKeyDown={e => onKeyCommit(e, () => onQtyBlur(r.product_presentation_id),
-                      () => setQtyDraft(prev=>({ ...prev, [r.product_presentation_id]: '' })))}
-                    title="Editar cantidad de presentación del proveedor"
+                    type="checkbox"
+                    checked={!!r.enabled}
+                    onChange={e => toggleEnabled(r.product_id, e.target.checked)}
+                    title="Habilitar en la app"
                   />
-                  <div className="text-xs text-gray-500 mt-1">{fmtInt(r.qty)}</div>
                 </td>
+
+                {/* Producto */}
+                <td className="p-2">{r.nombre}</td>
+
+                {/* Prov/Pres */}
+                <td className="p-2 text-center">{fmtInt(r.qty)}</td>
 
                 {/* Prov/UOM */}
                 <td className="p-2 text-center">
-                  <select className="border rounded px-2 py-1"
-                    value={r.chosen_uom ?? ''} onChange={e => { const v=e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}>
+                  <select
+                    className="border rounded px-2 py-1"
+                    value={r.chosen_uom ?? ''}
+                    onChange={e => { const v = e.target.value; if (v) setUomFor(r.product_presentation_id, v); }}
+                  >
                     <option value="" disabled>Seleccione…</option>
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
 
-                {/* Prov/URL */}
+                {/* Prov/URL (solo link corto) */}
                 <td className="p-2 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    {r.prov_url
-                      ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
-                      : <span className="text-gray-400">–</span>}
-                  </div>
-                </td>
-
-                {/* Prov/Desc */}
-                <td className="p-2 text-center">
-                  {r.prov_desc
-                    ? <button className="px-2 py-1 border rounded" title="Descargar .txt"
-                        onClick={()=>{ const blob=new Blob([r.prov_desc!],{type:'text/plain;charset=utf-8'});
-                                     const url=URL.createObjectURL(blob); const a=document.createElement('a');
-                                     a.href=url; a.download=`prov_desc_${r.product_id}.txt`; document.body.appendChild(a);
-                                     a.click(); a.remove(); URL.revokeObjectURL(url); }}>⬇︎</button>
+                  {r.prov_url
+                    ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
                     : <span className="text-gray-400">–</span>}
                 </td>
 
-                {/* Prov/Costo (editable inline) */}
-                <td className="p-2 text-right">
-                  <input
-                    className="border rounded px-2 py-1 w-28 text-right"
-                    inputMode="numeric"
-                    placeholder={fmtInt(r.costo_ars)}
-                    value={costDraft[r.product_presentation_id] ?? ''}
-                    onChange={e => setCostDraft(prev=>({ ...prev, [r.product_presentation_id]: e.target.value }))}
-                    onBlur={() => onCostBlur(r.product_presentation_id)}
-                    onKeyDown={e => onKeyCommit(e, () => onCostBlur(r.product_presentation_id),
-                      () => setCostDraft(prev=>({ ...prev, [r.product_presentation_id]: '' })))}
-                    title="Editar costo del proveedor"
-                  />
-                  <div className="text-xs text-gray-500 mt-1">{fmtInt(r.costo_ars)}</div>
+                {/* Prov/Desc (solo descarga .txt si existe) */}
+                <td className="p-2 text-center">
+                  {r.prov_desc
+                    ? <button
+                        className="px-2 py-1 border rounded"
+                        title="Descargar .txt"
+                        onClick={()=>{
+                          const blob=new Blob([r.prov_desc!],{type:'text/plain;charset=utf-8'});
+                          const url=URL.createObjectURL(blob);
+                          const a=document.createElement('a');
+                          a.href=url; a.download=`prov_desc_${r.product_id}.txt`;
+                          document.body.appendChild(a); a.click(); a.remove();
+                          URL.revokeObjectURL(url);
+                        }}
+                      >⬇︎</button>
+                    : <span className="text-gray-400">–</span>}
                 </td>
+
+                {/* Prov/Costo */}
+                <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
 
                 {/* Prov/CostoUn */}
                 <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
@@ -234,10 +196,13 @@ export default function Page() {
         </table>
       </div>
 
+      {/* Paginado */}
       <div className="py-3">
-        <button className="px-4 py-2 rounded border disabled:opacity-50"
+        <button
+          className="px-4 py-2 rounded border disabled:opacity-50"
           disabled={loading || !hasMore}
-          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}>
+          onClick={async () => { const next = offset + limit; setOffset(next); await fetchPage(next); }}
+        >
           {loading ? 'Cargando…' : (hasMore ? 'Cargar más' : 'No hay más')}
         </button>
       </div>
