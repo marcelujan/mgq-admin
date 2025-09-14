@@ -7,11 +7,15 @@ type Row = {
   nombre: string;
   qty: number;                     // Prov/Pres (entero)
   costo_ars: number | null;        // Prov/Costo (entero ARS)
-  fecha_costo?: string | null;     // última actualización del costo
+  prov_act?: string | null;        // última act. de costo (ISO)
   chosen_uom?: string | null;      // Prov/UOM: UN | GR | ML
   enabled?: boolean;               // whitelist
   prov_url?: string | null;
   prov_desc?: string | null;
+  prov_lote?: string | null;
+  prov_vence?: string | null;      // fecha de vencimiento (date)
+  prov_grado?: string | null;
+  prov_origen?: string | null;
 };
 
 export default function Page() {
@@ -127,11 +131,15 @@ export default function Page() {
               <th className="p-2 text-left">Producto</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Pres</th>
               <th className="p-2 text-center leading-tight">Prov<br/>UOM</th>
-              <th className="p-2 text-center leading-tight">Prov<br/>URL</th>
-              <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Costo</th>
               <th className="p-2 text-center leading-tight">Prov<br/>CostoUn</th>
-              <th className="p-2 text-center leading-tight">Prov<br/>Fecha</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Act</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Lote</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Vence</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Grado</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Origen</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>URL</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
             </tr>
           </thead>
           <tbody>
@@ -157,6 +165,13 @@ export default function Page() {
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
+                <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
+                <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
+                <td className="p-2 text-center">{fmtDate(r.prov_act)}</td>
+                <td className="p-2 text-center">{r.prov_lote ?? '–'}</td>
+                <td className="p-2 text-center">{fmtDate(r.prov_vence)}</td>
+                <td className="p-2 text-center">{r.prov_grado ?? '–'}</td>
+                <td className="p-2 text-center">{r.prov_origen ?? '–'}</td>
                 <td className="p-2 text-center">
                   {r.prov_url
                     ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
@@ -178,9 +193,6 @@ export default function Page() {
                       >⬇︎</button>
                     : <span className="text-gray-400">–</span>}
                 </td>
-                <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
-                <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
-                <td className="p-2 text-center">{fmtDate(r.fecha_costo)}</td>
               </tr>
             ))}
           </tbody>

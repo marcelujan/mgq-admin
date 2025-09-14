@@ -17,11 +17,15 @@ export async function GET(req: NextRequest) {
         p.nombre,
         v.qty,
         v.costo_ars,
-        v.fecha_costo,
+        v.fecha_costo AS prov_act,
         (ep.product_id IS NOT NULL) AS enabled,
         pu.codigo AS chosen_uom,
         p.prov_url,
-        p.prov_desc
+        p.prov_desc,
+        p.prov_lote,
+        p.prov_vence,
+        p.prov_grado,
+        p.prov_origen
       FROM app.v_price_suggestion v
       JOIN app.products p ON p.id = v.product_id
       LEFT JOIN app.enabled_products ep ON ep.product_id = v.product_id
