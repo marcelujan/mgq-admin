@@ -76,8 +76,8 @@ export default function Page() {
     await fetchPage(0, true);
   }
 
-  // recargar cuando cambia "Solo activos"
-  useEffect(() => { search(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [onlyEnabled]);
+  // recargar automáticamente al cambiar los toggles
+  useEffect(() => { search(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [onlyEnabled, hasCost]);
 
   // habilitar/deshabilitar (whitelist)
   async function toggleEnabled(productId: number, enabled: boolean) {
