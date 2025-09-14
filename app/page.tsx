@@ -7,6 +7,7 @@ type Row = {
   nombre: string;
   qty: number;                     // Prov/Pres (entero)
   costo_ars: number | null;        // Prov/Costo (entero ARS)
+  fecha_costo?: string | null;     // última actualización del costo
   chosen_uom?: string | null;      // Prov/UOM: UN | GR | ML
   enabled?: boolean;               // whitelist
   prov_url?: string | null;
@@ -26,8 +27,11 @@ export default function Page() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
+  // formatos
   const fmtInt = (n: number | null | undefined) =>
     n == null ? '-' : new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n);
+  const fmtDate = (iso: string | null | undefined) =>
+    iso ? new Intl.DateTimeFormat('es-AR').format(new Date(iso)) : '-';
 
   useEffect(() => {
     fetch('/api/uoms').then(r => r.json()).then(setAllowedUoms).catch(console.error);
@@ -114,7 +118,7 @@ export default function Page() {
         </label>
       </div>
 
-      {/* Tabla (solo lectura) */}
+      {/* Tabla */}
       <div className="overflow-auto rounded-xl border">
         <table className="min-w-full text-sm">
           <thead className="bg-white text-black">
@@ -127,12 +131,12 @@ export default function Page() {
               <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Costo</th>
               <th className="p-2 text-center leading-tight">Prov<br/>CostoUn</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Fecha</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.product_presentation_id} className="border-t align-top">
-                {/* Hab */}
                 <td className="p-2 text-center">
                   <input
                     type="checkbox"
@@ -141,14 +145,8 @@ export default function Page() {
                     title="Habilitar en la app"
                   />
                 </td>
-
-                {/* Producto */}
                 <td className="p-2">{r.nombre}</td>
-
-                {/* Prov/Pres */}
                 <td className="p-2 text-center">{fmtInt(r.qty)}</td>
-
-                {/* Prov/UOM */}
                 <td className="p-2 text-center">
                   <select
                     className="border rounded px-2 py-1"
@@ -159,15 +157,11 @@ export default function Page() {
                     {allowedUoms.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </td>
-
-                {/* Prov/URL (solo link corto) */}
                 <td className="p-2 text-center">
                   {r.prov_url
                     ? <a href={r.prov_url} target="_blank" rel="noopener noreferrer" title={r.prov_url} className="underline">↗︎</a>
                     : <span className="text-gray-400">–</span>}
                 </td>
-
-                {/* Prov/Desc (solo descarga .txt si existe) */}
                 <td className="p-2 text-center">
                   {r.prov_desc
                     ? <button
@@ -184,12 +178,9 @@ export default function Page() {
                       >⬇︎</button>
                     : <span className="text-gray-400">–</span>}
                 </td>
-
-                {/* Prov/Costo */}
                 <td className="p-2 text-right">{fmtInt(r.costo_ars)}</td>
-
-                {/* Prov/CostoUn */}
                 <td className="p-2 text-right">{costoUnit(r.costo_ars, r.qty, r.chosen_uom)}</td>
+                <td className="p-2 text-center">{fmtDate(r.fecha_costo)}</td>
               </tr>
             ))}
           </tbody>
