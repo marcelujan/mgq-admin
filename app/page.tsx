@@ -106,13 +106,13 @@ export default function Page() {
         />
         <input
           className="border rounded px-2 py-2 w-28"
-          placeholder="Qty ≥"
+          placeholder="Pres ≥"
           value={minQty}
           onChange={e => setMinQty(e.target.value)}
         />
         <input
           className="border rounded px-2 py-2 w-28"
-          placeholder="Qty ≤"
+          placeholder="Pres ≤"
           value={maxQty}
           onChange={e => setMaxQty(e.target.value)}
         />
@@ -141,8 +141,12 @@ export default function Page() {
             <tr>
               <th className="p-2">Hab</th>
               <th className="p-2 text-left">Producto</th>
-              <th className="p-2">Presentación (prov.)</th>
-              <th className="p-2">UOM app</th>
+              <th className="p-2 text-center leading-tight">
+                Prov<br />Pres
+              </th>
+              <th className="p-2 text-center leading-tight">
+                Prov<br />UOM
+              </th>
               <th className="p-2">Costo</th>
             </tr>
           </thead>
