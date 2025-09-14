@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const onlyInterest = u.searchParams.get('only_interest') === '1';
     const hasCost      = u.searchParams.get('has_cost') === '1';
     const hasPrice     = u.searchParams.get('has_price') === '1';
-    const showAll      = u.searchParams.get('show_all') === '1';     // <- ver todo (ignora enabled)
+    const showAll      = u.searchParams.get('show_all') === '1';
     const limit        = Number(u.searchParams.get('limit')  ?? 500);
     const offset       = Number(u.searchParams.get('offset') ?? 0);
 
@@ -22,17 +22,17 @@ export async function GET(req: NextRequest) {
              (ep.product_id IS NOT NULL) AS enabled
       FROM app.v_price_suggestion v
       JOIN app.products p ON p.id = v.product_id
-      LEFT JOIN ref.uoms u          ON u.id = v.uom_id
+      LEFT JOIN ref.uoms u             ON u.id = v.uom_id
       LEFT JOIN app.interest_products ip ON ip.product_id = v.product_id
       LEFT JOIN app.enabled_products  ep ON ep.product_id = v.product_id
       WHERE
         ( ${q} = '' OR p.nombre ILIKE '%' || ${q} || '%' OR CAST(v.product_id AS text) = ${q} )
-        AND ( ${uom}::text      IS NULL OR u.codigo = ${uom} )
+        AND ( ${uom}::text       IS NULL OR u.codigo = ${uom} )
         AND ( ${minQty}::numeric IS NULL OR v.qty >= ${minQty}::numeric )
         AND ( ${maxQty}::numeric IS NULL OR v.qty <= ${maxQty}::numeric )
         AND ( ${hasCost}  IS NOT TRUE OR v.costo_ars IS NOT NULL )
         AND ( ${hasPrice} IS NOT TRUE OR v.precio_sugerido_ars IS NOT NULL )
-        AND ( ${showAll}  IS TRUE     OR ep.product_id IS NOT NULL )   -- solo habilitados por defecto
+        AND ( ${showAll}  IS TRUE     OR ep.product_id IS NOT NULL )
         AND ( ${onlyInterest} IS NOT TRUE OR ip.product_id IS NOT NULL )
       ORDER BY v.product_id, v.product_presentation_id
       LIMIT ${limit}::int OFFSET ${offset}::int
@@ -43,4 +43,3 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
 }
-
