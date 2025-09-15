@@ -1,17 +1,13 @@
 // src/lib/db.ts
-import { Pool } from "pg";
+import { neon } from '@neondatabase/serverless';
 
-declare global { var __pgPool: Pool | undefined }
+const sql = neon(process.env.DATABASE_URL!);
 
-export const pool =
-  global.__pgPool ?? new Pool({ connectionString: process.env.DATABASE_URL, max: 3, idleTimeoutMillis: 30000, connectionTimeoutMillis: 5000, keepAlive: true });
-
-if (!global.__pgPool) global.__pgPool = pool;
-
+// Wrapper compatible con tu código existente
 export async function query<T = any>(text: string, params: any[] = []) {
-  const client = await pool.connect();
-  try { return await client.query<T>(text, params); }
-  finally { client.release(); }
+  // .unsafe permite SQL parametrizado como pg
+  const rows = await (sql as any).unsafe(text, params);
+  return { rows } as { rows: T[] };
 }
 
-export const runtime = "nodejs";
+export { sql };
