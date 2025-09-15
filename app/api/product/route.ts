@@ -1,5 +1,5 @@
-export const runtime = "nodejs";
-import { sql } from '@/lib/db';
+export const runtime = 'nodejs';
+import { sql } from '../../../lib/db'; // IMPORT RELATIVO
 
 export async function PATCH(req: Request) {
   const { productId, nombre, prov_url, prov_desc } = await req.json();
