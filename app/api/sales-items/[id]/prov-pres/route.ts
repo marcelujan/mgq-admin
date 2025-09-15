@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+export const runtime = "nodejs";
 
 const ChangeProvSchema = z.object({
   supplier_presentation_id: z.number().int(),
