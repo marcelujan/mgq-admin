@@ -1,4 +1,5 @@
 import { sql } from '@/lib/db';
+export const runtime = 'nodejs';
 
 export async function PATCH(req: Request) {
   const { productId, nombre, prov_url, prov_desc } = await req.json();
