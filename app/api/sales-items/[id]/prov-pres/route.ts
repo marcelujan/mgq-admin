@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { sql } from "../../../../lib/db"; // ¡relativo!
+import { sql } from "../../../../../lib/db"; // ¡relativo!
 
 const PatchSchema = z.object({
   vend_pres: z.number().positive().optional(),
