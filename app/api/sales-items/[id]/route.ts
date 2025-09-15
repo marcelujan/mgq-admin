@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { query } from "../../../../lib/db";
 export const runtime = "nodejs";
 
 const PatchSchema = z.object({
