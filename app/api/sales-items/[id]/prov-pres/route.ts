@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 import { z } from "zod";
 import { NextResponse } from "next/server";
-import { sql } from "@/lib/db"; 
+import { sql } from "../../../../lib/db"; // ← IMPORT RELATIVO (4 niveles hacia arriba)
 
 const ChangeProvSchema = z.object({
   supplier_presentation_id: z.number().int(),
