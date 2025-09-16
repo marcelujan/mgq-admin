@@ -130,8 +130,8 @@ export default function Page() {
         <table className="min-w-full text-sm">
           <thead className="bg-white text-black">
             <tr>
-              <th className="p-2">Hab</th>
-              <th className="p-2 text-left">Producto</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>*</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>Artículo</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Pres</th>
               <th className="p-2 text-center leading-tight">Prov<br/>UOM</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Costo</th>
@@ -144,7 +144,7 @@ export default function Page() {
               <th className="p-2 text-center leading-tight">Prov<br/>Obs</th>
               <th className="p-2 text-center leading-tight">Prov<br/>URL</th>
               <th className="p-2 text-center leading-tight">Prov<br/>Desc</th>
-              <th className="p-2 text-center">Dens [g/mL]</th>
+              <th className="p-2 text-center leading-tight">Prov<br/>[g/mL]</th>
             </tr>
           </thead>
           <tbody>
