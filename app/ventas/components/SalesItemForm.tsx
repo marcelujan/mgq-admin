@@ -1,5 +1,5 @@
 // =============================================
-// app/ventas/components/SalesItemForm.tsx (V6)
+// app/ventas/components/SalesItemForm.tsx (V7)
 // =============================================
 "use client";
 
@@ -12,23 +12,25 @@ export type PriceRow = {
   product_presentation_id: number | string;
   nombre: string;
   qty: number | string | null;
-  chosen_uom?: string | null;       // UN | GR | ML
-  prov_pres_fmt?: string | null;    // Texto ya formateado desde proveedor
+  chosen_uom?: string | null;      // UN | GR | ML
+  prov_pres_fmt?: string | null;   // texto ya formateado desde proveedor
 };
 
+// Nota: dejo ambos nombres para compatibilidad de tipos en "initial"
 export type SalesItem = {
   id: number;
   product_id: number;
-  supplier_presentation_id: number | null;
+  product_presentation_id?: number | null;
+  supplier_presentation_id?: number | null;
   sku: string | null;
   vend_pres: number | null;
   vend_uom?: string | null;
   vend_lote?: string | null;
-  vend_vence?: string | null;       // YYYY-MM-DD
+  vend_vence?: string | null;      // YYYY-MM-DD
   vend_grado?: string | null;
   vend_origen?: string | null;
   vend_obs?: string | null;
-  vend_name?: string | null;        // <- tu API lo está pidiendo
+  vend_name?: string | null;       // tu API lo pide
   is_enabled: boolean;
 };
 
@@ -51,7 +53,7 @@ type Props = {
 export default function SalesItemForm({ mode, initial, onSaved }: Props) {
   const router = useRouter();
 
-  // Catálogo UOM
+  // -------- catálogos --------
   const [uoms, setUoms] = useState<string[]>([]);
   useEffect(() => {
     let cancel = false;
@@ -59,12 +61,10 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
       .then((r) => r.json())
       .then((codes) => !cancel && setUoms(Array.isArray(codes) ? codes : []))
       .catch(() => !cancel && setUoms([]));
-    return () => {
-      cancel = true;
-    };
+    return () => { cancel = true; };
   }, []);
 
-  // Autocomplete (solo create)
+  // -------- autocomplete (solo create) --------
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<PriceRow[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
@@ -87,24 +87,19 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         setLoadingOptions(false);
       }
     }, 300);
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
+    return () => { clearTimeout(t); ctl.abort(); };
   }, [q, mode]);
 
-  // Estado base
-  const [productId, setProductId] = useState<number | null>(
-    initial?.product_id ?? null
-  );
+  // -------- estado base --------
+  const [productId, setProductId] = useState<number | null>(initial?.product_id ?? null);
   const [productPresentationId, setProductPresentationId] = useState<number | null>(
     (initial as any)?.product_presentation_id ??
-      initial?.supplier_presentation_id ??
-      null
+    (initial as any)?.supplier_presentation_id ??
+    null
   );
   const [nombreProducto, setNombreProducto] = useState<string>("");
 
-  // Nombre de venta (independiente del proveedor).
+  // Nombre de venta (independiente del proveedor)
   const [vendName, setVendName] = useState<string>(initial?.vend_name ?? "");
 
   const [sku, setSku] = useState<string>(initial?.sku ?? "");
@@ -137,7 +132,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     return s;
   }
 
-  // Normaliza cualquier forma común que pueda devolver tu endpoint de proveedor
+  // Normaliza posibles formas de respuesta del endpoint de proveedor
   function normalizeProv(payload: any) {
     let o = payload;
     if (o && typeof o === "object") {
@@ -146,23 +141,23 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
       else if (Array.isArray(o) && o.length) o = o[0];
     }
     return {
-      lote: o?.lote ?? o?.vend_lote ?? o?.etiqueta_auto_lote ?? "",
-      vence: o?.vence ?? o?.vend_vence ?? o?.etiqueta_auto_vence ?? "",
-      grado: o?.grado ?? o?.vend_grado ?? o?.etiqueta_auto_grado ?? "",
+      lote:   o?.lote ?? o?.vend_lote ?? o?.etiqueta_auto_lote ?? "",
+      vence:  o?.vence ?? o?.vend_vence ?? o?.etiqueta_auto_vence ?? "",
+      grado:  o?.grado ?? o?.vend_grado ?? o?.etiqueta_auto_grado ?? "",
       origen: o?.origen ?? o?.vend_origen ?? o?.etiqueta_auto_origen ?? "",
-      obs: o?.obs ?? o?.vend_obs ?? o?.etiqueta_auto_obs ?? "",
-      vend_uom: o?.vend_uom ?? o?.uom ?? o?.chosen_uom ?? null,
+      obs:    o?.obs ?? o?.vend_obs ?? o?.etiqueta_auto_obs ?? "",
+      vend_uom:  o?.vend_uom ?? o?.uom ?? o?.chosen_uom ?? null,
       vend_pres: o?.vend_pres ?? o?.qty ?? null,
     };
   }
 
-  // Trae datos del proveedor para precarga
+  // Trae datos del proveedor para precarga (primero tu endpoint /prov-pres)
   async function fetchProvPreset(presId: number) {
     const urls = [
+      `/api/sales-items/${presId}/prov-pres`, // priorizamos este
       `/api/presentation?id=${presId}`,
       `/api/presentation/${presId}`,
       `/api/presentation?presentationId=${presId}`,
-      `/api/sales-items/${presId}/prov-pres`, // fallback
     ];
     for (const u of urls) {
       try {
@@ -170,9 +165,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         if (!r.ok) continue;
         const j = await r.json();
         return normalizeProv(j);
-      } catch {
-        // probar siguiente URL
-      }
+      } catch { /* probar siguiente */ }
     }
     return null;
   }
@@ -192,7 +185,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
       .join(" ");
     setVendName(sugg.trim());
 
-    // sugerencia de presentación y uom
+    // sugerencia de presentación y UOM
     setVendPres(p.qty != null ? String(p.qty) : "");
     setVendUom(p.chosen_uom ?? "");
 
@@ -213,12 +206,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
   function addLine() {
     setLines((xs) => [
       ...xs,
-      {
-        key: crypto.randomUUID(),
-        product_id: null,
-        product_presentation_id: null,
-        mode: "pct",
-      },
+      { key: crypto.randomUUID(), product_id: null, product_presentation_id: null, mode: "pct" },
     ]);
   }
   function removeLine(key: string) {
@@ -242,8 +230,9 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         }
 
         const body: any = {
-          product_id: pid,                                   // <-- number
-          supplier_presentation_id: presId,                  // <-- number
+          product_id: pid,
+          // ⬇️ lo que espera la DB (la otra columna no existe)
+          product_presentation_id: presId,
           sku: sku?.trim() || null,
           vend_pres: vendPres?.trim() === "" ? null : Number(vendPres),
           vend_lote: lote?.trim() || null,
@@ -251,8 +240,9 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
           vend_grado: grado?.trim() || null,
           vend_origen: origen?.trim() || null,
           vend_obs: obs?.trim() || null,
-          vend_name: vendName?.trim() || null,               // <-- requerido por tu API
+          vend_name: vendName?.trim() || null, // requerido por el API
           is_enabled: !!enabled,
+          // Formulado opcional
           is_formula: isFormula || undefined,
           formula: isFormula
             ? lines.map((l) => ({
@@ -327,14 +317,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
 
       const data = (await r.json()) as { item: SalesItem };
 
-      if (vendUom && (initial as any)?.supplier_presentation_id) {
+      if (vendUom && ((initial as any)?.product_presentation_id || (initial as any)?.supplier_presentation_id)) {
+        const presId = (initial as any).product_presentation_id ?? (initial as any).supplier_presentation_id;
         await fetch("/api/uom-choice", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            productPresentationId: (initial as any).supplier_presentation_id,
-            codigo: vendUom,
-          }),
+          body: JSON.stringify({ productPresentationId: presId, codigo: vendUom }),
         }).catch(console.error);
       }
 
@@ -414,20 +402,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium">SKU</label>
-          <input
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={sku}
-            onChange={(e) => setSku(e.target.value)}
-          />
+          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={sku} onChange={(e) => setSku(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-medium">Habilitado</label>
           <label className="inline-flex items-center gap-2 mt-2">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-            />
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             <span className="text-sm">Activo</span>
           </label>
         </div>
@@ -443,86 +423,49 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         </div>
         <div>
           <label className="block text-sm font-medium">UOM de venta</label>
-          <select
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={vendUom}
-            onChange={(e) => setVendUom(e.target.value)}
-          >
+          <select className="w-full border rounded-md px-3 py-2 bg-transparent" value={vendUom} onChange={(e) => setVendUom(e.target.value)}>
             <option value="">—</option>
             {uoms.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
         </div>
 
-        {/* Densidad: no se pide aquí (se hereda) */}
+        {/* Densidad no se pide; se hereda */}
         <div>
           <label className="block text-sm font-medium">Lote</label>
-          <input
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={lote}
-            onChange={(e) => setLote(e.target.value)}
-          />
+          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={lote} onChange={(e) => setLote(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-medium">Vence</label>
-          <input
-            type="date"
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={vence}
-            onChange={(e) => setVence(e.target.value)}
-          />
+          <input type="date" className="w-full border rounded-md px-3 py-2 bg-transparent" value={vence} onChange={(e) => setVence(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-medium">Grado</label>
-          <input
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={grado}
-            onChange={(e) => setGrado(e.target.value)}
-          />
+          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={grado} onChange={(e) => setGrado(e.target.value)} />
         </div>
         <div>
           <label className="block text-sm font-medium">Origen</label>
-          <input
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            value={origen}
-            onChange={(e) => setOrigen(e.target.value)}
-          />
+          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={origen} onChange={(e) => setOrigen(e.target.value)} />
         </div>
 
         <div className="md:col-span-2">
           <label className="block text-sm font-medium">Observaciones</label>
-          <textarea
-            className="w-full border rounded-md px-3 py-2 bg-transparent"
-            rows={3}
-            value={obs}
-            onChange={(e) => setObs(e.target.value)}
-          />
+          <textarea className="w-full border rounded-md px-3 py-2 bg-transparent" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} />
         </div>
       </div>
 
       {/* Formulado */}
       <div className="border rounded-lg p-3 space-y-3">
         <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isFormula}
-            onChange={(e) => setIsFormula(e.target.checked)}
-          />
+          <input type="checkbox" checked={isFormula} onChange={(e) => setIsFormula(e.target.checked)} />
           <span className="font-medium">Es un producto formulado</span>
         </label>
         {isFormula && (
           <div className="space-y-2">
-            <div className="text-xs text-zinc-400">
-              Cargá componentes (en % o cantidades). Las densidades se heredan del proveedor.
-            </div>
+            <div className="text-xs text-zinc-400">Cargá componentes (en % o cantidades). Las densidades se heredan del proveedor.</div>
             {lines.map((l) => (
-              <div
-                key={l.key}
-                className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center"
-              >
+              <div key={l.key} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
                 <div className="md:col-span-5">
                   <input
                     placeholder="Buscar componente… (elegilo arriba y asignalo aquí)"
@@ -530,16 +473,10 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
                     onFocus={() => setQ("")}
                     onChange={() => {}}
                   />
-                  {l.nombre && (
-                    <div className="text-[11px] text-zinc-500 truncate">{l.nombre}</div>
-                  )}
+                  {l.nombre && <div className="text-[11px] text-zinc-500 truncate">{l.nombre}</div>}
                 </div>
                 <div className="md:col-span-2">
-                  <select
-                    className="w-full border rounded-md px-2 py-2 bg-transparent"
-                    value={l.mode}
-                    onChange={(e) => updateLine(l.key, { mode: e.target.value as any })}
-                  >
+                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.mode} onChange={(e) => updateLine(l.key, { mode: e.target.value as any })}>
                     <option value="pct">%</option>
                     <option value="qty">Cant.</option>
                   </select>
@@ -550,41 +487,21 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
                     placeholder={l.mode === "pct" ? "%" : "Cantidad"}
                     className="w-full border rounded-md px-3 py-2 bg-transparent text-right"
                     value={l.qty ?? ""}
-                    onChange={(e) =>
-                      updateLine(l.key, {
-                        qty: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
+                    onChange={(e) => updateLine(l.key, { qty: e.target.value === "" ? null : Number(e.target.value) })}
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <select
-                    className="w-full border rounded-md px-2 py-2 bg-transparent"
-                    value={l.uom ?? ""}
-                    onChange={(e) => updateLine(l.key, { uom: e.target.value || null })}
-                  >
+                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.uom ?? ""} onChange={(e) => updateLine(l.key, { uom: e.target.value || null })}>
                     <option value="">—</option>
-                    {uoms.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                    {uoms.map((c) => (<option key={c} value={c}>{c}</option>))}
                   </select>
                 </div>
                 <div className="md:col-span-12">
-                  <button
-                    type="button"
-                    className="text-xs text-red-500"
-                    onClick={() => removeLine(l.key)}
-                  >
-                    Quitar
-                  </button>
+                  <button type="button" className="text-xs text-red-500" onClick={() => removeLine(l.key)}>Quitar</button>
                 </div>
               </div>
             ))}
-            <button type="button" className="px-3 py-2 border rounded-md" onClick={addLine}>
-              + Agregar componente
-            </button>
+            <button type="button" className="px-3 py-2 border rounded-md" onClick={addLine}>+ Agregar componente</button>
           </div>
         )}
       </div>
@@ -595,12 +512,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         <button type="submit" disabled={saving} className="px-4 py-2 border rounded-md">
           {saving ? "Guardando…" : "Guardar"}
         </button>
-        <button
-          type="button"
-          disabled={saving}
-          className="px-4 py-2 border rounded-md"
-          onClick={() => router.back()}
-        >
+        <button type="button" disabled={saving} className="px-4 py-2 border rounded-md" onClick={() => router.back()}>
           Cancelar
         </button>
       </div>
