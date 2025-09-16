@@ -2,30 +2,40 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// Tipos aproximados basados en tus endpoints existentes
+// Tipos de búsqueda (precio/presentación) — ajusta si tu API devuelve otros campos
 export type PriceRow = {
   product_id: number;
   product_presentation_id: number;
-  nombre: string;
-  qty: number | null;
+  nombre: string; // Nombre de producto + proveedor
+  qty: number | null; // presentación proveedor
   chosen_uom?: string | null; // UN | GR | ML
+  prov_pres_fmt?: string | null; // texto ya formateado desde proveedor si existiera
 };
 
 export type SalesItem = {
-  id: number; // id del sales_item
+  id: number;
   product_id: number;
   supplier_presentation_id: number | null;
   sku: string | null;
   vend_pres: number | null;
   vend_uom?: string | null;
-  dens_g_ml_override?: number | null;
   vend_lote?: string | null;
   vend_vence?: string | null; // YYYY-MM-DD
   vend_grado?: string | null;
   vend_origen?: string | null;
   vend_obs?: string | null;
-  vend_url?: string | null;
   is_enabled: boolean;
+};
+
+// Para formulados (líneas de componentes)
+export type FormulaLine = {
+  key: string; // uid local
+  product_id: number | null;
+  product_presentation_id: number | null;
+  nombre?: string;
+  qty?: number | null; // cantidad o % (según modo)
+  uom?: string | null; // UN/GR/ML si aplica
+  mode: "pct" | "qty"; // modo de carga
 };
 
 export type SalesItemFormProps = {
@@ -40,12 +50,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
   // Catálogos
   const [uoms, setUoms] = useState<string[]>([]);
 
-  // Buscador de producto/presentación (solo create)
+  // Buscador (solo create)
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<PriceRow[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
 
-  // Estado del formulario
+  // Estado base
   const [productId, setProductId] = useState<number | null>(initial?.product_id ?? null);
   const [productPresentationId, setProductPresentationId] = useState<number | null>(
     (initial as any)?.product_presentation_id ?? initial?.supplier_presentation_id ?? null
@@ -57,16 +67,16 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
     initial?.vend_pres != null ? String(initial.vend_pres) : ""
   );
   const [vendUom, setVendUom] = useState<string>(initial?.vend_uom ?? "");
-  const [dens, setDens] = useState<string>(
-    initial?.dens_g_ml_override != null ? String(initial.dens_g_ml_override) : ""
-  );
   const [lote, setLote] = useState<string>(initial?.vend_lote ?? "");
   const [vence, setVence] = useState<string>(initial?.vend_vence ?? "");
   const [grado, setGrado] = useState<string>(initial?.vend_grado ?? "");
   const [origen, setOrigen] = useState<string>(initial?.vend_origen ?? "");
   const [obs, setObs] = useState<string>(initial?.vend_obs ?? "");
-  const [url, setUrl] = useState<string>(initial?.vend_url ?? "");
   const [enabled, setEnabled] = useState<boolean>(initial?.is_enabled ?? true);
+
+  // Formulado
+  const [isFormula, setIsFormula] = useState(false);
+  const [lines, setLines] = useState<FormulaLine[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +94,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
     };
   }, []);
 
-  // Buscar productos/presentaciones (solo en create)
+  // Buscar productos/presentaciones (solo create)
   useEffect(() => {
     if (mode !== "create") return;
     const ctl = new AbortController();
@@ -109,13 +119,59 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
     };
   }, [q, mode]);
 
+  // Helper para traer detalles de proveedor de la presentación elegida
+  async function fetchProvPreset(presId: number) {
+    // Intentos compatibles con tus endpoints existentes
+    const urls = [
+      `/api/presentation?id=${presId}`,
+      `/api/presentation?presentationId=${presId}`,
+      `/api/presentation/${presId}`,
+    ];
+    for (const u of urls) {
+      try {
+        const r = await fetch(u, { cache: "no-store" });
+        if (!r.ok) continue;
+        const j = await r.json();
+        return j; // esperamos { lote, vence, grado, origen, obs, uom?, qty? }
+      } catch {}
+    }
+    return null;
+  }
+
   // Elegir una opción autocompleta
-  function chooseOption(p: PriceRow) {
+  async function chooseOption(p: PriceRow) {
     setProductId(p.product_id);
     setProductPresentationId(p.product_presentation_id);
     setNombreProducto(p.nombre);
     setVendPres(p.qty != null ? String(p.qty) : "");
     setVendUom(p.chosen_uom ?? "");
+
+    // Precarga de campos desde proveedor
+    const prov = await fetchProvPreset(p.product_presentation_id);
+    if (prov && typeof prov === "object") {
+      setLote(prov.lote ?? "");
+      setVence(prov.vence ?? "");
+      setGrado(prov.grado ?? "");
+      setOrigen(prov.origen ?? "");
+      setObs(prov.obs ?? "");
+      // si trae uom/pres específicas, preferirlas
+      if (prov.vend_uom) setVendUom(prov.vend_uom);
+      if (prov.vend_pres != null) setVendPres(String(prov.vend_pres));
+    }
+  }
+
+  // Formulado — helpers
+  function addLine() {
+    setLines((xs) => [
+      ...xs,
+      { key: crypto.randomUUID(), product_id: null, product_presentation_id: null, mode: "pct" },
+    ]);
+  }
+  function removeLine(key: string) {
+    setLines((xs) => xs.filter((l) => l.key !== key));
+  }
+  function updateLine(key: string, patch: Partial<FormulaLine>) {
+    setLines((xs) => xs.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -127,20 +183,29 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
         if (!productId || !productPresentationId) {
           throw new Error("Elegí un producto/presentación");
         }
-        // Crear sales_item mínimo
         const body: any = {
           product_id: productId,
           supplier_presentation_id: productPresentationId,
           sku: sku?.trim() || null,
           vend_pres: vendPres?.trim() === "" ? null : Number(vendPres),
-          dens_g_ml_override: dens?.trim() === "" ? null : Number(dens),
           vend_lote: lote?.trim() || null,
           vend_vence: vence?.trim() || null,
           vend_grado: grado?.trim() || null,
           vend_origen: origen?.trim() || null,
           vend_obs: obs?.trim() || null,
-          vend_url: url?.trim() || null,
+          vend_uom: vendUom || null,
           is_enabled: !!enabled,
+          // Formulado opcional
+          is_formula: isFormula || undefined,
+          formula: isFormula
+            ? lines.map((l) => ({
+                product_id: l.product_id,
+                product_presentation_id: l.product_presentation_id,
+                qty: l.qty ?? null,
+                uom: l.uom ?? null,
+                mode: l.mode,
+              }))
+            : undefined,
         };
         const res = await fetch("/api/sales-items", {
           method: "POST",
@@ -150,7 +215,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
         if (!res.ok) throw new Error(`POST /api/sales-items → ${res.status}`);
         const { item } = (await res.json()) as { item: SalesItem };
 
-        // Si el usuario eligió UOM, aplicarla a la presentación (usa endpoint existente)
+        // Si el usuario eligió UOM, aplicarla a la presentación
         if (vendUom && productPresentationId) {
           await fetch("/api/uom-choice", {
             method: "PATCH",
@@ -169,13 +234,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
       const patch: any = {
         sku: sku?.trim() || null,
         vend_pres: vendPres?.trim() === "" ? null : Number(vendPres),
-        dens_g_ml_override: dens?.trim() === "" ? null : Number(dens),
         vend_lote: lote?.trim() || null,
         vend_vence: vence?.trim() || null,
         vend_grado: grado?.trim() || null,
         vend_origen: origen?.trim() || null,
         vend_obs: obs?.trim() || null,
-        vend_url: url?.trim() || null,
+        vend_uom: vendUom || null,
         is_enabled: !!enabled,
       };
       const r = await fetch(`/api/sales-items/${initial.id}`, {
@@ -186,12 +250,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
       if (!r.ok) throw new Error(`PATCH /api/sales-items/${initial.id} → ${r.status}`);
       const data = (await r.json()) as { item: SalesItem };
 
-      // UOM (si la cambió en edición) → aplicar a la presentación
-      if (vendUom && initial?.supplier_presentation_id) {
+      // UOM (si cambió) → aplicar a la presentación
+      if (vendUom && (initial as any)?.supplier_presentation_id) {
         await fetch("/api/uom-choice", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productPresentationId: initial.supplier_presentation_id, codigo: vendUom }),
+          body: JSON.stringify({ productPresentationId: (initial as any).supplier_presentation_id, codigo: vendUom }),
         }).catch(console.error);
       }
 
@@ -202,6 +266,22 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
     } finally {
       setSaving(false);
     }
+  }
+
+  // Render de opción con "formato proveedor" (monoespaciado y columnas fijas)
+  function OptionRow({ p, onClick }: { p: PriceRow; onClick: () => void }) {
+    const provTxt = p.prov_pres_fmt
+      ? p.prov_pres_fmt
+      : `${p.qty ?? "-"} ${p.chosen_uom ?? ""}`;
+    return (
+      <button type="button" onClick={onClick} className="w-full text-left p-2 hover:bg-zinc-900/10">
+        <div className="text-sm font-medium truncate">{p.nombre}</div>
+        <pre className="text-[11px] text-zinc-500 whitespace-pre-wrap leading-tight">
+{`Prov Pres  │ ${provTxt}`}
+        </pre>
+        <div className="text-[10px] text-zinc-500">prod {p.product_id} · pres {p.product_presentation_id}</div>
+      </button>
+    );
   }
 
   return (
@@ -221,17 +301,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
               <div className="p-2 text-sm text-zinc-500">Sin resultados</div>
             )}
             {options.map((p) => (
-              <button
-                type="button"
-                key={`${p.product_id}-${p.product_presentation_id}`}
-                onClick={() => chooseOption(p)}
-                className="w-full text-left p-2 hover:bg-zinc-900/10"
-              >
-                <div className="text-sm font-medium">{p.nombre}</div>
-                <div className="text-xs text-zinc-500">
-                  Pres: {p.qty ?? "-"} · UOM: {p.chosen_uom ?? "-"} · prod {p.product_id} · pres {p.product_presentation_id}
-                </div>
-              </button>
+              <OptionRow key={`${p.product_id}-${p.product_presentation_id}`} p={p} onClick={() => chooseOption(p)} />
             ))}
           </div>
           {productPresentationId && (
@@ -274,10 +344,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
             ))}
           </select>
         </div>
-        <div>
-          <label className="block text-sm font-medium">Densidad [g/mL] (override)</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" inputMode="decimal" value={dens} onChange={(e) => setDens(e.target.value)} />
-        </div>
+        {/* Densidad removida: se hereda de proveedor */}
         <div>
           <label className="block text-sm font-medium">Lote</label>
           <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={lote} onChange={(e) => setLote(e.target.value)} />
@@ -298,10 +365,60 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
           <label className="block text-sm font-medium">Observaciones</label>
           <textarea className="w-full border rounded-md px-3 py-2 bg-transparent" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} />
         </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium">URL (ficha técnica / proveedor)</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={url} onChange={(e) => setUrl(e.target.value)} />
-        </div>
+      </div>
+
+      {/* Formulado */}
+      <div className="border rounded-lg p-3 space-y-3">
+        <label className="inline-flex items-center gap-2">
+          <input type="checkbox" checked={isFormula} onChange={(e) => setIsFormula(e.target.checked)} />
+          <span className="font-medium">Es un producto formulado</span>
+        </label>
+        {isFormula && (
+          <div className="space-y-2">
+            <div className="text-xs text-zinc-400">Cargá componentes (en % o cantidades). Las densidades se heredan del proveedor.</div>
+            {lines.map((l) => (
+              <div key={l.key} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                <div className="md:col-span-5">
+                  <input
+                    placeholder="Buscar componente… (abrirá lista arriba)"
+                    className="w-full border rounded-md px-3 py-2 bg-transparent"
+                    onFocus={() => setQ("")}
+                    onChange={() => {}}
+                    // nota: por simplicidad, elegí desde la lista principal y luego asigno aquí
+                  />
+                  {l.nombre && <div className="text-[11px] text-zinc-500 truncate">{l.nombre}</div>}
+                </div>
+                <div className="md:col-span-2">
+                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.mode} onChange={(e) => updateLine(l.key, { mode: e.target.value as any })}>
+                    <option value="pct">%</option>
+                    <option value="qty">Cant.</option>
+                  </select>
+                </div>
+                <div className="md:col-span-3">
+                  <input
+                    inputMode="decimal"
+                    placeholder={l.mode === "pct" ? "%" : "Cantidad"}
+                    className="w-full border rounded-md px-3 py-2 bg-transparent text-right"
+                    value={l.qty ?? ""}
+                    onChange={(e) => updateLine(l.key, { qty: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.uom ?? ""} onChange={(e) => updateLine(l.key, { uom: e.target.value || null })}>
+                    <option value="">—</option>
+                    {uoms.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-12">
+                  <button type="button" className="text-xs text-red-500" onClick={() => removeLine(l.key)}>Quitar</button>
+                </div>
+              </div>
+            ))}
+            <button type="button" className="px-3 py-2 border rounded-md" onClick={addLine}>+ Agregar componente</button>
+          </div>
+        )}
       </div>
 
       {error && <div className="text-sm text-red-500">{error}</div>}
