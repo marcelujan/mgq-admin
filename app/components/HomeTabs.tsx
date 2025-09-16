@@ -5,8 +5,8 @@ type TabKey = "proveedor" | "ventas" | "formulados";
 
 const labels: Record<TabKey, string> = {
   proveedor: "Proveedor",
-  ventas: "Ventas",
-  formulados: "Formulados",
+  ventas: "Vendedor",
+  formulados: "Fórmula",
 };
 
 export default function HomeTabs({
