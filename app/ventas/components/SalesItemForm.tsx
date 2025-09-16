@@ -1,7 +1,8 @@
 // =============================================
-// app/ventas/components/SalesItemForm.tsx (V4)
+// app/ventas/components/SalesItemForm.tsx (V5)
 // =============================================
 "use client";
+
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -28,8 +29,6 @@ export type SalesItem = {
   vend_origen?: string | null;
   vend_obs?: string | null;
   is_enabled: boolean;
-  // opcional si más adelante agregás la columna:
-  // vend_name?: string | null;
 };
 
 type FormulaLine = {
@@ -121,13 +120,26 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ================== helpers ==================
+  // ---------- helpers ----------
+  function fmtQty(q: any) {
+    if (q == null) return "";
+    const n = Number(q);
+    if (!Number.isFinite(n)) return String(q);
+    if (Number.isInteger(n)) return String(n);       // <- sin decimales si es entero
+    let s = n.toFixed(3);
+    if (s.includes(".")) s = s.replace(/0+$/, "").replace(/\.$/, "");
+    return s;
+  }
+
+  // Trae datos del proveedor para precarga
   async function fetchProvPreset(presId: number) {
+    // En tu deploy existe /api/presentation; probamos ese primero.
     const urls = [
-      `/api/sales-items/${presId}/prov-pres`,     // existe en tu deploy
-      `/api/presentation/${presId}`,
       `/api/presentation?id=${presId}`,
+      `/api/presentation/${presId}`,
       `/api/presentation?presentationId=${presId}`,
+      // fallback
+      `/api/sales-items/${presId}/prov-pres`,
     ];
     for (const u of urls) {
       try {
@@ -135,39 +147,32 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         if (!r.ok) continue;
         const j = await r.json();
         const norm = (o: any) => ({
-          lote: o?.lote ?? o?.vend_lote ?? o?.etiqueta_auto_lote ?? "",
-          vence: o?.vence ?? o?.vend_vence ?? o?.etiqueta_auto_vence ?? "",
-          grado: o?.grado ?? o?.vend_grado ?? o?.etiqueta_auto_grado ?? "",
+          lote:   o?.lote   ?? o?.vend_lote   ?? o?.etiqueta_auto_lote   ?? "",
+          vence:  o?.vence  ?? o?.vend_vence  ?? o?.etiqueta_auto_vence  ?? "",
+          grado:  o?.grado  ?? o?.vend_grado  ?? o?.etiqueta_auto_grado  ?? "",
           origen: o?.origen ?? o?.vend_origen ?? o?.etiqueta_auto_origen ?? "",
-          obs: o?.obs ?? o?.vend_obs ?? o?.etiqueta_auto_obs ?? "",
-          vend_uom: o?.vend_uom ?? o?.uom ?? o?.chosen_uom ?? null,
+          obs:    o?.obs    ?? o?.vend_obs    ?? o?.etiqueta_auto_obs    ?? "",
+          vend_uom:  o?.vend_uom ?? o?.uom ?? o?.chosen_uom ?? null,
           vend_pres: o?.vend_pres ?? o?.qty ?? null,
         });
         return norm(j);
       } catch {
-        /* next url */
+        /* probar siguiente URL */
       }
     }
     return null;
   }
 
-  function fmtQty(q: any) {
-    if (q == null) return "";
-    const n = Number(q);
-    if (!Number.isFinite(n)) return String(q);
-    if (Number.isInteger(n)) return String(n);
-    let s = n.toFixed(3);
-    if (s.includes(".")) s = s.replace(/0+$/, "").replace(/\.$/, "");
-    return s;
-  }
-
+  // Al elegir una opción del buscador
   async function chooseOption(p: PriceRow) {
     setProductId(p.product_id);
     setProductPresentationId(p.product_presentation_id);
     setNombreProducto(p.nombre);
 
-    // sugerencia de nombre de venta (editable)
-    const sugg = [p.nombre, "–", fmtQty(p.qty), p.chosen_uom ?? ""].filter(Boolean).join(" ");
+    // sugerencia de nombre (editable)
+    const sugg = [p.nombre, "–", fmtQty(p.qty), p.chosen_uom ?? ""]
+      .filter(Boolean)
+      .join(" ");
     setVendName(sugg.trim());
 
     // sugerencia de presentación y uom
@@ -187,7 +192,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     }
   }
 
-  // =============== formulado helpers ===============
+  // ---------- formulado ----------
   function addLine() {
     setLines((xs) => [
       ...xs,
@@ -201,7 +206,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     setLines((xs) => xs.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
-  // ================== submit ==================
+  // ---------- submit ----------
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -221,8 +226,10 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
           vend_grado: grado?.trim() || null,
           vend_origen: origen?.trim() || null,
           vend_obs: obs?.trim() || null,
-          // vend_name: vendName.trim() || null, // <-- habilitar cuando el backend lo soporte
           is_enabled: !!enabled,
+          // Cuando el backend lo soporte:
+          // vend_name: vendName.trim() || null,
+          // Formulado opcional
           is_formula: isFormula || undefined,
           formula: isFormula
             ? lines.map((l) => ({
@@ -240,7 +247,17 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!res.ok) throw new Error(`POST /api/sales-items → ${res.status}`);
+
+        if (!res.ok) {
+          // leer mensaje de error del backend para ver la causa real del 400
+          let msg = `POST /api/sales-items → ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j?.error) msg = `${msg}: ${j.error}`;
+          } catch {}
+          throw new Error(msg);
+        }
+
         const { item } = (await res.json()) as { item: SalesItem };
 
         // UOM se persiste aparte
@@ -267,15 +284,25 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
         vend_grado: grado?.trim() || null,
         vend_origen: origen?.trim() || null,
         vend_obs: obs?.trim() || null,
-        // vend_name: vendName.trim() || null, // <-- cuando el backend lo soporte
         is_enabled: !!enabled,
+        // vend_name: vendName.trim() || null, // cuando el backend lo soporte
       };
+
       const r = await fetch(`/api/sales-items/${initial.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!r.ok) throw new Error(`PATCH /api/sales-items/${initial.id} → ${r.status}`);
+
+      if (!r.ok) {
+        let msg = `PATCH /api/sales-items/${initial.id} → ${r.status}`;
+        try {
+          const j = await r.json();
+          if (j?.error) msg = `${msg}: ${j.error}`;
+        } catch {}
+        throw new Error(msg);
+      }
+
       const data = (await r.json()) as { item: SalesItem };
 
       if (vendUom && (initial as any)?.supplier_presentation_id) {
@@ -298,7 +325,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     }
   }
 
-  // =============== UI auxiliar ===============
+  // ---------- UI auxiliar ----------
   function OptionRow({ p, onClick }: { p: PriceRow; onClick: () => void }) {
     const provTxt =
       p.prov_pres_fmt ?? [fmtQty(p.qty), p.chosen_uom ?? ""].filter(Boolean).join(" ");
@@ -319,7 +346,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     );
   }
 
-  // =============== render ===============
+  // ---------- render ----------
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl space-y-4">
       {mode === "create" && (
