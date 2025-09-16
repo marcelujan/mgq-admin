@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from 'next/link';
 
 // --- Tipos aproximados de la vista enriquecida devuelta por /api/sales-items
 // Ajustá los campos si tu SELECT cambia
@@ -277,3 +278,5 @@ export default function VentasPage() {
     </div>
   );
 }
+
+<Link href="/ventas/nuevo" className="px-3 py-2 border rounded-md">+ Nuevo</Link>
