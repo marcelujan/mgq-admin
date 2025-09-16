@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 import { NextResponse, NextRequest } from 'next/server';
 import { z } from 'zod';
-import { sql } from '../../../lib/db'; // si no tenés alias "@", cambiá a la ruta relativa correcta
+import { sql } from '../../../lib/db';
 
 // -------- GET /api/sales-items
 const QuerySchema = z.object({
@@ -43,8 +43,25 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ items: rows, limit: parsed.limit, offset: parsed.offset });
   } catch (err: any) {
-    console.error('GET /api/sales-items failed', err);
-    return NextResponse.json({ error: err?.message ?? 'unexpected' }, { status: 500 });
+    console.error('GET /api/sales-items failed', {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      stack: err?.stack,
+    });
+
+    const { searchParams } = new URL(req.url);
+    const debug = searchParams.get('debug') === '1';
+
+    return NextResponse.json(
+      {
+        error: err?.message ?? 'unexpected',
+        detail: debug ? err?.detail ?? null : undefined,
+        code: debug ? err?.code ?? null : undefined,
+        stack: debug ? err?.stack ?? null : undefined,
+      },
+      { status: 500 }
+    );
   }
 }
 
