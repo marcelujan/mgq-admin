@@ -26,10 +26,16 @@ export async function GET(req: NextRequest) {
       parsed.enabled === undefined ? null : parsed.enabled === 'true';
 
     const rows = await sql`
-      SELECT id, sku, producto, vend_pres, vend_uom_id, vend_uom,
-             dens_g_ml_override, densidad_usada, vend_costo_auto, is_enabled
+      SELECT id,
+             producto,
+             vend_pres,
+             vend_uom,
+             dens_g_ml_override,
+             densidad_usada,
+             vend_costo_auto,
+             is_enabled
       FROM app.v_sales_items_enriched
-      WHERE (${like} IS NULL OR producto ILIKE ${like} OR sku ILIKE ${like})
+      WHERE (${like} IS NULL OR producto ILIKE ${like})
         AND (${enabledBool} IS NULL OR is_enabled = ${enabledBool})
       ORDER BY producto ASC
       LIMIT ${parsed.limit} OFFSET ${parsed.offset}
@@ -41,7 +47,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: err?.message ?? 'unexpected' }, { status: 500 });
   }
 }
-
 
 // -------- POST /api/sales-items
 const PostSchema = z.object({
