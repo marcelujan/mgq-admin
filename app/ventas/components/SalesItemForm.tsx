@@ -1,3 +1,6 @@
+// =============================================
+// app/ventas/components/SalesItemForm.tsx (V2)
+// =============================================
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -6,10 +9,10 @@ import { useRouter } from "next/navigation";
 export type PriceRow = {
   product_id: number;
   product_presentation_id: number;
-  nombre: string; // Nombre de producto + proveedor
-  qty: number | null; // presentación proveedor
+  nombre: string;            // Nombre de producto + proveedor
+  qty: number | null;        // Presentación proveedor
   chosen_uom?: string | null; // UN | GR | ML
-  prov_pres_fmt?: string | null; // texto ya formateado desde proveedor si existiera
+  prov_pres_fmt?: string | null; // (no lo usamos para el formato)
 };
 
 export type SalesItem = {
@@ -81,6 +84,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cargar UOMs
   useEffect(() => {
     let cancelled = false;
     fetch("/api/uoms")
@@ -121,19 +125,31 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
 
   // Helper para traer detalles de proveedor de la presentación elegida
   async function fetchProvPreset(presId: number) {
-    // Intentos compatibles con tus endpoints existentes
     const urls = [
-      `/api/presentation?id=${presId}`,
-      `/api/presentation?presentationId=${presId}`,
-      `/api/presentation/${presId}`,
+      "/api/presentation?id=" + presId,
+      "/api/presentation?presentationId=" + presId,
+      "/api/presentation/" + presId,
+      "/api/sales-items/" + presId + "/prov-pres",
     ];
     for (const u of urls) {
       try {
         const r = await fetch(u, { cache: "no-store" });
         if (!r.ok) continue;
         const j = await r.json();
-        return j; // esperamos { lote, vence, grado, origen, obs, uom?, qty? }
-      } catch {}
+        // des-encapsular formatos comunes: {item}, {presentation}, {rows[0]}, o el objeto plano
+        const src = j?.item ?? j?.presentation ?? j?.rows?.[0] ?? j;
+        return {
+          lote:   src?.lote   ?? src?.vend_lote   ?? src?.etiqueta_auto_lote   ?? "",
+          vence:  src?.vence  ?? src?.vend_vence  ?? src?.etiqueta_auto_vence  ?? "",
+          grado:  src?.grado  ?? src?.vend_grado  ?? src?.etiqueta_auto_grado  ?? "",
+          origen: src?.origen ?? src?.vend_origen ?? src?.etiqueta_auto_origen ?? "",
+          obs:    src?.obs    ?? src?.vend_obs    ?? src?.etiqueta_auto_obs    ?? "",
+          vend_uom:  src?.vend_uom ?? src?.uom ?? src?.chosen_uom ?? null,
+          vend_pres: src?.vend_pres ?? src?.qty ?? null,
+        };
+      } catch {
+        // probar siguiente URL
+      }
     }
     return null;
   }
@@ -148,13 +164,12 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
 
     // Precarga de campos desde proveedor
     const prov = await fetchProvPreset(p.product_presentation_id);
-    if (prov && typeof prov === "object") {
+    if (prov) {
       setLote(prov.lote ?? "");
       setVence(prov.vence ?? "");
       setGrado(prov.grado ?? "");
       setOrigen(prov.origen ?? "");
       setObs(prov.obs ?? "");
-      // si trae uom/pres específicas, preferirlas
       if (prov.vend_uom) setVendUom(prov.vend_uom);
       if (prov.vend_pres != null) setVendPres(String(prov.vend_pres));
     }
@@ -162,9 +177,10 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
 
   // Formulado — helpers
   function addLine() {
+    const key = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
     setLines((xs) => [
       ...xs,
-      { key: crypto.randomUUID(), product_id: null, product_presentation_id: null, mode: "pct" },
+      { key, product_id: null, product_presentation_id: null, mode: "pct" },
     ]);
   }
   function removeLine(key: string) {
@@ -220,7 +236,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
           await fetch("/api/uom-choice", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ productPresentationId: productPresentationId, codigo: vendUom }),
+            body: JSON.stringify({ productPresentationId, codigo: vendUom }),
           }).catch(console.error);
         }
 
@@ -268,18 +284,27 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
     }
   }
 
-  // Render de opción con "formato proveedor" (monoespaciado y columnas fijas)
+  // Render de opción con “formato proveedor” pero con cantidades limpias
+  function fmtQty(q: any) {
+    if (q == null) return "";
+    const n = Number(q);
+    if (!Number.isFinite(n)) return String(q);
+    // entero → sin decimales; si no, hasta 3 dec y sin ceros de cola
+    return Number.isInteger(n) ? String(n) : String(+n.toFixed(3)).replace(/\.?0+$/,"");
+  }
+
   function OptionRow({ p, onClick }: { p: PriceRow; onClick: () => void }) {
-    const provTxt = p.prov_pres_fmt
-      ? p.prov_pres_fmt
-      : `${p.qty ?? "-"} ${p.chosen_uom ?? ""}`;
+    // Siempre formateamos nosotros: qty + UOM
+    const provTxt = [fmtQty(p.qty), p.chosen_uom ?? ""].filter(Boolean).join(" ");
     return (
       <button type="button" onClick={onClick} className="w-full text-left p-2 hover:bg-zinc-900/10">
         <div className="text-sm font-medium truncate">{p.nombre}</div>
         <pre className="text-[11px] text-zinc-500 whitespace-pre-wrap leading-tight">
-{`Prov Pres  │ ${provTxt}`}
+          {"Prov Pres  │ " + provTxt}
         </pre>
-        <div className="text-[10px] text-zinc-500">prod {p.product_id} · pres {p.product_presentation_id}</div>
+        <div className="text-[10px] text-zinc-500">
+          {"prod " + p.product_id + " · pres " + p.product_presentation_id}
+        </div>
       </button>
     );
   }
@@ -301,7 +326,11 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
               <div className="p-2 text-sm text-zinc-500">Sin resultados</div>
             )}
             {options.map((p) => (
-              <OptionRow key={`${p.product_id}-${p.product_presentation_id}`} p={p} onClick={() => chooseOption(p)} />
+              <OptionRow
+                key={`${p.product_id}-${p.product_presentation_id}`}
+                p={p}
+                onClick={() => chooseOption(p)}
+              />
             ))}
           </div>
           {productPresentationId && (
@@ -315,12 +344,20 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium">SKU</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={sku} onChange={(e) => setSku(e.target.value)} />
+          <input
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium">Habilitado</label>
           <label className="inline-flex items-center gap-2 mt-2">
-            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
             <span className="text-sm">Activo</span>
           </label>
         </div>
@@ -335,7 +372,11 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
         </div>
         <div>
           <label className="block text-sm font-medium">UOM de venta</label>
-          <select className="w-full border rounded-md px-3 py-2 bg-transparent" value={vendUom} onChange={(e) => setVendUom(e.target.value)}>
+          <select
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={vendUom}
+            onChange={(e) => setVendUom(e.target.value)}
+          >
             <option value="">—</option>
             {uoms.map((c) => (
               <option key={c} value={c}>
@@ -344,38 +385,68 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
             ))}
           </select>
         </div>
+
         {/* Densidad removida: se hereda de proveedor */}
+
         <div>
           <label className="block text-sm font-medium">Lote</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={lote} onChange={(e) => setLote(e.target.value)} />
+          <input
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={lote}
+            onChange={(e) => setLote(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium">Vence</label>
-          <input type="date" className="w-full border rounded-md px-3 py-2 bg-transparent" value={vence} onChange={(e) => setVence(e.target.value)} />
+          <input
+            type="date"
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={vence}
+            onChange={(e) => setVence(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium">Grado</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={grado} onChange={(e) => setGrado(e.target.value)} />
+          <input
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={grado}
+            onChange={(e) => setGrado(e.target.value)}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium">Origen</label>
-          <input className="w-full border rounded-md px-3 py-2 bg-transparent" value={origen} onChange={(e) => setOrigen(e.target.value)} />
+          <input
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            value={origen}
+            onChange={(e) => setOrigen(e.target.value)}
+          />
         </div>
         <div className="md:col-span-2">
           <label className="block text-sm font-medium">Observaciones</label>
-          <textarea className="w-full border rounded-md px-3 py-2 bg-transparent" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} />
+          <textarea
+            className="w-full border rounded-md px-3 py-2 bg-transparent"
+            rows={3}
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+          />
         </div>
       </div>
 
       {/* Formulado */}
       <div className="border rounded-lg p-3 space-y-3">
         <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={isFormula} onChange={(e) => setIsFormula(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={isFormula}
+            onChange={(e) => setIsFormula(e.target.checked)}
+          />
           <span className="font-medium">Es un producto formulado</span>
         </label>
         {isFormula && (
           <div className="space-y-2">
-            <div className="text-xs text-zinc-400">Cargá componentes (en % o cantidades). Las densidades se heredan del proveedor.</div>
+            <div className="text-xs text-zinc-400">
+              Cargá componentes (en % o cantidades). Las densidades se heredan del proveedor.
+            </div>
             {lines.map((l) => (
               <div key={l.key} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
                 <div className="md:col-span-5">
@@ -384,12 +455,17 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
                     className="w-full border rounded-md px-3 py-2 bg-transparent"
                     onFocus={() => setQ("")}
                     onChange={() => {}}
-                    // nota: por simplicidad, elegí desde la lista principal y luego asigno aquí
                   />
-                  {l.nombre && <div className="text-[11px] text-zinc-500 truncate">{l.nombre}</div>}
+                  {l.nombre && (
+                    <div className="text-[11px] text-zinc-500 truncate">{l.nombre}</div>
+                  )}
                 </div>
                 <div className="md:col-span-2">
-                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.mode} onChange={(e) => updateLine(l.key, { mode: e.target.value as any })}>
+                  <select
+                    className="w-full border rounded-md px-2 py-2 bg-transparent"
+                    value={l.mode}
+                    onChange={(e) => updateLine(l.key, { mode: e.target.value as any })}
+                  >
                     <option value="pct">%</option>
                     <option value="qty">Cant.</option>
                   </select>
@@ -400,23 +476,41 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
                     placeholder={l.mode === "pct" ? "%" : "Cantidad"}
                     className="w-full border rounded-md px-3 py-2 bg-transparent text-right"
                     value={l.qty ?? ""}
-                    onChange={(e) => updateLine(l.key, { qty: e.target.value === "" ? null : Number(e.target.value) })}
+                    onChange={(e) =>
+                      updateLine(l.key, {
+                        qty: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <select className="w-full border rounded-md px-2 py-2 bg-transparent" value={l.uom ?? ""} onChange={(e) => updateLine(l.key, { uom: e.target.value || null })}>
+                  <select
+                    className="w-full border rounded-md px-2 py-2 bg-transparent"
+                    value={l.uom ?? ""}
+                    onChange={(e) => updateLine(l.key, { uom: e.target.value || null })}
+                  >
                     <option value="">—</option>
                     {uoms.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div className="md:col-span-12">
-                  <button type="button" className="text-xs text-red-500" onClick={() => removeLine(l.key)}>Quitar</button>
+                  <button
+                    type="button"
+                    className="text-xs text-red-500"
+                    onClick={() => removeLine(l.key)}
+                  >
+                    Quitar
+                  </button>
                 </div>
               </div>
             ))}
-            <button type="button" className="px-3 py-2 border rounded-md" onClick={addLine}>+ Agregar componente</button>
+            <button type="button" className="px-3 py-2 border rounded-md" onClick={addLine}>
+              + Agregar componente
+            </button>
           </div>
         )}
       </div>
@@ -427,10 +521,19 @@ export default function SalesItemForm({ mode, initial, onSaved }: SalesItemFormP
         <button type="submit" disabled={saving} className="px-4 py-2 border rounded-md">
           {saving ? "Guardando…" : "Guardar"}
         </button>
-        <button type="button" disabled={saving} className="px-4 py-2 border rounded-md" onClick={() => router.back()}>
+        <button
+          type="button"
+          disabled={saving}
+          className="px-4 py-2 border rounded-md"
+          onClick={() => router.back()}
+        >
           Cancelar
         </button>
       </div>
     </form>
   );
 }
+
+// =============================================
+// Nota: No se muestran campos de URL ni Densidad en el formulario (Densidad se hereda).
+// Los campos Lote/Vence/Grado/Origen/Obs se precargan al elegir la presentación.
