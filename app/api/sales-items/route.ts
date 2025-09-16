@@ -15,55 +15,40 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const parsed = QuerySchema.parse({
-      q: searchParams.get('q') ?? undefined,
-      enabled: searchParams.get('enabled') ?? undefined,
-      limit: searchParams.get('limit') ?? undefined,
-      offset: searchParams.get('offset') ?? undefined,
+      q: searchParams.get("q") ?? undefined,
+      enabled: searchParams.get("enabled") ?? undefined,
+      limit: searchParams.get("limit") ?? undefined,
+      offset: searchParams.get("offset") ?? undefined,
     });
 
     const like = parsed.q ? `%${parsed.q}%` : null;
-    const enabledBool =
-      parsed.enabled === undefined ? null : parsed.enabled === 'true';
+    const enabledBool = parsed.enabled === undefined ? null : parsed.enabled === "true";
 
     const rows = await sql`
-      SELECT id,
-             producto,
-             vend_pres,
-             vend_uom,
-             dens_g_ml_override,
-             densidad_usada,
-             vend_costo_auto,
-             is_enabled
-      FROM app.v_sales_items_enriched
-      WHERE (${like} IS NULL OR producto ILIKE ${like})
-        AND (${enabledBool} IS NULL OR is_enabled = ${enabledBool})
-      ORDER BY producto ASC
-      LIMIT ${parsed.limit} OFFSET ${parsed.offset}
+      SELECT
+        v.id,
+        v.producto,
+        v.vend_pres,
+        v.vend_uom,
+        si.dens_g_ml_override,         -- <- viene de sales_items
+        v.densidad_usada,
+        v.vend_costo_auto,
+        v.is_enabled
+      FROM app.v_sales_items_enriched AS v
+      LEFT JOIN app.sales_items AS si ON si.id = v.id
+      WHERE (${like} IS NULL OR v.producto ILIKE ${like})
+        AND (${enabledBool} IS NULL OR v.is_enabled = ${enabledBool})
+      ORDER BY v.producto ASC
+      LIMIT ${parsed.limit} OFFSET ${parsed.offset};
     `;
 
     return NextResponse.json({ items: rows, limit: parsed.limit, offset: parsed.offset });
   } catch (err: any) {
-    console.error('GET /api/sales-items failed', {
-      message: err?.message,
-      code: err?.code,
-      detail: err?.detail,
-      stack: err?.stack,
-    });
-
-    const { searchParams } = new URL(req.url);
-    const debug = searchParams.get('debug') === '1';
-
-    return NextResponse.json(
-      {
-        error: err?.message ?? 'unexpected',
-        detail: debug ? err?.detail ?? null : undefined,
-        code: debug ? err?.code ?? null : undefined,
-        stack: debug ? err?.stack ?? null : undefined,
-      },
-      { status: 500 }
-    );
+    console.error("GET /api/sales-items failed", err);
+    return NextResponse.json({ error: err?.message ?? "unexpected" }, { status: 500 });
   }
 }
+
 
 // -------- POST /api/sales-items
 const PostSchema = z.object({
