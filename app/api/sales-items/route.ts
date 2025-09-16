@@ -1,8 +1,43 @@
 export const runtime = 'nodejs';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { z } from 'zod';
-import { sql } from '../../../lib/db';
+import { sql } from '@/lib/db'; // si no tenés alias "@", cambiá a la ruta relativa correcta
 
+// -------- GET /api/sales-items
+const QuerySchema = z.object({
+  q: z.string().trim().optional(),
+  enabled: z.enum(['true', 'false']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const parsed = QuerySchema.parse({
+    q: searchParams.get('q') ?? undefined,
+    enabled: searchParams.get('enabled') ?? undefined,
+    limit: searchParams.get('limit') ?? undefined,
+    offset: searchParams.get('offset') ?? undefined,
+  });
+
+  const enabledBool =
+    parsed.enabled === undefined ? undefined : parsed.enabled === 'true';
+  const like = parsed.q ? `%${parsed.q}%` : null;
+
+  const rows = await sql`
+    SELECT id, sku, producto, vend_pres, vend_uom_id, vend_uom,
+           dens_g_ml_override, densidad_usada, vend_costo_auto, is_enabled
+    FROM app.v_sales_items_enriched
+    WHERE ${like ? sql`(producto ILIKE ${like} OR sku ILIKE ${like})` : sql`TRUE`}
+      AND ${enabledBool !== undefined ? sql`is_enabled = ${enabledBool}` : sql`TRUE`}
+    ORDER BY producto ASC
+    LIMIT ${parsed.limit} OFFSET ${parsed.offset}
+  `;
+
+  return NextResponse.json({ items: rows, limit: parsed.limit, offset: parsed.offset });
+}
+
+// -------- POST /api/sales-items
 const PostSchema = z.object({
   product_id: z.number().int().positive(),
   supplier_presentation_id: z.number().int().positive(),
