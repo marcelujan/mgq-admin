@@ -1,5 +1,5 @@
 // =============================================
-// app/ventas/components/SalesItemForm.tsx (V7)
+// app/ventas/components/SalesItemForm.tsx (V8)
 // =============================================
 "use client";
 
@@ -16,7 +16,7 @@ export type PriceRow = {
   prov_pres_fmt?: string | null;   // texto ya formateado desde proveedor
 };
 
-// Nota: dejo ambos nombres para compatibilidad de tipos en "initial"
+// Nota: dejo ambos nombres para compatibilidad
 export type SalesItem = {
   id: number;
   product_id: number;
@@ -26,11 +26,11 @@ export type SalesItem = {
   vend_pres: number | null;
   vend_uom?: string | null;
   vend_lote?: string | null;
-  vend_vence?: string | null;      // YYYY-MM-DD
+  vend_vence?: string | null; // YYYY-MM-DD
   vend_grado?: string | null;
   vend_origen?: string | null;
   vend_obs?: string | null;
-  vend_name?: string | null;       // tu API lo pide
+  vend_name?: string | null;  // requerido por tu API
   is_enabled: boolean;
 };
 
@@ -151,13 +151,15 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
     };
   }
 
-  // Trae datos del proveedor para precarga (primero tu endpoint /prov-pres)
+  // Trae datos del proveedor para precarga (probamos varias rutas conocidas)
   async function fetchProvPreset(presId: number) {
     const urls = [
-      `/api/sales-items/${presId}/prov-pres`, // priorizamos este
+      `/api/sales-items/${presId}/prov-pres`,
       `/api/presentation?id=${presId}`,
       `/api/presentation/${presId}`,
       `/api/presentation?presentationId=${presId}`,
+      `/api/supplier-presentations/${presId}`,
+      `/api/prov-pres?id=${presId}`,
     ];
     for (const u of urls) {
       try {
@@ -231,8 +233,9 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
 
         const body: any = {
           product_id: pid,
-          // ⬇️ lo que espera la DB (la otra columna no existe)
-          product_presentation_id: presId,
+          // Enviamos AMBOS para satisfacer validador y DB
+          product_presentation_id: presId,           // la columna real en BD
+          supplier_presentation_id: presId,          // lo que pide el validador
           sku: sku?.trim() || null,
           vend_pres: vendPres?.trim() === "" ? null : Number(vendPres),
           vend_lote: lote?.trim() || null,
@@ -240,7 +243,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
           vend_grado: grado?.trim() || null,
           vend_origen: origen?.trim() || null,
           vend_obs: obs?.trim() || null,
-          vend_name: vendName?.trim() || null, // requerido por el API
+          vend_name: vendName?.trim() || null,        // requerido por tu API
           is_enabled: !!enabled,
           // Formulado opcional
           is_formula: isFormula || undefined,
@@ -425,9 +428,7 @@ export default function SalesItemForm({ mode, initial, onSaved }: Props) {
           <label className="block text-sm font-medium">UOM de venta</label>
           <select className="w-full border rounded-md px-3 py-2 bg-transparent" value={vendUom} onChange={(e) => setVendUom(e.target.value)}>
             <option value="">—</option>
-            {uoms.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
+            {uoms.map((c) => (<option key={c} value={c}>{c}</option>))}
           </select>
         </div>
 
