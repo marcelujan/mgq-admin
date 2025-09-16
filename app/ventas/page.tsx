@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import Link from 'next/link';
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 
-// --- Tipos aproximados de la vista enriquecida devuelta por /api/sales-items
-// Ajustá los campos si tu SELECT cambia
+// --- Tipos aproximados de la vista devuelta por /api/sales-items
 export type SalesItem = {
   id: number;
   sku?: string;
@@ -68,11 +67,17 @@ export default function VentasPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/uoms', { cache: 'no-store' })
-      .then(r => r.json())
-      .then((codes) => { if (!cancelled) setUoms(Array.isArray(codes) ? codes : []); })
-      .catch(() => { if (!cancelled) setUoms([]); });
-    return () => { cancelled = true; };
+    fetch("/api/uoms", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((codes) => {
+        if (!cancelled) setUoms(Array.isArray(codes) ? codes : []);
+      })
+      .catch(() => {
+        if (!cancelled) setUoms([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // cargar datos
@@ -106,40 +111,6 @@ export default function VentasPage() {
   };
 
   const onChangeVendPres = async (row: SalesItem, next: number | "") => {
-
-  const onChangeVendUom = async (row: SalesItem, next: string | "") => {
-    const codigo = next === "" ? null : next;
-    try {
-      // optimista
-      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, vend_uom: codigo as any } : r)));
-      // PATCH específico
-      const res = await fetch('/api/uom-choice', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productPresentationId: row.id, codigo }),
-      });
-      if (!res.ok) throw new Error('PATCH /api/uom-choice failed');
-      // opcional: re-fetch de página actual
-      // (omito por ahora; dejamos el optimista)
-    } catch (e) {
-      console.error(e);
-      alert('Error guardando UOM');
-    }
-  };
-
-  const onChangeDensOverride = async (row: SalesItem, next: string) => {
-    const val = next.trim() === '' ? null : Number(next);
-    if (val !== null && !Number.isFinite(val)) return;
-    try {
-      // optimista
-      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, dens_g_ml_override: val as any } : r)));
-      const updated = await patchItem(row.id, { dens_g_ml_override: val as any });
-      setItems((prev) => prev.map((r) => (r.id === row.id ? updated : r)));
-    } catch (e) {
-      console.error(e);
-      alert('Error guardando densidad');
-    }
-  };
     const value = next === "" ? null : Number(next);
     if (value !== null && !Number.isFinite(value)) return; // ignorar
     try {
@@ -149,6 +120,38 @@ export default function VentasPage() {
     } catch (e) {
       console.error(e);
       alert("Error guardando presentación de venta");
+    }
+  };
+
+  const onChangeVendUom = async (row: SalesItem, next: string | "") => {
+    const codigo = next === "" ? null : next;
+    try {
+      // optimista
+      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, vend_uom: codigo as any } : r)));
+      // PATCH específico (⚠️ asegurate que el endpoint reciba el *ID de la presentación*, no el del sales_item)
+      const res = await fetch("/api/uom-choice", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productPresentationId: row.id, codigo }),
+      });
+      if (!res.ok) throw new Error("PATCH /api/uom-choice failed");
+    } catch (e) {
+      console.error(e);
+      alert("Error guardando UOM");
+    }
+  };
+
+  const onChangeDensOverride = async (row: SalesItem, next: string) => {
+    const val = next.trim() === "" ? null : Number(next);
+    if (val !== null && !Number.isFinite(val)) return;
+    try {
+      // optimista
+      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, dens_g_ml_override: val as any } : r)));
+      const updated = await patchItem(row.id, { dens_g_ml_override: val as any });
+      setItems((prev) => prev.map((r) => (r.id === row.id ? updated : r)));
+    } catch (e) {
+      console.error(e);
+      alert("Error guardando densidad");
     }
   };
 
@@ -172,6 +175,7 @@ export default function VentasPage() {
           />
           <span>Solo activos</span>
         </label>
+
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setPage((p) => ({ ...p, offset: Math.max(0, p.offset - p.limit) }))}
@@ -187,12 +191,14 @@ export default function VentasPage() {
           >
             Next ▶
           </button>
+
+          <Link href="/ventas/nuevo" className="px-3 py-2 border rounded-md">
+            + Nuevo
+          </Link>
         </div>
       </div>
 
-      {error && (
-        <div className="text-sm text-red-500 mb-3">Error: {error}</div>
-      )}
+      {error && <div className="text-sm text-red-500 mb-3">Error: {error}</div>}
 
       <div className="overflow-x-auto border rounded-lg">
         <table className="min-w-full text-sm">
@@ -223,14 +229,14 @@ export default function VentasPage() {
                       checked={!!r.is_enabled}
                       onChange={(e) => onToggleEnabled(r, e.target.checked)}
                     />
-                    <span className="text-xs text-zinc-400">{r.is_enabled ? "Activo" : "Inactivo"}</span>
+                    <span className="text-xs text-zinc-400">
+                      {r.is_enabled ? "Activo" : "Inactivo"}
+                    </span>
                   </label>
                 </td>
                 <td className="p-2 align-top">
                   <div className="font-medium leading-tight">{r.producto}</div>
-                  {r.sku && (
-                    <div className="text-[11px] text-zinc-500">SKU: {r.sku}</div>
-                  )}
+                  {r.sku && <div className="text-[11px] text-zinc-500">SKU: {r.sku}</div>}
                 </td>
                 <td className="p-2 text-right">
                   <input
@@ -248,7 +254,9 @@ export default function VentasPage() {
                   >
                     <option value="">—</option>
                     {uoms.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </select>
                 </td>
@@ -272,11 +280,7 @@ export default function VentasPage() {
         </table>
       </div>
 
-      {loading && (
-        <div className="mt-3 text-xs text-zinc-400">Cargando…</div>
-      )}
+      {loading && <div className="mt-3 text-xs text-zinc-400">Cargando…</div>}
     </div>
   );
 }
-
-<Link href="/ventas/nuevo" className="px-3 py-2 border rounded-md">+ Nuevo</Link>
