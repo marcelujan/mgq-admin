@@ -1,7 +1,7 @@
 export const runtime = 'nodejs';
 import { NextResponse, NextRequest } from 'next/server';
 import { z } from 'zod';
-import { sql } from '@/lib/db'; // si no tenés alias "@", cambiá a la ruta relativa correcta
+import { sql } from '../../../lib/db'; // si no tenés alias "@", cambiá a la ruta relativa correcta
 
 // -------- GET /api/sales-items
 const QuerySchema = z.object({
