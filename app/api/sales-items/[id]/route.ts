@@ -62,3 +62,11 @@ export async function PATCH(
     return NextResponse.json({ error: err?.message ?? "unexpected" }, { status: 500 });
   }
 }
+
+export async function GET(_req: NextRequest, ctx: { params: { id: string } }) {
+  const id = Number(ctx.params.id);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'id inválido' }, { status: 400 });
+  const rows = await sql`SELECT * FROM app.v_sales_items_enriched WHERE id=${id}`;
+  if (rows.length === 0) return NextResponse.json({ error: 'no existe' }, { status: 404 });
+  return NextResponse.json({ item: rows[0] });
+}

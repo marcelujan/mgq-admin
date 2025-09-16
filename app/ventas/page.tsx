@@ -11,6 +11,7 @@ export type SalesItem = {
   vend_pres: number | null;
   vend_uom_id?: number | null;
   vend_uom?: string | null;
+  dens_g_ml_override?: number | null;
   densidad_usada?: number | null; // "Dens [g/mL]"
   vend_costo_auto?: number | null;
   is_enabled: boolean;
@@ -61,7 +62,17 @@ export default function VentasPage() {
   const [page, setPage] = useState({ limit: 25, offset: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uoms, setUoms] = useState<string[]>([]);
   const [items, setItems] = useState<SalesItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/uoms', { cache: 'no-store' })
+      .then(r => r.json())
+      .then((codes) => { if (!cancelled) setUoms(Array.isArray(codes) ? codes : []); })
+      .catch(() => { if (!cancelled) setUoms([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   // cargar datos
   useEffect(() => {
@@ -94,6 +105,40 @@ export default function VentasPage() {
   };
 
   const onChangeVendPres = async (row: SalesItem, next: number | "") => {
+
+  const onChangeVendUom = async (row: SalesItem, next: string | "") => {
+    const codigo = next === "" ? null : next;
+    try {
+      // optimista
+      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, vend_uom: codigo as any } : r)));
+      // PATCH específico
+      const res = await fetch('/api/uom-choice', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productPresentationId: row.id, codigo }),
+      });
+      if (!res.ok) throw new Error('PATCH /api/uom-choice failed');
+      // opcional: re-fetch de página actual
+      // (omito por ahora; dejamos el optimista)
+    } catch (e) {
+      console.error(e);
+      alert('Error guardando UOM');
+    }
+  };
+
+  const onChangeDensOverride = async (row: SalesItem, next: string) => {
+    const val = next.trim() === '' ? null : Number(next);
+    if (val !== null && !Number.isFinite(val)) return;
+    try {
+      // optimista
+      setItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, dens_g_ml_override: val as any } : r)));
+      const updated = await patchItem(row.id, { dens_g_ml_override: val as any });
+      setItems((prev) => prev.map((r) => (r.id === row.id ? updated : r)));
+    } catch (e) {
+      console.error(e);
+      alert('Error guardando densidad');
+    }
+  };
     const value = next === "" ? null : Number(next);
     if (value !== null && !Number.isFinite(value)) return; // ignorar
     try {
@@ -195,12 +240,27 @@ export default function VentasPage() {
                   />
                 </td>
                 <td className="p-2 text-left">
-                  <span className="text-xs font-mono px-2 py-1 rounded bg-zinc-900/20">
-                    {r.vend_uom ?? r.vend_uom_id ?? "-"}
-                  </span>
+                  <select
+                    className="w-36 border rounded-md px-2 py-1 bg-transparent"
+                    value={r.vend_uom ?? ""}
+                    onChange={(e) => onChangeVendUom(r, e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {uoms.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </td>
                 <td className="p-2 text-right">
-                  {r.densidad_usada ?? "-"}
+                  <div>{r.densidad_usada ?? "-"}</div>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    inputMode="decimal"
+                    className="mt-1 w-24 text-right border rounded-md px-2 py-1 bg-transparent"
+                    defaultValue={r.dens_g_ml_override ?? ""}
+                    onBlur={(e) => onChangeDensOverride(r, e.currentTarget.value)}
+                  />
                 </td>
                 <td className="p-2 text-right">
                   {r.vend_costo_auto != null ? r.vend_costo_auto.toFixed(2) : "-"}
