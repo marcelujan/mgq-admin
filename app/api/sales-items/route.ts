@@ -56,17 +56,18 @@ export async function GET(req: NextRequest) {
 const PostSchema = z.object({
   product_id: z.number().int().positive(),
   supplier_presentation_id: z.number().int().positive(),
+  vend_name: z.string().min(1),                // << NUEVO (nombre de venta)
   sku: z.string().nullable().optional(),
   vend_pres: z.number().positive().nullable().optional(),
-  dens_g_ml_override: z.number().positive().nullable().optional(),
+  // OJO: NO enviar vend_uom acá; se setea con /api/uom-choice
   vend_lote: z.string().nullable().optional(),
   vend_vence: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   vend_grado: z.string().nullable().optional(),
   vend_origen: z.string().nullable().optional(),
   vend_obs: z.string().nullable().optional(),
-  vend_url: z.string().url().nullable().optional(),
   is_enabled: z.boolean().default(true).optional(),
 });
+
 
 export async function POST(req: Request) {
   try {
@@ -76,30 +77,28 @@ export async function POST(req: Request) {
       INSERT INTO app.sales_items (
         product_id,
         supplier_presentation_id,
+        vend_name,                -- << NUEVO
         sku,
         vend_pres,
-        dens_g_ml_override,
         vend_lote,
         vend_vence,
         vend_grado,
         vend_origen,
         vend_obs,
-        vend_url,
         is_enabled,
         created_at,
         updated_at
       ) VALUES (
         ${data.product_id},
         ${data.supplier_presentation_id},
+        ${data.vend_name},        -- << NUEVO
         ${data.sku ?? null},
         ${data.vend_pres ?? null},
-        ${data.dens_g_ml_override ?? null},
         ${data.vend_lote ?? null},
         ${data.vend_vence ?? null},
         ${data.vend_grado ?? null},
         ${data.vend_origen ?? null},
         ${data.vend_obs ?? null},
-        ${data.vend_url ?? null},
         ${data.is_enabled ?? true},
         now(),
         now()
