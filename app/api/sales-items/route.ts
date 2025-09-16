@@ -14,15 +14,14 @@ const QuerySchema = z.object({
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const parsed = QuerySchema.parse({
-      q: searchParams.get("q") ?? undefined,
-      enabled: searchParams.get("enabled") ?? undefined,
-      limit: searchParams.get("limit") ?? undefined,
-      offset: searchParams.get("offset") ?? undefined,
-    });
+    const q = searchParams.get("q") ?? undefined;
+    const enabled = searchParams.get("enabled") ?? undefined;
+    const limit = Number(searchParams.get("limit") ?? 50);
+    const offset = Number(searchParams.get("offset") ?? 0);
 
-    const like = parsed.q ? `%${parsed.q}%` : null;
-    const enabledBool = parsed.enabled === undefined ? null : parsed.enabled === "true";
+    const like = q ? `%${q}%` : null;                 // text|null
+    const enabledBool = enabled === undefined ? null  // boolean|null
+                       : enabled === "true";
 
     const rows = await sql`
       SELECT
@@ -30,25 +29,28 @@ export async function GET(req: NextRequest) {
         v.producto,
         v.vend_pres,
         v.vend_uom,
-        si.dens_g_ml_override,         -- <- viene de sales_items
+        si.dens_g_ml_override,        -- desde sales_items
         v.densidad_usada,
         v.vend_costo_auto,
         v.is_enabled
       FROM app.v_sales_items_enriched AS v
       LEFT JOIN app.sales_items AS si ON si.id = v.id
-      WHERE (${like} IS NULL OR v.producto ILIKE ${like})
-        AND (${enabledBool} IS NULL OR v.is_enabled = ${enabledBool})
+      WHERE (
+        (${like}::text IS NULL) OR (v.producto ILIKE ${like}::text)
+      )
+      AND (
+        (${enabledBool}::boolean IS NULL) OR (v.is_enabled = ${enabledBool}::boolean)
+      )
       ORDER BY v.producto ASC
-      LIMIT ${parsed.limit} OFFSET ${parsed.offset};
+      LIMIT ${limit} OFFSET ${offset};
     `;
 
-    return NextResponse.json({ items: rows, limit: parsed.limit, offset: parsed.offset });
+    return NextResponse.json({ items: rows, limit, offset });
   } catch (err: any) {
     console.error("GET /api/sales-items failed", err);
     return NextResponse.json({ error: err?.message ?? "unexpected" }, { status: 500 });
   }
 }
-
 
 // -------- POST /api/sales-items
 const PostSchema = z.object({
