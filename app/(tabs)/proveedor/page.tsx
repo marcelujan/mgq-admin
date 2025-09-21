@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 type Row = {
   ["Prov *"]?: boolean | string | null; // enabled via enabled_products
   ["Prov Artículo"]?: string;
-  ["Prov Pres"]?: string;
+  ["Prov Pres"]?: number | string | null; // entero
   ["Prov UOM"]?: string;
-  ["Prov Costo"]?: number | string | null;
-  ["Prov CostoUn"]?: number | string | null;
-  ["Prov Act"]?: string | null; // fecha de última actualización del proveedor (si.updated_at)
+  ["Prov Costo"]?: number | string | null; // entero
+  ["Prov CostoUn"]?: number | string | null; // entero
+  ["Prov Act"]?: string | null; // única fecha
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
@@ -26,6 +26,8 @@ const columns = [
   "Prov Desc",
   "Prov [g/mL]",
 ] as const;
+
+const nf = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 export default function ProveedorPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -129,15 +131,22 @@ function LinkIcon(){
   );
 }
 
+const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+
 function renderCell(row: Row, key: keyof Row) {
   const v = row[key];
   if (key === "Prov *") {
     const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
     return <input type="checkbox" checked={!!checked} readOnly />;
   }
+  if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
+    const num = typeof v === 'string' ? Number(v) : (v as number);
+    if (!isNaN(num)) return nf0.format(Math.round(num));
+  }
   if (key === "Prov Act" && typeof v === 'string' && v) {
     const dt = new Date(v);
-    return dt.toLocaleString();
+    // DD/MM/YYYY
+    return dt.toLocaleDateString('es-AR');
   }
   if (key === "Prov URL" && typeof v === "string" && v) {
     return (

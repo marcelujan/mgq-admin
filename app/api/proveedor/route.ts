@@ -37,11 +37,13 @@ export async function GET(req: NextRequest) {
                si.nombre_proveedor AS prov_articulo,
                si.descripcion_proveedor AS prov_desc,
                si.url AS prov_url,
-               si.updated_at AS prov_act_ts
+               si.updated_at
         FROM src.supplier_items si
+      ), act AS (
+        SELECT MAX(updated_at) AS prov_act_ts FROM src.supplier_items
       ), match AS (
         SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
-               si.prov_articulo, si.prov_desc, si.prov_url, si.prov_act_ts
+               si.prov_articulo, si.prov_desc, si.prov_url
         FROM pp
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
@@ -49,7 +51,7 @@ export async function GET(req: NextRequest) {
         WHERE (sp.qty IS NULL OR sp.qty = pp.qty)
           AND (sp.uom_id IS NULL OR sp.uom_id = pp.uom_id)
       ), cost AS (
-        SELECT product_presentation_id, costo_ars, fecha_costo
+        SELECT product_presentation_id, costo_ars
         FROM app.v_product_costs
       ), u AS (
         SELECT id, codigo AS uom
@@ -63,8 +65,7 @@ export async function GET(req: NextRequest) {
           c.costo_ars,
           CASE WHEN mt.qty IS NULL OR mt.qty=0 THEN NULL ELSE (c.costo_ars)::numeric/mt.qty END AS costo_un,
           COALESCE(mt.prov_url, p.prov_url) AS prov_url,
-          COALESCE(mt.prov_desc, p.prov_desc) AS prov_desc,
-          mt.prov_act_ts
+          COALESCE(mt.prov_desc, p.prov_desc) AS prov_desc
         FROM match mt
         LEFT JOIN cost c ON c.product_presentation_id = mt.product_presentation_id
         LEFT JOIN u ON u.id = mt.uom_id
@@ -73,11 +74,11 @@ export async function GET(req: NextRequest) {
       SELECT
         EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id) AS "Prov *",
         b.prov_articulo AS "Prov Artículo",
-        b.qty AS "Prov Pres",
+        CAST(b.qty AS bigint) AS "Prov Pres",
         b.uom AS "Prov UOM",
-        b.costo_ars AS "Prov Costo",
-        b.costo_un AS "Prov CostoUn",
-        b.prov_act_ts AS "Prov Act",
+        CAST(b.costo_ars AS bigint) AS "Prov Costo",
+        CAST(ROUND(b.costo_un) AS bigint) AS "Prov CostoUn",
+        (SELECT prov_act_ts FROM act) AS "Prov Act",
         b.prov_url AS "Prov URL",
         b.prov_desc AS "Prov Desc",
         NULL::numeric AS "Prov [g/mL]"
@@ -99,14 +100,11 @@ export async function GET(req: NextRequest) {
         FROM src.supplier_presentations sp
       ), si AS (
         SELECT si.id AS supplier_item_id,
-               si.nombre_proveedor AS prov_articulo,
-               si.descripcion_proveedor AS prov_desc,
-               si.url AS prov_url,
-               si.updated_at AS prov_act_ts
+               si.nombre_proveedor AS prov_articulo
         FROM src.supplier_items si
       ), match AS (
         SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
-               si.prov_articulo, si.prov_desc, si.prov_url, si.prov_act_ts
+               si.prov_articulo
         FROM pp
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
