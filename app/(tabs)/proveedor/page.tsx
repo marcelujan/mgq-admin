@@ -73,8 +73,7 @@ export default function ProveedorPage() {
           value={q}
           onChange={(e) => { setOffset(0); setQ(e.target.value); }}
           placeholder="Buscar proveedor o artículo…"
-          className="border rounded-xl px-3 py-2 text-sm"
-        />
+          className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded-xl px-3 py-2 text-sm placeholder-zinc-400"        />
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
           Solo activos
@@ -84,14 +83,14 @@ export default function ProveedorPage() {
       {loading ? (
         <div>Cargando…</div>
       ) : error ? (
-        <div className="text-red-600">{error}</div>
+        <div className="text-red-400">{error}</div>
       ) : (
         <div className="overflow-auto">
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c} className="border px-2 py-1 text-left text-sm bg-gray-50">
+                  <th key={c} className="border border-zinc-700 px-2 py-2 text-left bg-zinc-700 text-zinc-100 sticky top-0">
                     {c}
                   </th>
                 ))}
@@ -99,12 +98,10 @@ export default function ProveedorPage() {
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} className="hover:bg-gray-50">
+                <tr key={i} className="hover:bg-zinc-800">
                   {columns.map((c) => (
-                    <td key={c} className="border px-2 py-1 text-sm align-top">
-                      {c === "Prov URL" && typeof r[c] === "string" ? (
-                        <a href={r[c] as string} target="_blank" className="underline break-all">{r[c]}</a>
-                      ) : typeof r[c] === "boolean" ? (r[c] ? "Sí" : "No") : (r[c] ?? "")}
+                    <td key={c} className="border border-zinc-800 px-2 py-2 align-top">
+                      {renderCell(r, c)}
                     </td>
                   ))}
                 </tr>
@@ -115,13 +112,36 @@ export default function ProveedorPage() {
       )}
 
       <div className="flex items-center justify-end gap-2 text-sm">
-        <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50">Prev</button>
+        <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
         <span>{page}/{pages}</span>
-        <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50">Next</button>
-        <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1">
+        <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
+        <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
           {[25,50,100,200].map(n=> <option key={n} value={n}>{n}/página</option>)}
         </select>
       </div>
     </div>
   );
+}
+
+function LinkIcon(){
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M13.5 6H17a5 5 0 010 10h-3.5"/>
+      <path d="M10.5 18H7a5 5 0 010-10h3.5"/>
+      <path d="M8 12h8"/>
+    </svg>
+  );
+}
+
+function renderCell(row: ProveedorRow, key: keyof ProveedorRow) {
+  const v = row[key];
+  if (key === "Prov URL" && typeof v === "string" && v) {
+    return (
+      <a href={v} target="_blank" className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title={v}>
+        <LinkIcon />
+      </a>
+    );
+  }
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  return (v ?? "") as any;
 }

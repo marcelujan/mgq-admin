@@ -16,13 +16,14 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
           <Link
             key={t.href}
             href={t.href}
-            className="px-4 py-2 rounded-2xl shadow hover:shadow-md border bg-zinc-800 border-zinc-700 text-zinc-100"
+            className="px-4 py-2 rounded-2xl border bg-zinc-800 border-zinc-700 text-zinc-100 hover:bg-zinc-700"
           >
             {t.label}
           </Link>
         ))}
       </nav>
-      <main className="bg-zinc-800 border border-zinc-700 rounded-2xl shadow p-4 md:p-6">{children}</main>
+      {/* Eliminado el cuadrante/caja: dejamos el contenido tal cual */}
+      <main>{children}</main>
     </div>
   );
 }
