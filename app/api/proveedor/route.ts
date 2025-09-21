@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // Asegura la tabla meta (g/mL)
+    // Meta para g/mL
     await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
       product_id bigint primary key,
       g_per_ml numeric(10,2) not null default 1.00
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
-    // WHERE separado para data (b) y count (mt)
+    // WHERE para data (b) y count (mt)
     const whereData: string[] = [];
     const whereCount: string[] = [];
     const params: any[] = [];
@@ -67,12 +67,15 @@ export async function GET(req: NextRequest) {
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
         LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
-      ), cost AS (
-        SELECT product_presentation_id, costo_ars
-        FROM app.v_product_costs
       ), u AS (
         SELECT id, codigo AS uom_code
         FROM ref.uoms
+      ), cost_prod AS (
+        -- Costo por producto (independiente de UOM/qty): tomamos el más reciente o mayor
+        SELECT pp.product_id, MAX(c.costo_ars) AS costo_ars
+        FROM app.v_product_costs c
+        JOIN app.product_presentations pp ON pp.id = c.product_presentation_id
+        GROUP BY pp.product_id
       ), base AS (
         SELECT
           mt.product_id,
@@ -80,14 +83,14 @@ export async function GET(req: NextRequest) {
           mt.prov_articulo,
           mt.qty,
           u.uom_code,
-          COALESCE(c.costo_ars, 0)::numeric AS costo_ars,
+          COALESCE(cp.costo_ars, 0)::numeric AS costo_ars,
           CASE WHEN NULLIF(mt.qty,0) IS NULL THEN NULL
-               ELSE (COALESCE(c.costo_ars,0))::numeric / NULLIF(mt.qty,0)
+               ELSE (COALESCE(cp.costo_ars,0))::numeric / NULLIF(mt.qty,0)
           END AS costo_un,
           COALESCE(mt.prov_url, p.prov_url) AS prov_url,
           COALESCE(mt.prov_desc, p.prov_desc) AS prov_desc
         FROM match mt
-        LEFT JOIN cost c ON c.product_presentation_id = mt.product_presentation_id
+        LEFT JOIN cost_prod cp ON cp.product_id = mt.product_id
         LEFT JOIN u ON u.id = mt.uom_id
         LEFT JOIN app.products p ON p.id = mt.product_id
       ), gml AS (
