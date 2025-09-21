@@ -1,14 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 
-export type ProveedorRow = {
-  ["Prov *"]?: string;
+type Row = {
+  ["Prov *"]?: boolean | string | null; // ahora checkbox (desde v."Prov Act")
   ["Prov Artículo"]?: string;
   ["Prov Pres"]?: string;
   ["Prov UOM"]?: string;
   ["Prov Costo"]?: number | string | null;
   ["Prov CostoUn"]?: number | string | null;
-  ["Prov Act"]?: boolean | string | null;
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
@@ -21,14 +20,13 @@ const columns = [
   "Prov UOM",
   "Prov Costo",
   "Prov CostoUn",
-  "Prov Act",
   "Prov URL",
   "Prov Desc",
   "Prov [g/mL]",
 ] as const;
 
 export default function ProveedorPage() {
-  const [rows, setRows] = useState<ProveedorRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -64,20 +62,25 @@ export default function ProveedorPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2 flex-wrap">
-        <div className="grow">
-          <h1 className="text-xl font-semibold">Proveedor</h1>
-          <div className="text-xs opacity-70">{total} filas</div>
-        </div>
-        <input
-          value={q}
-          onChange={(e) => { setOffset(0); setQ(e.target.value); }}
-          placeholder="Buscar proveedor o artículo…"
-          className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded-xl px-3 py-2 text-sm placeholder-zinc-400"        />
+      <div className="flex items-center gap-2 flex-wrap">
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
           Solo activos
         </label>
+        <input
+          value={q}
+          onChange={(e) => { setOffset(0); setQ(e.target.value); }}
+          placeholder="Buscar artículo…"
+          className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded-xl px-3 py-2 text-sm placeholder-zinc-400"
+        />
+        <div className="ml-auto flex items-center gap-2 text-sm">
+          <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
+          <span>{page}/{pages}</span>
+          <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
+          <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
+            {[25,50,100,200].map(n=> <option key={n} value={n}>{n}/página</option>)}
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -110,15 +113,6 @@ export default function ProveedorPage() {
           </table>
         </div>
       )}
-
-      <div className="flex items-center justify-end gap-2 text-sm">
-        <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
-        <span>{page}/{pages}</span>
-        <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
-        <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
-          {[25,50,100,200].map(n=> <option key={n} value={n}>{n}/página</option>)}
-        </select>
-      </div>
     </div>
   );
 }
@@ -133,8 +127,12 @@ function LinkIcon(){
   );
 }
 
-function renderCell(row: ProveedorRow, key: keyof ProveedorRow) {
+function renderCell(row: Row, key: keyof Row) {
   const v = row[key];
+  if (key === "Prov *") {
+    const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
+    return <input type="checkbox" checked={!!checked} readOnly />;
+  }
   if (key === "Prov URL" && typeof v === "string" && v) {
     return (
       <a href={v} target="_blank" className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title={v}>
