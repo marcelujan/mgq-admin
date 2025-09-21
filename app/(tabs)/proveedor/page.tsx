@@ -2,12 +2,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Row = {
-  ["Prov *"]?: boolean | string | null; // ahora checkbox (desde v."Prov Act")
+  ["Prov *"]?: boolean | string | null; // enabled via enabled_products
   ["Prov Artículo"]?: string;
   ["Prov Pres"]?: string;
   ["Prov UOM"]?: string;
   ["Prov Costo"]?: number | string | null;
   ["Prov CostoUn"]?: number | string | null;
+  ["Prov Act"]?: string | null; // fecha de última actualización del proveedor (si.updated_at)
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
@@ -20,6 +21,7 @@ const columns = [
   "Prov UOM",
   "Prov Costo",
   "Prov CostoUn",
+  "Prov Act",
   "Prov URL",
   "Prov Desc",
   "Prov [g/mL]",
@@ -132,6 +134,10 @@ function renderCell(row: Row, key: keyof Row) {
   if (key === "Prov *") {
     const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
     return <input type="checkbox" checked={!!checked} readOnly />;
+  }
+  if (key === "Prov Act" && typeof v === 'string' && v) {
+    const dt = new Date(v);
+    return dt.toLocaleString();
   }
   if (key === "Prov URL" && typeof v === "string" && v) {
     return (
