@@ -1,56 +1,40 @@
+// app/components/HomeTabs.tsx
 "use client";
-import React from "react";
+import { useState } from "react";
+import ProveedorView from "./ProveedorView";
+import VentasView from "./VentasView";
 
-type TabKey = "proveedor" | "ventas" | "formulados";
-
-const labels: Record<TabKey, string> = {
-  proveedor: "Proveedor",
-  ventas: "Vendedor",
-  formulados: "Fórmulas",
-};
-
-export default function HomeTabs({
-  active,
-  onChange,
-}: {
-  active: TabKey;
-  onChange: (k: TabKey) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 mb-4">
-      {(Object.keys(labels) as TabKey[]).map((k) => (
-        <button
-          key={k}
-          onClick={() => onChange(k)}
-          className={[
-            "px-3 py-2 rounded-md border text-sm",
-            active === k ? "bg-zinc-800 text-white" : "bg-transparent hover:bg-zinc-900/10",
-          ].join(" ")}
-        >
-          {labels[k]}
-        </button>
-      ))}
-    </div>
-  );
+function ComprasView() {
+  return <div className="p-4 text-sm opacity-80">Compras — (pendiente de definir)</div>;
+}
+function ProductosView() {
+  return <div className="p-4 text-sm opacity-80">Productos — (pendiente de definir)</div>;
 }
 
-export function useHashTab(initial: TabKey = "proveedor") {
-  const [tab, setTab] = React.useState<TabKey>(() => {
-    const h = (typeof window !== "undefined" && window.location.hash.replace("#", "")) || "";
-    if (h === "ventas" || h === "formulados" || h === "proveedor") return h;
-    return initial;
-  });
-  React.useEffect(() => {
-    const onHash = () => {
-      const h = window.location.hash.replace("#", "");
-      if (h === "ventas" || h === "formulados" || h === "proveedor") setTab(h);
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-  const change = (k: TabKey) => {
-    if (typeof window !== "undefined") window.location.hash = k;
-    setTab(k);
-  };
-  return { tab, change };
+const TABS = ["Proveedor", "Compras", "Productos", "Ventas"] as const;
+type Tab = typeof TABS[number];
+
+export default function HomeTabs() {
+  const [tab, setTab] = useState<Tab>("Proveedor");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        {TABS.map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded-2xl border shadow-sm hover:shadow ${tab===t ? "bg-gray-100" : ""}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === "Proveedor" && <ProveedorView />}
+      {tab === "Compras" && <ComprasView />}
+      {tab === "Productos" && <ProductosView />}
+      {tab === "Ventas" && <VentasView />}
+    </div>
+  );
 }
