@@ -29,6 +29,7 @@ const columns = [
   "Prov [g/mL]",
 ] as const;
 
+// Single definition of nf0 (was duplicated before)
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 export default function ProveedorPage() {
@@ -155,8 +156,6 @@ function DownloadIcon(){
     </svg>
   );
 }
-
-const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 function slugify(s: string){
   return s
