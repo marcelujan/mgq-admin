@@ -61,27 +61,22 @@ export default function ProveedorPage() {
     return () => controller.abort();
   }, [q, onlyAct, limit, offset]);
 
-  const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
-  const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
   const start = useMemo(() => (total === 0 ? 0 : offset + 1), [offset, total]);
   const end = useMemo(() => Math.min(offset + limit, total), [offset, limit, total]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Buscador a la izquierda */}
         <input
           value={q}
           onChange={(e) => { setOffset(0); setQ(e.target.value); }}
           placeholder="Buscar artículo…"
           className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded-xl px-3 py-2 text-sm placeholder-zinc-400"
         />
-        {/* Luego Solo activos */}
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
           Solo activos
         </label>
-        {/* Paginación a la derecha */}
         <div className="ml-auto flex items-center gap-2 text-sm">
           <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
           <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
@@ -100,11 +95,15 @@ export default function ProveedorPage() {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                {columns.map((c) => (
-                  <th key={c} className="border border-zinc-700 px-2 py-2 text-left bg-zinc-700 text-zinc-100 sticky top-0">
-                    {c}
-                  </th>
-                ))}
+                {columns.map((c) => {
+                  const [top, bottom] = splitHeader(c);
+                  return (
+                    <th key={c} className="border border-zinc-700 px-2 py-2 text-left bg-zinc-700 text-zinc-100 sticky top-0">
+                      <div className="leading-none">{top}</div>
+                      <div className="leading-tight opacity-90 text-xs mt-1">{bottom}</div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -122,13 +121,19 @@ export default function ProveedorPage() {
         </div>
       )}
 
-      {/* Intervalo de filas */}
       <div className="flex items-center justify-between text-sm">
         <div className="opacity-80">{total === 0 ? "Sin resultados" : `Mostrando ${start}–${end} de ${total}`}</div>
         <div className="opacity-50">Límite: {limit}/página</div>
       </div>
     </div>
   );
+}
+
+function splitHeader(label: string): [string, string] {
+  if (label === "Prov *") return ["Prov", "*"];
+  if (label.startsWith("Prov ")) return ["Prov", label.slice(5)];
+  // fallback asegurando que siempre diga "Prov" arriba
+  return ["Prov", label.replace(/^Prov\\s*/,"") || label];
 }
 
 function LinkIcon(){
