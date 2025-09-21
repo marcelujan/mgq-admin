@@ -7,6 +7,12 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
+    // ⚠️ Garantiza que exista la tabla usada para g/mL (evita 500 si aún no fue creada)
+    await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
+      product_id bigint primary key,
+      g_per_ml numeric(10,2) not null default 1.00
+    );`);
+
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const onlyAct = searchParams.get("activos") === "true";
@@ -77,7 +83,7 @@ export async function GET(req: NextRequest) {
         EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id) AS "Prov *",
         b.prov_articulo AS "Prov Artículo",
         CAST(b.qty AS bigint) AS "Prov Pres",
-        CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE b.uom_code END AS "Prov UOM",
+        CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE 'GR' END AS "Prov UOM",
         CAST(b.costo_ars AS bigint) AS "Prov Costo",
         CAST(ROUND(b.costo_un) AS bigint) AS "Prov CostoUn",
         (SELECT prov_act_ts FROM act) AS "Prov Act",
