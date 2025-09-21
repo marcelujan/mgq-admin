@@ -3,9 +3,9 @@ import { neon } from "@neondatabase/serverless";
 
 export async function GET(req: NextRequest) {
   try {
-    const NEON_DATABASE_URL = process.env.NEON_DATABASE_URL;
+    const NEON_DATABASE_URL = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
     if (!NEON_DATABASE_URL) {
-      return NextResponse.json({ error: "NEON_DATABASE_URL no está configurado" }, { status: 500 });
+      return NextResponse.json({ error: "Falta NEON_DATABASE_URL/DATABASE_URL" }, { status: 500 });
     }
     const sql = neon(NEON_DATABASE_URL);
 
