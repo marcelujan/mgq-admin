@@ -59,19 +59,30 @@ export async function GET(req: NextRequest) {
         FROM src.supplier_items si
       ), act AS (
         SELECT MAX(updated_at) AS prov_act_ts FROM src.supplier_items
-      ), match AS (
-        -- No filtramos por igualdad de qty/uom para no perder filas al editar UOM
-        SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
-               si.prov_articulo, si.prov_desc, si.prov_url
+      ), match_full AS (
+        SELECT
+          pp.product_id,
+          pp.product_presentation_id,
+          pp.qty,
+          pp.uom_id,
+          si.prov_articulo,
+          si.prov_desc,
+          si.prov_url,
+          ROW_NUMBER() OVER (
+            PARTITION BY pp.product_presentation_id
+            ORDER BY si.updated_at DESC NULLS LAST, si.supplier_item_id DESC NULLS LAST
+          ) AS rn
         FROM pp
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
         LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
+      ), match AS (
+        SELECT * FROM match_full WHERE rn = 1
       ), u AS (
         SELECT id, codigo AS uom_code
         FROM ref.uoms
       ), cost_prod AS (
-        -- Costo por producto (independiente de UOM/qty): tomamos el más reciente o mayor
+        -- Costo por producto (independiente de UOM/qty): tomamos el mayor
         SELECT pp.product_id, MAX(c.costo_ars) AS costo_ars
         FROM app.v_product_costs c
         JOIN app.product_presentations pp ON pp.id = c.product_presentation_id
@@ -129,13 +140,23 @@ export async function GET(req: NextRequest) {
         SELECT si.id AS supplier_item_id,
                si.nombre_proveedor AS prov_articulo
         FROM src.supplier_items si
-      ), match AS (
-        SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
-               si.prov_articulo
+      ), match_full AS (
+        SELECT
+          pp.product_id,
+          pp.product_presentation_id,
+          pp.qty,
+          pp.uom_id,
+          si.prov_articulo,
+          ROW_NUMBER() OVER (
+            PARTITION BY pp.product_presentation_id
+            ORDER BY si.updated_at DESC NULLS LAST, si.supplier_item_id DESC NULLS LAST
+          ) AS rn
         FROM pp
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
         LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
+      ), match AS (
+        SELECT * FROM match_full WHERE rn = 1
       )
       SELECT COUNT(*)::bigint AS total
       FROM match mt
