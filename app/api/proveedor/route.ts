@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
-const sql = neon(process.env.NEON_DATABASE_URL!);
-
 export async function GET(req: NextRequest) {
   try {
+    const NEON_DATABASE_URL = process.env.NEON_DATABASE_URL;
+    if (!NEON_DATABASE_URL) {
+      return NextResponse.json({ error: "NEON_DATABASE_URL no está configurado" }, { status: 500 });
+    }
+    const sql = neon(NEON_DATABASE_URL);
+
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const onlyAct = searchParams.get("activos") === "true";
@@ -18,10 +22,7 @@ export async function GET(req: NextRequest) {
       whereClauses.push('(v."Prov Artículo" ILIKE $1 OR si.nombre_proveedor ILIKE $1)');
       params.push(`%${q}%`);
     }
-    if (onlyAct) {
-      whereClauses.push('v."Prov Act" = TRUE');
-    }
-
+    if (onlyAct) whereClauses.push('v."Prov Act" = TRUE');
     const whereSQL = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const dataQuery = `
@@ -52,7 +53,6 @@ export async function GET(req: NextRequest) {
 
     const rows = await sql(dataQuery, params as any);
     const totalRes = await sql(countQuery, params as any);
-
     return NextResponse.json({ rows, total: Number(totalRes[0]?.total || 0) });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

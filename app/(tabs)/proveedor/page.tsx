@@ -2,30 +2,30 @@
 import { useEffect, useMemo, useState } from "react";
 
 export type ProveedorRow = {
-  provAsterisk?: string; // Prov * (nombre del proveedor)
-  provArticulo?: string; // Prov Artículo
-  provPres?: string; // Prov Pres
-  provUom?: string; // Prov UOM
-  provCosto?: number | string | null; // Prov Costo
-  provCostoUn?: number | string | null; // Prov CostoUn
-  provAct?: boolean | string | null; // Prov Act
-  provUrl?: string | null; // Prov URL
-  provDesc?: string | null; // Prov Desc
-  prov_g_ml?: number | string | null; // Prov [g/mL]
+  ["Prov *"]?: string;
+  ["Prov Artículo"]?: string;
+  ["Prov Pres"]?: string;
+  ["Prov UOM"]?: string;
+  ["Prov Costo"]?: number | string | null;
+  ["Prov CostoUn"]?: number | string | null;
+  ["Prov Act"]?: boolean | string | null;
+  ["Prov URL"]?: string | null;
+  ["Prov Desc"]?: string | null;
+  ["Prov [g/mL]"]?: number | string | null;
 };
 
-const columns: { key: keyof ProveedorRow; label: string }[] = [
-  { key: "provAsterisk", label: "Prov *" },
-  { key: "provArticulo", label: "Prov Artículo" },
-  { key: "provPres", label: "Prov Pres" },
-  { key: "provUom", label: "Prov UOM" },
-  { key: "provCosto", label: "Prov Costo" },
-  { key: "provCostoUn", label: "Prov CostoUn" },
-  { key: "provAct", label: "Prov Act" },
-  { key: "provUrl", label: "Prov URL" },
-  { key: "provDesc", label: "Prov Desc" },
-  { key: "prov_g_ml", label: "Prov [g/mL]" },
-];
+const columns = [
+  "Prov *",
+  "Prov Artículo",
+  "Prov Pres",
+  "Prov UOM",
+  "Prov Costo",
+  "Prov CostoUn",
+  "Prov Act",
+  "Prov URL",
+  "Prov Desc",
+  "Prov [g/mL]",
+] as const;
 
 export default function ProveedorPage() {
   const [rows, setRows] = useState<ProveedorRow[]>([]);
@@ -46,20 +46,7 @@ export default function ProveedorPage() {
         const res = await fetch(`/api/proveedor?${params.toString()}`, { signal: controller.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setRows(
-          data.rows.map((r: any) => ({
-            provAsterisk: r["Prov *"],
-            provArticulo: r["Prov Artículo"],
-            provPres: r["Prov Pres"],
-            provUom: r["Prov UOM"],
-            provCosto: r["Prov Costo"],
-            provCostoUn: r["Prov CostoUn"],
-            provAct: r["Prov Act"],
-            provUrl: r["Prov URL"],
-            provDesc: r["Prov Desc"],
-            prov_g_ml: r["Prov [g/mL]"],
-          }))
-        );
+        setRows(data.rows);
         setTotal(data.total ?? 0);
         setError(null);
       } catch (e: any) {
@@ -104,8 +91,8 @@ export default function ProveedorPage() {
             <thead>
               <tr>
                 {columns.map((c) => (
-                  <th key={c.key as string} className="border px-2 py-1 text-left text-sm bg-gray-50">
-                    {c.label}
+                  <th key={c} className="border px-2 py-1 text-left text-sm bg-gray-50">
+                    {c}
                   </th>
                 ))}
               </tr>
@@ -114,8 +101,10 @@ export default function ProveedorPage() {
               {rows.map((r, i) => (
                 <tr key={i} className="hover:bg-gray-50">
                   {columns.map((c) => (
-                    <td key={c.key as string} className="border px-2 py-1 text-sm align-top">
-                      {renderCell(r, c.key)}
+                    <td key={c} className="border px-2 py-1 text-sm align-top">
+                      {c === "Prov URL" && typeof r[c] === "string" ? (
+                        <a href={r[c] as string} target="_blank" className="underline break-all">{r[c]}</a>
+                      ) : typeof r[c] === "boolean" ? (r[c] ? "Sí" : "No") : (r[c] ?? "")}
                     </td>
                   ))}
                 </tr>
@@ -135,17 +124,4 @@ export default function ProveedorPage() {
       </div>
     </div>
   );
-}
-
-function renderCell(row: ProveedorRow, key: keyof ProveedorRow) {
-  const v = row[key];
-  if (key === "provUrl" && typeof v === "string" && v) {
-    return (
-      <a href={v} target="_blank" className="underline break-all">
-        {v}
-      </a>
-    );
-  }
-  if (typeof v === "boolean") return v ? "Sí" : "No";
-  return v ?? "";
 }
