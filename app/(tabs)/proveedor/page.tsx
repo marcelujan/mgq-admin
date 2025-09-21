@@ -12,6 +12,8 @@ type Row = {
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
+  ["_product_id"]?: number;
+  ["_pp_id"]?: number;
 };
 
 const columns = [
@@ -98,7 +100,7 @@ export default function ProveedorPage() {
                 {columns.map((c) => {
                   const [top, bottom] = splitHeader(c);
                   return (
-                    <th key={c} className="border border-zinc-700 px-2 py-2 text-left bg-zinc-700 text-zinc-100 sticky top-0">
+                    <th key={c} className="border border-zinc-700 px-2 py-2 text-center bg-zinc-700 text-zinc-100 sticky top-0">
                       <div className="leading-none">{top}</div>
                       <div className="leading-tight opacity-90 text-xs mt-1">{bottom}</div>
                     </th>
@@ -110,8 +112,8 @@ export default function ProveedorPage() {
               {rows.map((r, i) => (
                 <tr key={i} className="hover:bg-zinc-800">
                   {columns.map((c) => (
-                    <td key={c} className="border border-zinc-800 px-2 py-2 align-top">
-                      {renderCell(r, c)}
+                    <td key={c} className="border border-zinc-800 px-2 py-2 align-top text-center">
+                      {renderCell(r, c, setRows)}
                     </td>
                   ))}
                 </tr>
@@ -132,7 +134,6 @@ export default function ProveedorPage() {
 function splitHeader(label: string): [string, string] {
   if (label === "Prov *") return ["Prov", "*"];
   if (label.startsWith("Prov ")) return ["Prov", label.slice(5)];
-  // fallback asegurando que siempre diga "Prov" arriba
   return ["Prov", label.replace(/^Prov\\s*/,"") || label];
 }
 
@@ -155,6 +156,8 @@ function DownloadIcon(){
   );
 }
 
+const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+
 function slugify(s: string){
   return s
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -175,11 +178,54 @@ function downloadTxt(content: string, nameHint?: string | null){
   URL.revokeObjectURL(url);
 }
 
-function renderCell(row: Row, key: keyof Row) {
+async function updateRow(payload: any){
+  await fetch("/api/proveedor/update", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>) {
   const v = row[key];
   if (key === "Prov *") {
     const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
     return <input type="checkbox" checked={!!checked} readOnly />;
+  }
+  if (key === "Prov UOM") {
+    const val = (v as string) || "GR";
+    return (
+      <select
+        value={val}
+        onChange={async (e) => {
+          const human = e.target.value as "GR" | "ML" | "UN";
+          setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov UOM"]: human } : r));
+          await updateRow({ pp_id: row["_pp_id"], uom: human });
+        }}
+        className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1"
+      >
+        <option value="GR">GR</option>
+        <option value="ML">ML</option>
+        <option value="UN">UN</option>
+      </select>
+    );
+  }
+  if (key === "Prov [g/mL]") {
+    const val = typeof v === "number" ? v : Number(v || 1);
+    return (
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        value={val.toFixed(2)}
+        onChange={async (e) => {
+          const num = Number(e.target.value.replace(',', '.'));
+          setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov [g/mL]"]: num } : r));
+          await updateRow({ product_id: row["_product_id"], gml: num });
+        }}
+        className="w-24 border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1 text-right"
+      />
+    );
   }
   if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
     const num = typeof v === 'string' ? Number(v) : (v as number);

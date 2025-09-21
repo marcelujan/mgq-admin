@@ -19,7 +19,6 @@ export async function GET(req: NextRequest) {
 
     if (q) { where.push(`(mt.prov_articulo ILIKE $${idx++})`); params.push(`%${q}%`); }
     if (onlyAct) where.push('EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = mt.product_id)');
-
     const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     const dataQuery = `
@@ -54,14 +53,15 @@ export async function GET(req: NextRequest) {
         SELECT product_presentation_id, costo_ars
         FROM app.v_product_costs
       ), u AS (
-        SELECT id, codigo AS uom
+        SELECT id, codigo AS uom_code
         FROM ref.uoms
       ), base AS (
         SELECT
           mt.product_id,
+          mt.product_presentation_id,
           mt.prov_articulo,
           mt.qty,
-          u.uom,
+          u.uom_code,
           c.costo_ars,
           CASE WHEN mt.qty IS NULL OR mt.qty=0 THEN NULL ELSE (c.costo_ars)::numeric/mt.qty END AS costo_un,
           COALESCE(mt.prov_url, p.prov_url) AS prov_url,
@@ -70,20 +70,24 @@ export async function GET(req: NextRequest) {
         LEFT JOIN cost c ON c.product_presentation_id = mt.product_presentation_id
         LEFT JOIN u ON u.id = mt.uom_id
         LEFT JOIN app.products p ON p.id = mt.product_id
+      ), gml AS (
+        SELECT product_id, g_per_ml FROM app.product_meta
       )
       SELECT
         EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id) AS "Prov *",
         b.prov_articulo AS "Prov Artículo",
         CAST(b.qty AS bigint) AS "Prov Pres",
-        b.uom AS "Prov UOM",
+        CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE b.uom_code END AS "Prov UOM",
         CAST(b.costo_ars AS bigint) AS "Prov Costo",
         CAST(ROUND(b.costo_un) AS bigint) AS "Prov CostoUn",
         (SELECT prov_act_ts FROM act) AS "Prov Act",
         b.prov_url AS "Prov URL",
         b.prov_desc AS "Prov Desc",
-        NULL::numeric AS "Prov [g/mL]"
+        COALESCE(gml.g_per_ml, 1.00)::numeric(10,2) AS "Prov [g/mL]",
+        b.product_id AS "_product_id",
+        b.product_presentation_id AS "_pp_id"
       FROM base b
-      JOIN match mt ON mt.product_id = b.product_id AND mt.prov_articulo = b.prov_articulo
+      LEFT JOIN gml ON gml.product_id = b.product_id
       ${whereSQL}
       ORDER BY b.prov_articulo NULLS LAST
       LIMIT ${limit} OFFSET ${offset}`;
