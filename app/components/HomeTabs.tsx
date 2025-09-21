@@ -1,40 +1,73 @@
-// app/components/HomeTabs.tsx
 "use client";
-import { useState } from "react";
-import ProveedorView from "./ProveedorView";
+import React from "react";
+import ProveedorMinView from "./ProveedorMinView";
 import VentasView from "./VentasView";
 
-function ComprasView() {
-  return <div className="p-4 text-sm opacity-80">Compras — (pendiente de definir)</div>;
-}
-function ProductosView() {
-  return <div className="p-4 text-sm opacity-80">Productos — (pendiente de definir)</div>;
-}
+type TabKey = "proveedor" | "compras" | "productos" | "ventas";
 
-const TABS = ["Proveedor", "Compras", "Productos", "Ventas"] as const;
-type Tab = typeof TABS[number];
+const labels: Record<TabKey, string> = {
+  proveedor: "Proveedor",
+  compras: "Compras",
+  productos: "Productos",
+  ventas: "Ventas",
+};
 
-export default function HomeTabs() {
-  const [tab, setTab] = useState<Tab>("Proveedor");
+export default function HomeTabs({
+  active,
+  onChange,
+}: {
+  active: TabKey;
+  onChange?: (k: TabKey) => void;
+}) {
+  const { tab, change } = useHashTab(active || "proveedor");
+
+  React.useEffect(() => {
+    if (onChange) onChange(tab);
+  }, [tab, onChange]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {TABS.map(t => (
+        {(Object.keys(labels) as TabKey[]).map(k => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-2xl border shadow-sm hover:shadow ${tab===t ? "bg-gray-100" : ""}`}
+            key={k}
+            onClick={() => change(k)}
+            className={`px-4 py-2 rounded-2xl border shadow-sm hover:shadow ${tab===k ? "bg-gray-100" : ""}`}
           >
-            {t}
+            {labels[k]}
           </button>
         ))}
       </div>
 
-      {tab === "Proveedor" && <ProveedorView />}
-      {tab === "Compras" && <ComprasView />}
-      {tab === "Productos" && <ProductosView />}
-      {tab === "Ventas" && <VentasView />}
+      {tab === "proveedor" && <ProveedorMinView />}
+      {tab === "compras" && <Placeholder title="Compras" />}
+      {tab === "productos" && <Placeholder title="Productos" />}
+      {tab === "ventas" && <VentasView />}
     </div>
   );
+}
+
+function Placeholder({ title }: { title: string }) {
+  return <div className="p-4 text-sm opacity-80">{title} — (pendiente de definir)</div>;
+}
+
+function useHashTab(initial: TabKey) {
+  const [tab, setTab] = React.useState<TabKey>(initial);
+  React.useEffect(() => {
+    const h = window.location.hash.replace("#", "") as TabKey;
+    if (h && ["proveedor", "compras", "productos", "ventas"].includes(h)) setTab(h);
+  }, []);
+  React.useEffect(() => {
+    const onHash = () => {
+      const h = window.location.hash.replace("#", "") as TabKey;
+      if (h && ["proveedor", "compras", "productos", "ventas"].includes(h)) setTab(h);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const change = (k: TabKey) => {
+    if (typeof window !== "undefined") window.location.hash = k;
+    setTab(k);
+  };
+  return { tab, change };
 }

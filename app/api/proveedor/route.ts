@@ -1,6 +1,10 @@
-// app/api/proveedor/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { Pool } from "pg";
+
+const pool = new Pool({
+  connectionString: process.env.NEON_DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -25,6 +29,12 @@ export async function GET(req: NextRequest) {
     ORDER BY "Prov Artículo" ASC
     LIMIT ${limit} OFFSET ${offset}
   `;
-  const rows = await db(sql, params);
-  return NextResponse.json(rows);
+
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(sql, params);
+    return NextResponse.json(rows);
+  } finally {
+    client.release();
+  }
 }
