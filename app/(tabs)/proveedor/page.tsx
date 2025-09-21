@@ -2,13 +2,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Row = {
-  ["Prov *"]?: boolean | string | null; // enabled via enabled_products
+  ["Prov *"]?: boolean | string | null;
   ["Prov Artículo"]?: string;
-  ["Prov Pres"]?: number | string | null; // entero
+  ["Prov Pres"]?: number | string | null;
   ["Prov UOM"]?: string;
-  ["Prov Costo"]?: number | string | null; // entero
-  ["Prov CostoUn"]?: number | string | null; // entero
-  ["Prov Act"]?: string | null; // única fecha
+  ["Prov Costo"]?: number | string | null;
+  ["Prov CostoUn"]?: number | string | null;
+  ["Prov Act"]?: string | null;
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
@@ -27,7 +27,7 @@ const columns = [
   "Prov [g/mL]",
 ] as const;
 
-const nf = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 export default function ProveedorPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -63,23 +63,27 @@ export default function ProveedorPage() {
 
   const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
   const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
+  const start = useMemo(() => (total === 0 ? 0 : offset + 1), [offset, total]);
+  const end = useMemo(() => Math.min(offset + limit, total), [offset, limit, total]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <label className="text-sm flex items-center gap-2">
-          <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
-          Solo activos
-        </label>
+        {/* Buscador a la izquierda */}
         <input
           value={q}
           onChange={(e) => { setOffset(0); setQ(e.target.value); }}
           placeholder="Buscar artículo…"
           className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded-xl px-3 py-2 text-sm placeholder-zinc-400"
         />
+        {/* Luego Solo activos */}
+        <label className="text-sm flex items-center gap-2">
+          <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
+          Solo activos
+        </label>
+        {/* Paginación a la derecha */}
         <div className="ml-auto flex items-center gap-2 text-sm">
           <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
-          <span>{page}/{pages}</span>
           <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
           <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
             {[25,50,100,200].map(n=> <option key={n} value={n}>{n}/página</option>)}
@@ -117,6 +121,12 @@ export default function ProveedorPage() {
           </table>
         </div>
       )}
+
+      {/* Intervalo de filas */}
+      <div className="flex items-center justify-between text-sm">
+        <div className="opacity-80">{total === 0 ? "Sin resultados" : `Mostrando ${start}–${end} de ${total}`}</div>
+        <div className="opacity-50">Límite: {limit}/página</div>
+      </div>
     </div>
   );
 }
@@ -131,7 +141,34 @@ function LinkIcon(){
   );
 }
 
-const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+function DownloadIcon(){
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+      <path d="M12 3v10m0 0l-3.5-3.5M12 13l3.5-3.5" stroke="currentColor" strokeWidth="1" fill="none"/>
+      <path d="M5 17h14v3H5z"/>
+    </svg>
+  );
+}
+
+function slugify(s: string){
+  return s
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function downloadTxt(content: string, nameHint?: string | null){
+  const blob = new Blob([content || ""], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (nameHint ? slugify(nameHint) : "descripcion") + ".txt";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function renderCell(row: Row, key: keyof Row) {
   const v = row[key];
@@ -145,7 +182,6 @@ function renderCell(row: Row, key: keyof Row) {
   }
   if (key === "Prov Act" && typeof v === 'string' && v) {
     const dt = new Date(v);
-    // DD/MM/YYYY
     return dt.toLocaleDateString('es-AR');
   }
   if (key === "Prov URL" && typeof v === "string" && v) {
@@ -153,6 +189,19 @@ function renderCell(row: Row, key: keyof Row) {
       <a href={v} target="_blank" className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title={v}>
         <LinkIcon />
       </a>
+    );
+  }
+  if (key === "Prov Desc") {
+    const txt = (row["Prov Desc"] as string) || "";
+    const nameHint = (row["Prov Artículo"] as string) || "descripcion";
+    return (
+      <button
+        onClick={() => downloadTxt(txt, nameHint)}
+        className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700"
+        title="Descargar descripción (.txt)"
+      >
+        <DownloadIcon />
+      </button>
     );
   }
   if (typeof v === "boolean") return v ? "Sí" : "No";
