@@ -49,7 +49,6 @@ export default function ProveedorPage() {
         const params = new URLSearchParams({ q, activos: String(onlyAct), limit: String(limit), offset: String(offset) });
         const res = await fetch(`/api/proveedor?${params.toString()}`, { signal: controller.signal });
         if (!res.ok) {
-          // Intenta leer el cuerpo para mostrar mensaje real del backend
           let msg = `HTTP ${res.status}`;
           try {
             const j = await res.json();
@@ -76,6 +75,7 @@ export default function ProveedorPage() {
 
   return (
     <div className="space-y-4">
+      {/* Toolbar superior */}
       <div className="flex items-center gap-2 flex-wrap">
         <input
           value={q}
@@ -90,9 +90,8 @@ export default function ProveedorPage() {
         <div className="ml-auto flex items-center gap-2 text-sm">
           <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
           <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
-          <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
-            {[50,100,200,500].map(n=> <option key={n} value={n}>{n}/página</option>)}
-          </select>
+          {/* Intervalo a la derecha de Prev/Next */}
+          <span className="opacity-80">{total === 0 ? "Sin resultados" : `Mostrando ${start}–${end} de ${total}`}</span>
         </div>
       </div>
 
@@ -131,9 +130,11 @@ export default function ProveedorPage() {
         </div>
       )}
 
-      <div className="flex items-center justify-between text-sm">
-        <div className="opacity-80">{total === 0 ? "Sin resultados" : `Mostrando ${start}–${end} de ${total}`}</div>
-        <div className="opacity-50">Límite: {limit}/página</div>
+      {/* Footer: solo selector de tamaño de página a la derecha */}
+      <div className="flex items-center justify-end text-sm">
+        <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
+          {[50,100,200,500].map(n=> <option key={n} value={n}>{n}/página</option>)}
+        </select>
       </div>
     </div>
   );
