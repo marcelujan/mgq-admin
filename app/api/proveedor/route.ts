@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Pool } from "pg";
+import { neon } from "@neondatabase/serverless";
 
-const pool = new Pool({
-  connectionString: process.env.NEON_DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+const sql = neon(process.env.NEON_DATABASE_URL!);
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -21,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
   if (onlyAct) where.push(`"Prov Act" = true`);
 
-  const sql = `
+  const query = `
     SELECT "Prov Artículo","Prov Pres","Prov UOM","Prov Costo","Prov CostoUn",
            "Prov Act","Prov URL","Prov Desc","Prov [g/mL]"
     FROM app.v_prov_min
@@ -30,11 +27,6 @@ export async function GET(req: NextRequest) {
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(sql, params);
-    return NextResponse.json(rows);
-  } finally {
-    client.release();
-  }
+  const rows = await sql.unsafe(query, params);
+  return NextResponse.json(rows);
 }
