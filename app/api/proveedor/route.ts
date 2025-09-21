@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // ⚠️ Garantiza que exista la tabla usada para g/mL (evita 500 si aún no fue creada)
+    // Garantiza tabla usada para g/mL
     await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
       product_id bigint primary key,
       g_per_ml numeric(10,2) not null default 1.00
@@ -16,16 +16,29 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const onlyAct = searchParams.get("activos") === "true";
-    const limit = Math.min(Number(searchParams.get("limit") || "50"), 200);
+    const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
-    const where: string[] = [];
+    // WHERE separado para data (alias b) y count (alias mt)
+    const whereData: string[] = [];
+    const whereCount: string[] = [];
     const params: any[] = [];
-    let idx = 1;
+    const paramsCount: any[] = [];
+    let i1 = 1, i2 = 1;
 
-    if (q) { where.push(`(mt.prov_articulo ILIKE $${idx++})`); params.push(`%${q}%`); }
-    if (onlyAct) where.push('EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = mt.product_id)');
-    const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    if (q) {
+      whereData.push(`(b.prov_articulo ILIKE $${i1++})`);
+      params.push(`%${q}%`);
+      whereCount.push(`(mt.prov_articulo ILIKE $${i2++})`);
+      paramsCount.push(`%${q}%`);
+    }
+    if (onlyAct) {
+      whereData.push(`EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id)`);
+      whereCount.push(`EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = mt.product_id)`);
+    }
+
+    const whereSQLData = whereData.length ? `WHERE ${whereData.join(" AND ")}` : "";
+    const whereSQLCount = whereCount.length ? `WHERE ${whereCount.join(" AND ")}` : "";
 
     const dataQuery = `
       WITH pp AS (
@@ -94,7 +107,7 @@ export async function GET(req: NextRequest) {
         b.product_presentation_id AS "_pp_id"
       FROM base b
       LEFT JOIN gml ON gml.product_id = b.product_id
-      ${whereSQL}
+      ${whereSQLData}
       ORDER BY b.prov_articulo NULLS LAST
       LIMIT ${limit} OFFSET ${offset}`;
 
@@ -124,10 +137,10 @@ export async function GET(req: NextRequest) {
       )
       SELECT COUNT(*)::bigint AS total
       FROM match mt
-      ${whereSQL.replace('mt.prov_articulo','mt.prov_articulo')}`;
+      ${whereSQLCount}`;
 
     const rows = await sql(dataQuery, params as any);
-    const totalRes = await sql(countQuery, params as any);
+    const totalRes = await sql(countQuery, paramsCount as any);
     return NextResponse.json({ rows, total: Number(totalRes[0]?.total || 0) });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

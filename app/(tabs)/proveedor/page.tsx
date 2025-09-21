@@ -29,7 +29,6 @@ const columns = [
   "Prov [g/mL]",
 ] as const;
 
-// Single definition of nf0 (was duplicated before)
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 export default function ProveedorPage() {
@@ -38,7 +37,7 @@ export default function ProveedorPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [onlyAct, setOnlyAct] = useState(false);
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(100); // default 100
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
 
@@ -49,7 +48,15 @@ export default function ProveedorPage() {
       try {
         const params = new URLSearchParams({ q, activos: String(onlyAct), limit: String(limit), offset: String(offset) });
         const res = await fetch(`/api/proveedor?${params.toString()}`, { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          // Intenta leer el cuerpo para mostrar mensaje real del backend
+          let msg = `HTTP ${res.status}`;
+          try {
+            const j = await res.json();
+            if (j?.error) msg = j.error;
+          } catch {}
+          throw new Error(msg);
+        }
         const data = await res.json();
         setRows(data.rows);
         setTotal(data.total ?? 0);
@@ -84,7 +91,7 @@ export default function ProveedorPage() {
           <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
           <button disabled={offset+limit>=total} onClick={()=> setOffset(offset + limit)} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Next</button>
           <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
-            {[25,50,100,200].map(n=> <option key={n} value={n}>{n}/página</option>)}
+            {[50,100,200,500].map(n=> <option key={n} value={n}>{n}/página</option>)}
           </select>
         </div>
       </div>
