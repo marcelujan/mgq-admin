@@ -7,7 +7,6 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // Garantiza tabla usada para g/mL
     await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
       product_id bigint primary key,
       g_per_ml numeric(10,2) not null default 1.00
@@ -19,7 +18,6 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
-    // WHERE separado para data (alias b) y count (alias mt)
     const whereData: string[] = [];
     const whereCount: string[] = [];
     const params: any[] = [];
@@ -60,14 +58,13 @@ export async function GET(req: NextRequest) {
       ), act AS (
         SELECT MAX(updated_at) AS prov_act_ts FROM src.supplier_items
       ), match AS (
+        -- ⚠️ No filtres por igualdad de qty/uom: queremos mantener SIEMPRE la fila de pp
         SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
                si.prov_articulo, si.prov_desc, si.prov_url
         FROM pp
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
         LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
-        WHERE (sp.qty IS NULL OR sp.qty = pp.qty)
-          AND (sp.uom_id IS NULL OR sp.uom_id = pp.uom_id)
       ), cost AS (
         SELECT product_presentation_id, costo_ars
         FROM app.v_product_costs
@@ -98,7 +95,6 @@ export async function GET(req: NextRequest) {
         CAST(b.qty AS bigint) AS "Prov Pres",
         CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE 'GR' END AS "Prov UOM",
         CAST(b.costo_ars AS bigint) AS "Prov Costo",
-        -- FIX: agregar tipo al CAST
         CAST(ROUND(CASE WHEN b.uom_code IN ('g','mL') THEN b.costo_un * 1000 ELSE b.costo_un END) AS bigint) AS "Prov CostoUn",
         (SELECT prov_act_ts FROM act) AS "Prov Act",
         b.prov_url AS "Prov URL",
@@ -133,8 +129,6 @@ export async function GET(req: NextRequest) {
         LEFT JOIN map m ON m.product_id = pp.product_id
         LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
         LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
-        WHERE (sp.qty IS NULL OR sp.qty = pp.qty)
-          AND (sp.uom_id IS NULL OR sp.uom_id = pp.uom_id)
       )
       SELECT COUNT(*)::bigint AS total
       FROM match mt
