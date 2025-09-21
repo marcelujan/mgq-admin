@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
+    // Asegura la tabla meta (g/mL)
     await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
       product_id bigint primary key,
       g_per_ml numeric(10,2) not null default 1.00
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
+    // WHERE separado para data (b) y count (mt)
     const whereData: string[] = [];
     const whereCount: string[] = [];
     const params: any[] = [];
@@ -58,7 +60,7 @@ export async function GET(req: NextRequest) {
       ), act AS (
         SELECT MAX(updated_at) AS prov_act_ts FROM src.supplier_items
       ), match AS (
-        -- ⚠️ No filtres por igualdad de qty/uom: queremos mantener SIEMPRE la fila de pp
+        -- No filtramos por igualdad de qty/uom para no perder filas al editar UOM
         SELECT pp.product_id, pp.product_presentation_id, pp.qty, pp.uom_id,
                si.prov_articulo, si.prov_desc, si.prov_url
         FROM pp
@@ -78,8 +80,10 @@ export async function GET(req: NextRequest) {
           mt.prov_articulo,
           mt.qty,
           u.uom_code,
-          c.costo_ars,
-          CASE WHEN mt.qty IS NULL OR mt.qty=0 THEN NULL ELSE (c.costo_ars)::numeric/mt.qty END AS costo_un,
+          COALESCE(c.costo_ars, 0)::numeric AS costo_ars,
+          CASE WHEN NULLIF(mt.qty,0) IS NULL THEN NULL
+               ELSE (COALESCE(c.costo_ars,0))::numeric / NULLIF(mt.qty,0)
+          END AS costo_un,
           COALESCE(mt.prov_url, p.prov_url) AS prov_url,
           COALESCE(mt.prov_desc, p.prov_desc) AS prov_desc
         FROM match mt
