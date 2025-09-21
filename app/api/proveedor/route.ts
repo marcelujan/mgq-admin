@@ -98,8 +98,8 @@ export async function GET(req: NextRequest) {
         CAST(b.qty AS bigint) AS "Prov Pres",
         CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE 'GR' END AS "Prov UOM",
         CAST(b.costo_ars AS bigint) AS "Prov Costo",
-        -- Ajuste: si UOM es g o mL, llevar costo_un a mil (precio por kg/L)
-        CAST(ROUND(CASE WHEN b.uom_code IN ('g','mL') THEN b.costo_un * 1000 ELSE b.costo_un END)) AS "Prov CostoUn",
+        -- FIX: agregar tipo al CAST
+        CAST(ROUND(CASE WHEN b.uom_code IN ('g','mL') THEN b.costo_un * 1000 ELSE b.costo_un END) AS bigint) AS "Prov CostoUn",
         (SELECT prov_act_ts FROM act) AS "Prov Act",
         b.prov_url AS "Prov URL",
         b.prov_desc AS "Prov Desc",
