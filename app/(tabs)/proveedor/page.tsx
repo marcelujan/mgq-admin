@@ -161,6 +161,10 @@ export default function ProveedorPage() {
                 onClose={(updated) => {
                   setEditorOpen(false);
                   if (updated) {
+                    if ((updated as any)._deleted && updated._prov_id) {
+                      setRows(prev => prev.filter(r => r["_prov_id"] !== updated._prov_id));
+                      return;
+                    }
                     // refrescar en memoria
                     setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r)));
                   }
@@ -268,7 +272,11 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
 
   // Solo lectura para UOM y densidad (edición en drawer)
   if (key === "Prov UOM") return (row["Prov UOM"] ?? "") as any;
-  if (key === "Prov [g/mL]") return (row["Prov [g/mL]"] ?? "") as any;
+  if (key === "Prov [g/mL]") {
+    const num = typeof v === "number" ? v : Number(v ?? "");
+    if (!isNaN(num)) return num.toFixed(2);
+    return (v ?? "") as any;
+  }
 
   // Formateos
   if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
@@ -425,7 +433,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
         <span className="text-xs">prov_densidad</span>
         <input name="prov_densidad" type="number" step="0.01"
                className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1"
-               defaultValue={(row["Prov [g/mL]"] ?? "") as any} />
+               defaultValue={String((row["Prov [g/mL]"] ?? ""))} />
       </label>
 
       <label className="inline-flex items-center gap-2">
@@ -437,6 +445,20 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
         <button disabled={saving} type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando..." : "Guardar"}</button>
         <button type="button" onClick={()=>onClose()} className="px-3 py-1 rounded bg-zinc-700">Cancelar</button>
       </div>
+      <button type="button"
+              onClick={async ()=>{
+                if (!confirm("¿Eliminar esta fila?")) return;
+                try{
+                  const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
+                  const res = await fetch("/api/proveedor/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prov_id: id }) });
+                  const json = await res.json();
+                  if (!res.ok || !json.ok) throw new Error(json.error || "Error al eliminar");
+                  onClose({ _deleted: true, _prov_id: id });
+                } catch(e){ console.error(e); }
+              }}
+              className="mt-3 px-3 py-1 rounded bg-red-600">
+        Eliminar fila
+      </button>
     </form>
   );
 }
