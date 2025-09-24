@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 type Row = {
+  [""]?: null; // columna de acciones sin encabezado
   ["Prov *"]?: boolean | string | null;
   ["Prov Artículo"]?: string;
   ["Prov Pres"]?: number | string | null;
@@ -29,6 +31,7 @@ const columns = [
   "Prov URL",
   "Prov Desc",
   "Prov [g/mL]",
+  "",
 ] as const;
 
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
@@ -107,6 +110,9 @@ export default function ProveedorPage() {
             <thead>
               <tr>
                 {columns.map((c) => {
+                  if (c === "") return (
+                    <th key="__actions" className="border border-zinc-700 px-1 py-2 bg-zinc-700 text-zinc-100 sticky top-0 w-10"></th>
+                  );
                   const [top, bottom] = splitHeader(c);
                   return (
                     <th key={c} className="border border-zinc-700 px-2 py-2 text-center bg-zinc-700 text-zinc-100 sticky top-0">
@@ -197,6 +203,18 @@ async function updateRow(payload: any){
 
 function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>) {
   const v = row[key];
+  // desactivar edición inline para UOM y densidad
+  if (key === "Prov UOM") return (row["Prov UOM"] ?? "") as any;
+  if (key === "Prov [g/mL]") return (row["Prov [g/mL]"] ?? "") as any;
+  // columna de acciones (sin encabezado)
+  if (key === "") {
+    const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
+    return (
+      <Link href={`/proveedor/${id}`} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
+        <PencilIcon />
+      </Link>
+    );
+  }
   if (key === "Prov *") {
   const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
   return (
@@ -286,4 +304,13 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   }
   if (typeof v === "boolean") return v ? "Sí" : "No";
   return (v ?? "") as any;
+}
+
+function PencilIcon(){
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/>
+      <path d="M20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"/>
+    </svg>
+  );
 }
