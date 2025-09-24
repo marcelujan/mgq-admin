@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const id = Number(body?.prov_id ?? body?._prov_id ?? body?.id ?? body?._id);
-    const ppId = NaN; // eliminada columna product_presentation_id
+    const ppId = NaN; // eliminada columna prov_presentacion
     const productId = Number(body?._product_id ?? body?.product_id);
 
     let row;

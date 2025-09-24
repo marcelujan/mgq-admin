@@ -13,7 +13,7 @@ type Row = {
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
   ["_product_id"]?: number;
-  ["_pp_id"]?: number;
+  ["_prov_id"]?: number;
 
   ["_prov_id"]?: number;
 };
@@ -229,7 +229,7 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
         onChange={async (e) => {
           const human = e.target.value as "GR" | "ML" | "UN";
           setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov UOM"]: human } : r));
-          await updateRow({ pp_id: row["_pp_id"], uom: human });
+          await updateRow({ prov_id: row["_prov_id"], uom: human });
         }}
         className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1"
       >
