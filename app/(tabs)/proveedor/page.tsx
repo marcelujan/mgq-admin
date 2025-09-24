@@ -337,10 +337,13 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   if (key === "Prov CostoUn" && (v == null || v === "")) {
     const costo = Number(row["Prov Costo"] ?? 0);
     const pres = Number(row["Prov Pres"] ?? 0);
-    if (costo > 0 && pres > 0 && (row["Prov UOM"] === "GR" || row["Prov UOM"] === "ML")) {
-      const calc = Math.round(costo / pres);
+    const uom = row["Prov UOM"];
+    if (costo > 0 && pres > 0 && (uom === "GR" || uom === "ML")) {
+      // convertir a costo por kilo/litro (multiplicar por 1000)
+      const calc = Math.round((costo * 1000) / pres);
       return nf0.format(calc);
     }
+  }
   }
   if (key === "Prov Act" && v) {
     return formatHumanDate(v);
