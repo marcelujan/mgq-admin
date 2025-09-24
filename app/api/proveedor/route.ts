@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
-    const onlyAct = searchParams.get("activos") === "true";
     const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
@@ -31,10 +30,6 @@ export async function GET(req: NextRequest) {
       params.push(`%${q}%`);
       whereCount.push(`(mt.prov_articulo ILIKE $${i2++})`);
       paramsCount.push(`%${q}%`);
-    }
-    if (onlyAct) {
-      whereData.push(`EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id)`);
-      whereCount.push(`EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = mt.product_id)`);
     }
 
     const whereSQLData = whereData.length ? `WHERE ${whereData.join(" AND ")}` : "";
@@ -55,9 +50,9 @@ export async function GET(req: NextRequest) {
         FROM src.supplier_presentations sp
       ), si AS (
         SELECT si.id AS supplier_item_id,
-               si.nombre_proveedor AS prov_articulo,
-               si.descripcion_proveedor AS prov_desc,
-               si.url AS prov_url,
+               si.nombre_proveedor       AS prov_articulo,
+               si.descripcion_proveedor  AS prov_desc,
+               si.url                    AS prov_url,
                si.updated_at
         FROM src.supplier_items si
       ), act AS (
@@ -101,22 +96,24 @@ export async function GET(req: NextRequest) {
           CASE WHEN NULLIF(mt.qty,0) IS NULL THEN NULL
                ELSE (COALESCE(cp.costo_ars,0))::numeric / NULLIF(mt.qty,0)
           END AS costo_un,
-          COALESCE(mt.prov_url, p.prov_url) AS prov_url,
-          COALESCE(mt.prov_desc, p.prov_desc) AS prov_desc
+          mt.prov_url,
+          mt.prov_desc
         FROM match mt
         LEFT JOIN cost_prod cp ON cp.product_id = mt.product_id
         LEFT JOIN u ON u.id = mt.uom_id
-        LEFT JOIN app.products p ON p.id = mt.product_id
       ), gml AS (
         SELECT product_id, g_per_ml FROM app.product_meta
       )
       SELECT
-        EXISTS (SELECT 1 FROM app.enabled_products ep WHERE ep.product_id = b.product_id) AS "Prov *",
+        false AS "Prov *", -- quitamos selección manual (se reiniciará más adelante)
         b.prov_articulo AS "Prov Artículo",
         CAST(b.qty AS bigint) AS "Prov Pres",
-        CASE WHEN b.uom_code='g' THEN 'GR' WHEN b.uom_code='mL' THEN 'ML' WHEN b.uom_code='UN' THEN 'UN' ELSE 'GR' END AS "Prov UOM",
+        CASE WHEN b.uom_code IN ('g','GR') THEN 'GR'
+             WHEN b.uom_code IN ('mL','ML','cm3') THEN 'ML'
+             ELSE 'UN' END AS "Prov UOM",
         CAST(b.costo_ars AS bigint) AS "Prov Costo",
-        CAST(ROUND(CASE WHEN b.uom_code IN ('g','mL') THEN b.costo_un * 1000 ELSE b.costo_un END) AS bigint) AS "Prov CostoUn",
+        CAST(ROUND(CASE WHEN b.uom_code IN ('g','GR','mL','ML','cm3')
+                        THEN b.costo_un * 1000 ELSE b.costo_un END) AS bigint) AS "Prov CostoUn",
         (SELECT prov_act_ts FROM act) AS "Prov Act",
         b.prov_url AS "Prov URL",
         b.prov_desc AS "Prov Desc",
