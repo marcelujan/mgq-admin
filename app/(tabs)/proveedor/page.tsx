@@ -132,7 +132,7 @@ export default function ProveedorPage() {
                 <tr key={i} className="hover:bg-zinc-800">
                   {columns.map((c) => (
                     <td key={c} className="border border-zinc-800 px-2 py-2 align-top text-center">
-                      {renderCell(r, c, setRows)}
+                      {renderCell(r, c, setRows, (row)=>{ setEditorRow(row); setEditorOpen(true); })}
                     </td>
                   ))}
                 </tr>
@@ -230,7 +230,7 @@ async function updateRow(payload: any){
   });
 }
 
-function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>) {
+function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>, onEdit?: (row: Row)=>void) {
   const v = row[key];
   // desactivar edición inline para UOM y densidad
   if (key === "Prov UOM") return (row["Prov UOM"] ?? "") as any;
@@ -239,7 +239,7 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   if (key === "") {
     const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
     return (
-      <button onClick={() => { setEditorRow(row); setEditorOpen(true); }} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
+      <button onClick={() => onEdit && onEdit(row)} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
         <PencilIcon />
       </button>
     );
