@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
-function toBool(v:any, dflt:boolean=false){
-  if (v===undefined||v===null) return dflt;
-  const t = String(v).trim().toLowerCase();
-  if (["1","true","sí","si","yes","y"].includes(t)) return true;
-  if (["0","false","no","n"].includes(t)) return false;
-  return dflt;
-}
-
-
 async function parseIdValue(req: NextRequest): Promise<{ id: number | null, value: boolean | "toggle" | null }> {
   const url = new URL(req.url);
   const sp = url.searchParams;
@@ -33,18 +24,11 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
     sp.get("prov_id") ?? sp.get("_prov_id") ?? sp.get("id") ?? sp.get("_id") ??
     (form ? (form.get("prov_id") ?? form.get("_prov_id") ?? form.get("id") ?? form.get("_id")) : null);
 
-  const ppIdRaw =
-    pick(body, ["_pp_id","product_presentation_id"]) ??
-    sp.get("_pp_id") ?? sp.get("product_presentation_id") ??
-    (form ? (form.get("_pp_id") ?? form.get("product_presentation_id")) : null);
-
   const productIdRaw =
     pick(body, ["_product_id","product_id"]) ??
     sp.get("_product_id") ?? sp.get("product_id") ??
     (form ? (form.get("_product_id") ?? form.get("product_id")) : null);
 
-  const conCostoRaw = sp.get("con_costo") ?? (form ? form.get("con_costo") : null) ?? (body ? body.con_costo : null);
-  const conCosto = toBool(conCostoRaw, true);
   const valueRaw =
     pick(body, ["value"]) ?? sp.get("value") ?? (form ? form.get("value") : null);
 
@@ -72,8 +56,7 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
         const sql = neon(DB!);
         const params:any[] = [];
         const conds:string[] = [];
-          if (conCosto) conds.push(`prov_costo IS NOT NULL AND prov_costo > 0`);
-if (Number.isFinite(ppId)) conds.push(`product_presentation_id = $${params.push(ppId)}`);
+        if (Number.isFinite(ppId)) conds.push(`prov_presentacion = $${params.push(ppId)}`);
         if (Number.isFinite(productId)) conds.push(`product_id = $${params.push(productId)}`);
         const q = `SELECT prov_id FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
         const found:any[] = await sql(q, params as any);
@@ -128,7 +111,7 @@ export async function GET(req: NextRequest) {
         prov_id             AS "_prov_id",
         prov_id             AS "_id",
         product_id          AS "_product_id",
-        product_presentation_id AS "_pp_id"
+        prov_presentacion AS "_pp_id"
       FROM app.proveedor
       ${whereSQL}
       ORDER BY "Prov Artículo" NULLS LAST
