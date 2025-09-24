@@ -36,6 +36,46 @@ const columns = [
 
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
+function toISODate(input: any): string | null {
+  if (!input) return null;
+  if (typeof input === "string") {
+    // If already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+    // If comes like DD/MM/YYYY
+    const m = input.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const dd = m[1].padStart(2, "0");
+      const mm = m[2].padStart(2, "0");
+      const yyyy = m[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    // Try Date parse fallback
+    const d = new Date(input);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth()+1).padStart(2,"0");
+      const dd = String(d.getDate()).padStart(2,"0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  }
+  if (input instanceof Date && !isNaN(input.getTime())) {
+    const yyyy = input.getFullYear();
+    const mm = String(input.getMonth()+1).padStart(2,"0");
+    const dd = String(input.getDate()).padStart(2,"0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return null;
+}
+
+function formatHumanDate(input: any): string {
+  const iso = toISODate(input);
+  if (!iso) return String(input ?? "");
+  const [yyyy, mm, dd] = iso.split("-");
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+
 export default function ProveedorPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -283,9 +323,8 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
     const num = typeof v === 'string' ? Number(v) : (v as number);
     if (!isNaN(num)) return nf0.format(Math.round(num));
   }
-  if (key === "Prov Act" && typeof v === 'string' && v) {
-    const dt = new Date(v);
-    return dt.toLocaleDateString('es-AR');
+  if (key === "Prov Act" && v) {
+    return formatHumanDate(v);
   }
   if (key === "Prov URL" && typeof v === "string" && v) {
     return (
@@ -341,6 +380,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
       if (["prov_presentacion","prov_costo","product_id","prov_id"].includes(key)) payload[key] = Number(val);
       else if (key === "prov_densidad") payload[key] = Number(val);
       else if (key === "prov_favoritos") payload[key] = (val === "on" || val === "true" || val === "1");
+      else if (key === "prov_act") payload[key] = toISODate(val as string);
       else payload[key] = val;
     });
     if (!payload.prov_id) payload.prov_id = row["_prov_id"] as number;
