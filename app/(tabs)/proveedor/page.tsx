@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+
 
 type Row = {
   [""]?: null; // columna de acciones sin encabezado
@@ -45,6 +45,10 @@ export default function ProveedorPage() {
   const [limit, setLimit] = useState(100); // default 100
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorRow, setEditorRow] = useState<Row | null>(null);
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -143,7 +147,32 @@ export default function ProveedorPage() {
         <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
           {[50,100,200,500].map(n=> <option key={n} value={n}>{n}/página</option>)}
         </select>
-      </div>
+      
+      {/* Drawer de edición */}
+      {editorOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setEditorOpen(false)} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-zinc-900 border-l border-zinc-800 shadow-2xl p-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold">Editar fila</h2>
+              <button onClick={() => setEditorOpen(false)} className="px-2 py-1 rounded hover:bg-zinc-800">Cerrar</button>
+            </div>
+            {editorRow ? (
+              <EditForm
+                row={editorRow}
+                onClose={(updated) => {
+                  setEditorOpen(false);
+                  if (updated) {
+                    // refrescar en memoria
+                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r)));
+                  }
+                }}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
+</div>
     </div>
   );
 }
@@ -210,9 +239,9 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   if (key === "") {
     const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
     return (
-      <Link href={`/proveedor/${id}`} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
+      <button onClick={() => { setEditorRow(row); setEditorOpen(true); }} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
         <PencilIcon />
-      </Link>
+      </button>
     );
   }
   if (key === "Prov *") {
@@ -304,6 +333,98 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   }
   if (typeof v === "boolean") return v ? "Sí" : "No";
   return (v ?? "") as any;
+}
+
+type EditPayload = {
+  prov_id?: number;
+  product_id?: number;
+  prov_articulo?: string;
+  prov_presentacion?: number | null;
+  prov_uom?: string | null;
+  prov_costo?: number | null;
+  prov_costoun?: number | null;
+  prov_act?: string | null;
+  prov_url?: string | null;
+  prov_descripcion?: string | null;
+  prov_densidad?: number | null;
+  prov_favoritos?: boolean | null;
+};
+
+function fieldVal(v:any){ return v === undefined ? "" : (v ?? ""); }
+
+function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }){
+  const [saving, setSaving] = useState(false);
+  const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const payload: any = {};
+    fd.forEach((val, key) => {
+      if (val === "") return;
+      if (["prov_presentacion","prov_costo","prov_costoun","product_id","prov_id"].includes(key)) payload[key] = Number(val);
+      else if (key === "prov_densidad") payload[key] = Number(val);
+      else if (key === "prov_favoritos") payload[key] = (val === "on" || val === "true" || val === "1");
+      else payload[key] = val;
+    });
+    if (!payload.prov_id) payload.prov_id = row["_prov_id"] as number;
+    setSaving(true);
+    try{
+      const res = await fetch("/api/proveedor/update", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" }
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Error al actualizar");
+      const updated = {
+        ...row,
+        ["Prov Artículo"]: payload.prov_articulo ?? row["Prov Artículo"],
+        ["Prov Pres"]: payload.prov_presentacion ?? row["Prov Pres"],
+        ["Prov UOM"]: payload.prov_uom ?? row["Prov UOM"],
+        ["Prov Costo"]: payload.prov_costo ?? row["Prov Costo"],
+        ["Prov CostoUn"]: payload.prov_costoun ?? row["Prov CostoUn"],
+        ["Prov Act"]: payload.prov_act ?? row["Prov Act"],
+        ["Prov URL"]: payload.prov_url ?? row["Prov URL"],
+        ["Prov Desc"]: payload.prov_descripcion ?? row["Prov Desc"],
+        ["Prov [g/mL]"]: payload.prov_densidad ?? row["Prov [g/mL]"],
+        ["_product_id"]: payload.product_id ?? row["_product_id"],
+      };
+      onClose(updated);
+    } catch(e){
+      console.error(e);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
+      <input type="hidden" name="prov_id" defaultValue={String(row["_prov_id"] ?? "")} />
+      <label className="grid gap-1"><span className="text-xs">prov_articulo</span><input name="prov_articulo" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Artículo"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_presentacion</span><input name="prov_presentacion" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Pres"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_uom</span>
+        <select name="prov_uom" defaultValue={fieldVal(row["Prov UOM"])} className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1">
+          <option value=""></option>
+          <option value="GR">GR</option>
+          <option value="ML">ML</option>
+          <option value="UN">UN</option>
+        </select>
+      </label>
+      <label className="grid gap-1"><span className="text-xs">prov_costo</span><input name="prov_costo" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Costo"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_costoun</span><input name="prov_costoun" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov CostoUn"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_act</span><input name="prov_act" type="date" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Act"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_url</span><input name="prov_url" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov URL"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_descripcion</span><textarea name="prov_descripcion" rows={4} className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Desc"])} /></label>
+      <label className="grid gap-1"><span className="text-xs">prov_densidad</span><input name="prov_densidad" type="number" step="0.01" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov [g/mL]"])} /></label>
+      <label className="inline-flex items-center gap-2"><input type="checkbox" name="prov_favoritos" defaultChecked={!!row["Prov *"]} /><span className="text-xs">prov_favoritos</span></label>
+      <div className="flex gap-2 mt-2">
+        <button disabled={saving} type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando..." : "Guardar"}</button>
+        <button type="button" onClick={()=>onClose()} className="px-3 py-1 rounded bg-zinc-700">Cancelar</button>
+      </div>
+    </form>
+  );
 }
 
 function PencilIcon(){
