@@ -13,7 +13,7 @@ type Row = {
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
   ["_product_id"]?: number;
-  ["_prov_id"]?: number;
+  ["_pp_id"]?: number;
 
   ["_prov_id"]?: number;
 };
@@ -38,8 +38,7 @@ export default function ProveedorPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [onlyAct, setOnlyAct] = useState(true);
-  const [conCosto, setConCosto] = useState(true);
+  const [onlyAct, setOnlyAct] = useState(false);
   const [limit, setLimit] = useState(100); // default 100
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -230,7 +229,7 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
         onChange={async (e) => {
           const human = e.target.value as "GR" | "ML" | "UN";
           setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov UOM"]: human } : r));
-          await updateRow({ prov_id: row["_prov_id"], uom: human });
+          await updateRow({ pp_id: row["_pp_id"], uom: human });
         }}
         className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1"
       >
