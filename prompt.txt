@@ -1,0 +1,16 @@
+Tengo un proyecto llamado 'mgq-admin' en Vercel que está conectado a una base de datos en Neon Console llamada 'MGq'.
+
+Proyecto Neon: MGq
+ID del proyecto: solitary-king-14511939
+PostgreSQL: versión 17
+Provisionado con: k8s-neonvm (máquinas virtuales Neon en Kubernetes)
+Endpoint: c-2.us-east-1.aws.neon.tech
+Conexiones públicas: permitidas (no bloqueadas)
+Conexiones VPC: no bloqueadas
+Replicación lógica: deshabilitada
+Integración con Vercel: el frontend mgq-admin corre en Vercel, consumiendo esta base de datos MGq.
+
+
+
+
+
