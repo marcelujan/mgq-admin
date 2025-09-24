@@ -19,16 +19,16 @@ Pres, Costo y CostoUn son números enteros, sin decimales, con separador de mile
 CostoUn debe multiplicarse por mil si esta seleccionado UOM GR o ML (No así si esta seleccionado UN)
 
 Yo creo que deberiamos crear la tabla 'Proveedor' y almacenar allí las columnas:
-"Prov_favoritos": son los check de favoritos que llamamos columna 'Prov *' actualmente
-"Prov Artículo": nombre del articulo segun el proveedor
-"Prov Pres": presentaciones ofrecidas por el proveedor como numero entero con separador de miles '.'
-"Prov UOM": GR, ML o UN
-"Prov Costo": costo ofrecido por el proveedor como numero entero con separador de miles '.'
-"Prov CostoUn": calculo entre Costo y Pres segun UOM.
-"Prov Act": Fecha de ultima actualizacion de precio como DD/MM/YYYY
-"Prov URL": URL de enlace al articulo del proveedor si existe
-"Prov Desc": descripcion del articulo por parte del proveedor si existe
-"Prov [g/mL]": densidad del articulo, numero con 2 decimales (por defecto 1,00) si no se puede usar corchetes lo llamemos Prov_Densidad
+"prov_favoritos": son los check de favoritos que llamamos columna 'Prov *' actualmente en la tabla de proveedores.
+"prov_articulo": nombre del articulo segun el proveedor
+"prov_presentacion": presentaciones ofrecidas por el proveedor como numero entero con separador de miles '.'
+"prov_uom": GR, ML o UN
+"prov_costo": costo ofrecido por el proveedor como numero entero con separador de miles '.'
+"prov_costoun": calculo entre prov_costo y prov_presentacion segun UOM. prov_costoun debe multiplicarse por mil si el UOM seleccionado es GR o ML (No así si esta seleccionado UN)
+"prov_act": fecha de ultima actualizacion de prov_costo como DD/MM/YYYY
+"prov_url": URL de enlace al articulo del proveedor si existe
+"prov_descripcion": descripcion del articulo por parte del proveedor si existe
+"prov_densidad": densidad del articulo, numero con 2 decimales (por defecto 1,00)
 
 Con esos nombres me parece facil de entender que es cada columna. 
 Luego migramos datos de las variables que actualmente los almacenan para poder eliminarlas despues.
