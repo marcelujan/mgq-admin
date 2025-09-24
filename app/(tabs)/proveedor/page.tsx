@@ -85,7 +85,7 @@ export default function ProveedorPage() {
         />
         <label className="text-sm flex items-center gap-2">
           <input type="checkbox" checked={onlyAct} onChange={(e) => { setOffset(0); setOnlyAct(e.target.checked); }} />
-          Solo activos
+          Solo favoritos
         </label>
         <div className="ml-auto flex items-center gap-2 text-sm">
           <button disabled={offset===0} onClick={()=> setOffset(Math.max(0, offset - limit))} className="px-3 py-1 border rounded-xl disabled:opacity-50 border-zinc-700 bg-zinc-800 hover:bg-zinc-700">Prev</button>
