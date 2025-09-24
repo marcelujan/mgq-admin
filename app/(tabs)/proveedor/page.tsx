@@ -14,6 +14,8 @@ type Row = {
   ["Prov [g/mL]"]?: number | string | null;
   ["_product_id"]?: number;
   ["_pp_id"]?: number;
+
+  ["_prov_id"]?: number;
 };
 
 const columns = [
