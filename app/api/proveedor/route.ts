@@ -7,164 +7,52 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // Meta para g/mL (idempotente)
-    await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
-      product_id bigint primary key,
-      g_per_ml numeric(10,2) not null default 1.00
-    );`);
-
     const { searchParams } = new URL(req.url);
     const q = (searchParams.get("q") || "").trim();
     const limit = Math.min(Number(searchParams.get("limit") || "100"), 500);
     const offset = Math.max(Number(searchParams.get("offset") || "0"), 0);
 
-    // WHERE para data (b) y count (mt)
-    const whereData: string[] = [];
-    const whereCount: string[] = [];
+    const where: string[] = [];
     const params: any[] = [];
     const paramsCount: any[] = [];
-    let i1 = 1, i2 = 1;
+    let i = 1;
+    let j = 1;
 
     if (q) {
-      whereData.push(`(b.prov_articulo ILIKE $${i1++})`);
+      where.push(`prov_articulo ILIKE $${i++}`);
       params.push(`%${q}%`);
-      whereCount.push(`(mt.prov_articulo ILIKE $${i2++})`);
       paramsCount.push(`%${q}%`);
     }
 
-    const whereSQLData = whereData.length ? `WHERE ${whereData.join(" AND ")}` : "";
-    const whereSQLCount = whereCount.length ? `WHERE ${whereCount.join(" AND ")}` : "";
+    const whereSQL = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    // -------------------------
-    // DATA
-    // -------------------------
     const dataQuery = `
-      WITH pp AS (
-        SELECT id AS product_presentation_id, product_id, prov_pres AS qty, prov_uom_id AS uom_id
-        FROM app.product_presentations
-      ), map AS (
-        SELECT psp.product_id, psp.supplier_presentation_id
-        FROM app.product_source_presentations psp
-      ), sp AS (
-        SELECT sp.id AS supplier_presentation_id, sp.supplier_item_id, sp.qty, sp.uom_id
-        FROM src.supplier_presentations sp
-      ), si AS (
-        SELECT si.id AS supplier_item_id,
-               si.nombre_proveedor       AS prov_articulo,
-               si.descripcion_proveedor  AS prov_desc,
-               si.url                    AS prov_url,
-               si.updated_at
-        FROM src.supplier_items si
-      ), act AS (
-        SELECT MAX(updated_at) AS prov_act_ts FROM src.supplier_items
-      ), match_full AS (
-        SELECT
-          pp.product_id,
-          pp.product_presentation_id,
-          pp.qty,
-          pp.uom_id,
-          si.prov_articulo,
-          si.prov_desc,
-          si.prov_url,
-          ROW_NUMBER() OVER (
-            PARTITION BY pp.product_presentation_id
-            ORDER BY si.updated_at DESC NULLS LAST, si.supplier_item_id DESC NULLS LAST
-          ) AS rn
-        FROM pp
-        LEFT JOIN map m ON m.product_id = pp.product_id
-        LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
-        LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
-      ), match AS (
-        SELECT * FROM match_full WHERE rn = 1
-      ), u AS (
-        SELECT id, codigo AS uom_code
-        FROM ref.uoms
-      ), cost_prod AS (
-        -- Costo por producto (independiente de UOM/qty): tomamos el mayor
-        SELECT pp.product_id, MAX(c.costo_ars) AS costo_ars
-        FROM app.v_product_costs c
-        JOIN app.product_presentations pp ON pp.id = c.product_presentation_id
-        GROUP BY pp.product_id
-      ), base AS (
-        SELECT
-          mt.product_id,
-          mt.product_presentation_id,
-          mt.prov_articulo,
-          mt.qty,
-          u.uom_code,
-          COALESCE(cp.costo_ars, 0)::numeric AS costo_ars,
-          CASE WHEN NULLIF(mt.qty,0) IS NULL THEN NULL
-               ELSE (COALESCE(cp.costo_ars,0))::numeric / NULLIF(mt.qty,0)
-          END AS costo_un,
-          mt.prov_url,
-          mt.prov_desc
-        FROM match mt
-        LEFT JOIN cost_prod cp ON cp.product_id = mt.product_id
-        LEFT JOIN u ON u.id = mt.uom_id
-      ), gml AS (
-        SELECT product_id, g_per_ml FROM app.product_meta
-      )
       SELECT
-        false AS "Prov *", -- quitamos selección manual (se reiniciará más adelante)
-        b.prov_articulo AS "Prov Artículo",
-        CAST(b.qty AS bigint) AS "Prov Pres",
-        CASE WHEN b.uom_code IN ('g','GR') THEN 'GR'
-             WHEN b.uom_code IN ('mL','ML','cm3') THEN 'ML'
-             ELSE 'UN' END AS "Prov UOM",
-        CAST(b.costo_ars AS bigint) AS "Prov Costo",
-        CAST(ROUND(CASE WHEN b.uom_code IN ('g','GR','mL','ML','cm3')
-                        THEN b.costo_un * 1000 ELSE b.costo_un END) AS bigint) AS "Prov CostoUn",
-        (SELECT prov_act_ts FROM act) AS "Prov Act",
-        b.prov_url AS "Prov URL",
-        b.prov_desc AS "Prov Desc",
-        COALESCE(gml.g_per_ml, 1.00)::numeric(10,2) AS "Prov [g/mL]",
-        b.product_id AS "_product_id",
-        b.product_presentation_id AS "_pp_id"
-      FROM base b
-      LEFT JOIN gml ON gml.product_id = b.product_id
-      ${whereSQLData}
-      ORDER BY b.prov_articulo NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}`;
+        prov_favoritos  AS "Prov *",
+        prov_articulo   AS "Prov Artículo",
+        prov_presentacion AS "Prov Pres",
+        prov_uom        AS "Prov UOM",
+        prov_costo      AS "Prov Costo",
+        prov_costoun    AS "Prov CostoUn",
+        to_char(prov_act, 'DD/MM/YYYY') AS "Prov Act",
+        prov_url        AS "Prov URL",
+        prov_descripcion AS "Prov Desc",
+        prov_densidad   AS "Prov [g/mL]",
+        id              AS "_id"
+      FROM app.proveedor
+      ${whereSQL}
+      ORDER BY "Prov Artículo" NULLS LAST
+      LIMIT $${i++} OFFSET $${i++};
+    `;
 
-    // -------------------------
-    // COUNT
-    // -------------------------
+    // add limit/offset as params
+    params.push(limit, offset);
+
     const countQuery = `
-      WITH pp AS (
-        SELECT id AS product_presentation_id, product_id, prov_pres AS qty, prov_uom_id AS uom_id
-        FROM app.product_presentations
-      ), map AS (
-        SELECT psp.product_id, psp.supplier_presentation_id
-        FROM app.product_source_presentations psp
-      ), sp AS (
-        SELECT sp.id AS supplier_presentation_id, sp.supplier_item_id, sp.qty, sp.uom_id
-        FROM src.supplier_presentations sp
-      ), si AS (
-        SELECT si.id AS supplier_item_id,
-               si.nombre_proveedor AS prov_articulo,
-               si.updated_at
-        FROM src.supplier_items si
-      ), match_full AS (
-        SELECT
-          pp.product_id,
-          pp.product_presentation_id,
-          pp.qty,
-          pp.uom_id,
-          si.prov_articulo,
-          ROW_NUMBER() OVER (
-            PARTITION BY pp.product_presentation_id
-            ORDER BY si.updated_at DESC NULLS LAST, si.supplier_item_id DESC NULLS LAST
-          ) AS rn
-        FROM pp
-        LEFT JOIN map m ON m.product_id = pp.product_id
-        LEFT JOIN sp ON sp.supplier_presentation_id = m.supplier_presentation_id
-        LEFT JOIN si ON si.supplier_item_id = sp.supplier_item_id
-      ), match AS (
-        SELECT * FROM match_full WHERE rn = 1
-      )
       SELECT COUNT(*)::bigint AS total
-      FROM match mt
-      ${whereSQLCount}`;
+      FROM app.proveedor
+      ${whereSQL};
+    `;
 
     const rows = await sql(dataQuery, params as any);
     const totalRes = await sql(countQuery, paramsCount as any);
