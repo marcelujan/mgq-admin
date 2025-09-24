@@ -144,9 +144,7 @@ export default function ProveedorPage() {
 
       {/* Footer: solo selector de tamaño de página a la derecha */}
       <div className="flex items-center justify-end text-sm">
-        <select value={limit} onChange={(e)=> { setOffset(0); setLimit(Number(e.target.value)); }} className="border rounded-xl px-2 py-1 border-zinc-700 bg-zinc-800">
-          {[50,100,200,500].map(n=> <option key={n} value={n}>{n}/página</option>)}
-        </select>
+        
       
       {/* Drawer de edición */}
       {editorOpen && (
@@ -164,7 +162,7 @@ export default function ProveedorPage() {
                   setEditorOpen(false);
                   if (updated) {
                     // refrescar en memoria
-                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r)));
+                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { r, updated } : r)));
                   }
                 }}
               />
@@ -230,64 +228,83 @@ async function updateRow(payload: any){
   });
 }
 
+
 function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>, onEdit?: (row: Row)=>void) {
   const v = row[key];
-  // desactivar edición inline para UOM y densidad
-  if (key === "Prov UOM") return (row["Prov UOM"] ?? "") as any;
-  if (key === "Prov [g/mL]") return (row["Prov [g/mL]"] ?? "") as any;
-  // columna de acciones (sin encabezado)
+
+  // Columna de acciones (sin encabezado)
   if (key === "") {
-    const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
     return (
       <button onClick={() => onEdit && onEdit(row)} className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title="Editar">
         <PencilIcon />
       </button>
     );
   }
+
+  // Favorito (checkbox)
   if (key === "Prov *") {
-  const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
-  return (
-    <input
-      type="checkbox"
-      checked={!!checked}
-      onChange={async (e) => {
-        const next = e.target.checked;
-        try {
-          await fetch("/api/proveedor", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: row["_prov_id"], value: next }),
-          });
-          setRows((prev) => prev.map((r) => (r === row ? { ...r, ["Prov *"]: next } : r)));
-        } catch (err) {
-          // opcional: revertir UI si falla
-          setRows((prev) => prev.map((r) => (r === row ? { ...r, ["Prov *"]: checked } : r)));
-          console.error("Error actualizando favorito:", err);
-        }
-      }}
-    />
-  );
-}
-onChange={async (e) => {
-          const human = e.target.value as "GR" | "ML" | "UN";
-          setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov UOM"]: human } : r));
-          await updateRow({ prov_id: row["_prov_id"], uom: human });
+    const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
+    return (
+      <input
+        type="checkbox"
+        checked={!!checked}
+        onChange={async (e) => {
+          const next = e.target.checked;
+          try {
+            await fetch("/api/proveedor", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: row["_prov_id"], value: next }),
+            });
+            setRows((prev) => prev.map((r) => (r === row ? { r, ["Prov *"]: next } : r)));
+          } catch (err) {
+            setRows((prev) => prev.map((r) => (r === row ? { r, ["Prov *"]: checked } : r)));
+            console.error("Error actualizando favorito:", err);
+          }
         }}
-        className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1"
-      >
-        <option value="GR">GR</option>
-        <option value="ML">ML</option>
-        <option value="UN">UN</option>
-      </select>
+      />
     );
   }
-onChange={async (e) => {
-          const num = Number(e.target.value.replace(',', '.'));
-          setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov [g/mL]"]: num } : r));
-          await updateRow({ product_id: row["_product_id"], gml: num });
-        }}
-        className="w-24 border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1 text-right"
-      />
+
+  // Solo lectura para UOM y densidad (edición en drawer)
+  if (key === "Prov UOM") return (row["Prov UOM"] ?? "") as any;
+  if (key === "Prov [g/mL]") return (row["Prov [g/mL]"] ?? "") as any;
+
+  // Formateos
+  if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
+    const num = typeof v === 'string' ? Number(v) : (v as number);
+    if (!isNaN(num)) return nf0.format(Math.round(num));
+  }
+  if (key === "Prov Act" && typeof v === 'string' && v) {
+    const dt = new Date(v);
+    return dt.toLocaleDateString('es-AR');
+  }
+  if (key === "Prov URL" && typeof v === "string" && v) {
+    return (
+      <a href={v} target="_blank" className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title={v}>
+        <LinkIcon />
+      </a>
+    );
+  }
+  if (key === "Prov Desc") {
+    const txt = (row["Prov Desc"] as string) || "";
+    const nameHint = (row["Prov Artículo"] as string) || "descripcion";
+    return (
+      <button
+        onClick={() => downloadTxt(txt, nameHint)}
+        className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700"
+        title="Descargar descripción (.txt)"
+      >
+        <DownloadIcon />
+      </button>
+    );
+  }
+
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  return (v ?? "") as any;
+}
+
+
     );
   }
   if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
@@ -365,7 +382,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.error || "Error al actualizar");
       const updated = {
-        ...row,
+        row,
         ["Prov Artículo"]: payload.prov_articulo ?? row["Prov Artículo"],
         ["Prov Pres"]: payload.prov_presentacion ?? row["Prov Pres"],
         ["Prov UOM"]: payload.prov_uom ?? row["Prov UOM"],
@@ -392,12 +409,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
       <label className="grid gap-1"><span className="text-xs">prov_articulo</span><input name="prov_articulo" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Artículo"])} /></label>
       <label className="grid gap-1"><span className="text-xs">prov_presentacion</span><input name="prov_presentacion" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Pres"])} /></label>
       <label className="grid gap-1"><span className="text-xs">prov_uom</span>
-        <select name="prov_uom" defaultValue={fieldVal(row["Prov UOM"])} className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1">
-          <option value=""></option>
-          <option value="GR">GR</option>
-          <option value="ML">ML</option>
-          <option value="UN">UN</option>
-        </select>
+        
       </label>
       <label className="grid gap-1"><span className="text-xs">prov_costo</span><input name="prov_costo" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov Costo"])} /></label>
       <label className="grid gap-1"><span className="text-xs">prov_costoun</span><input name="prov_costoun" type="number" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov CostoUn"])} /></label>
@@ -407,7 +419,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
       <label className="grid gap-1"><span className="text-xs">prov_densidad</span><input name="prov_densidad" type="number" step="0.01" className="border border-zinc-700 bg-zinc-800 text-zinc-100 rounded px-2 py-1" defaultValue={fieldVal(row["Prov [g/mL]"])} /></label>
       <label className="inline-flex items-center gap-2"><input type="checkbox" name="prov_favoritos" defaultChecked={!!row["Prov *"]} /><span className="text-xs">prov_favoritos</span></label>
       <div className="flex gap-2 mt-2">
-        <button disabled={saving} type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando..." : "Guardar"}</button>
+        <button disabled={saving} type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando" : "Guardar"}</button>
         <button type="button" onClick={()=>onClose()} className="px-3 py-1 rounded bg-zinc-700">Cancelar</button>
       </div>
     </form>
