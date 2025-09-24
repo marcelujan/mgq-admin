@@ -1,6 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
+async function parseIdValue(req: NextRequest): Promise<{ id: number | null, value: boolean | "toggle" | null }> {
+  const url = new URL(req.url);
+  const sp = url.searchParams;
+
+  let body: any = null;
+  try { body = await req.json(); } catch {}
+
+  let form: FormData | null = null;
+  try { form = await req.formData(); } catch {}
+
+  const pick = (obj:any, keys:string[]) => {
+    for (const k of keys) {
+      const v = obj && obj[k];
+      if (v !== undefined && v !== null && `${v}`.length > 0) return v;
+    }
+    return undefined;
+  };
+
+  const idRaw =
+    pick(body, ["prov_id","_prov_id","id","_id"]) ??
+    sp.get("prov_id") ?? sp.get("_prov_id") ?? sp.get("id") ?? sp.get("_id") ??
+    (form ? (form.get("prov_id") ?? form.get("_prov_id") ?? form.get("id") ?? form.get("_id")) : null);
+
+  const ppIdRaw =
+    pick(body, ["_pp_id","product_presentation_id"]) ??
+    sp.get("_pp_id") ?? sp.get("product_presentation_id") ??
+    (form ? (form.get("_pp_id") ?? form.get("product_presentation_id")) : null);
+
+  const productIdRaw =
+    pick(body, ["_product_id","product_id"]) ??
+    sp.get("_product_id") ?? sp.get("product_id") ??
+    (form ? (form.get("_product_id") ?? form.get("product_id")) : null);
+
+  const valueRaw =
+    pick(body, ["value"]) ?? sp.get("value") ?? (form ? form.get("value") : null);
+
+  let id = Number(idRaw);
+  if (!Number.isFinite(id)) id = NaN;
+
+  let value: boolean | "toggle" | null = null;
+  if (typeof valueRaw === "string") {
+    const s = valueRaw.toLowerCase();
+    if (s === "true" || s === "1") value = true;
+    else if (s === "false" || s === "0") value = false;
+    else value = "toggle";
+  } else if (typeof valueRaw === "boolean") {
+    value = valueRaw;
+  } else {
+    value = null;
+  }
+
+  if (!Number.isFinite(id)) {
+    const ppId = Number(ppIdRaw);
+    const productId = Number(productIdRaw);
+    if (Number.isFinite(ppId) || Number.isFinite(productId)) {
+      try {
+        const DB = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
+        const sql = neon(DB!);
+        const params:any[] = [];
+        const conds:string[] = [];
+        if (Number.isFinite(ppId)) conds.push(`product_presentation_id = $${params.push(ppId)}`);
+        if (Number.isFinite(productId)) conds.push(`product_id = $${params.push(productId)}`);
+        const q = `SELECT prov_id FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
+        const found:any[] = await sql(q, params as any);
+        if (found?.[0]?.prov_id) id = Number(found[0].prov_id);
+      } catch {}
+    }
+  }
+
+  return { id: Number.isFinite(id) ? id : null, value };
+}
+
 export async function GET(req: NextRequest) {
   try {
     const DB = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
@@ -42,7 +114,7 @@ export async function GET(req: NextRequest) {
         prov_descripcion    AS "Prov Desc",
         prov_densidad       AS "Prov [g/mL]",
         prov_id             AS "_prov_id",
-        prov_id             AS "_id",                 -- compat UI
+        prov_id             AS "_id",
         product_id          AS "_product_id",
         product_presentation_id AS "_pp_id"
       FROM app.proveedor
@@ -73,42 +145,24 @@ export async function POST(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    const body = await req.json();
+    const { id, value } = await parseIdValue(req);
+    if (id == null) return NextResponse.json({ error: "id no encontrado" }, { status: 400 });
 
-    // Acepta id con distintos nombres
-    const idRaw = body?.prov_id ?? body?._prov_id ?? body?.id ?? body?._id;
-    let id = Number(idRaw);
-    const ppId = Number(body?._pp_id ?? body?.product_presentation_id);
-    const productId = Number(body?._product_id ?? body?.product_id);
+    const cur = await sql(`SELECT prov_favoritos FROM app.proveedor WHERE prov_id = $1`, [id]);
+    if (!cur?.[0]) return NextResponse.json({ error: "fila inexistente" }, { status: 404 });
+    const next = (value === null || value === "toggle") ? !Boolean(cur[0].prov_favoritos) : Boolean(value);
 
-    let row;
-    if (Number.isFinite(id)) {
-      row = (await sql(`SELECT prov_id, prov_favoritos FROM app.proveedor WHERE prov_id = $1 LIMIT 1`, [id]))?.[0];
-    } else if (Number.isFinite(ppId) || Number.isFinite(productId)) {
-      const params:any[] = [];
-      const conds:string[] = [];
-      if (Number.isFinite(ppId)) { conds.push(`product_presentation_id = $${params.push(ppId)}`); }
-      if (Number.isFinite(productId)) { conds.push(`product_id = $${params.push(productId)}`); }
-      const q = `SELECT prov_id, prov_favoritos FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
-      row = (await sql(q, params))?.[0];
-    }
-
-    if (!row?.prov_id) {
-      return NextResponse.json({ error: "no se encontró la fila para toggle" }, { status: 404 });
-    }
-
-    const valueRaw = body?.value;
-    let next: boolean;
-    if (typeof valueRaw === "boolean") {
-      next = valueRaw;
-    } else {
-      const current = Boolean(row.prov_favoritos);
-      next = !current;
-    }
-
-    await sql(`UPDATE app.proveedor SET prov_favoritos = $1 WHERE prov_id = $2`, [next, row.prov_id]);
-    return NextResponse.json({ ok: true, prov_id: row.prov_id, value: next });
+    await sql(`UPDATE app.proveedor SET prov_favoritos = $1 WHERE prov_id = $2`, [next, id]);
+    return NextResponse.json({ ok: true, prov_id: id, value: next });
   } catch (e:any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+}
+
+export async function PATCH(req: NextRequest) {
+  return POST(req);
+}
+
+export async function PUT(req: NextRequest) {
+  return POST(req);
 }
