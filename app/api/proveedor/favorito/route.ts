@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const id = Number(body?.prov_id ?? body?._prov_id ?? body?.id ?? body?._id);
     const ppId = NaN;
+// eliminada columna prov_presentacion
     const productId = Number(body?._product_id ?? body?.product_id);
 
     let row;
@@ -18,7 +19,6 @@ export async function POST(req: NextRequest) {
     } else if (Number.isFinite(ppId) || Number.isFinite(productId)) {
       const params:any[] = [];
       const conds:string[] = [];
-      `); }
       if (Number.isFinite(productId)) { conds.push(`product_id = $${params.push(productId)}`); }
       const q = `SELECT prov_id, prov_favoritos FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
       row = (await sql(q, params))?.[0];
