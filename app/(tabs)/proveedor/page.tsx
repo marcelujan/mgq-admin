@@ -344,7 +344,6 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
       return nf0.format(calc);
     }
   }
-  }
   if (key === "Prov Act" && v) {
     return formatHumanDate(v);
   }
