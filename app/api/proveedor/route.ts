@@ -25,9 +25,10 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
     (form ? (form.get("prov_id") ?? form.get("_prov_id") ?? form.get("id") ?? form.get("_id")) : null);
 
   const ppIdRaw =
-    pick(body, ["_pp_id","product_presentation_id"]) ??
-    sp.get("_pp_id") ?? sp.get("product_presentation_id") ??
-    (form ? (form.get("_pp_id") ?? form.get("product_presentation_id")) : null);
+    pick(body, ["_prov_id","prov_presentacion"]) ??
+    sp.get("_prov_id") ?? sp.get("prov_presentacion") ??
+    (form ? (form.get("_prov_id") ?? form.get("prov_presentacion")) : null);
+
 
   const productIdRaw =
     pick(body, ["_product_id","product_id"]) ??
@@ -61,7 +62,7 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
         const sql = neon(DB!);
         const params:any[] = [];
         const conds:string[] = [];
-        if (Number.isFinite(ppId)) conds.push(`product_presentation_id = $${params.push(ppId)}`);
+        if (Number.isFinite(ppId)) 
         if (Number.isFinite(productId)) conds.push(`product_id = $${params.push(productId)}`);
         const q = `SELECT prov_id FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
         const found:any[] = await sql(q, params as any);
@@ -115,8 +116,7 @@ export async function GET(req: NextRequest) {
         prov_densidad       AS "Prov [g/mL]",
         prov_id             AS "_prov_id",
         prov_id             AS "_id",
-        product_id          AS "_product_id",
-        product_presentation_id AS "_pp_id"
+        product_id          AS "_product_id"
       FROM app.proveedor
       ${whereSQL}
       ORDER BY "Prov Artículo" NULLS LAST
