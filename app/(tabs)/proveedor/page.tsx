@@ -268,12 +268,7 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
     />
   );
 }
-  if (key === "Prov UOM") {
-    const val = (v as string) || "GR";
-    return (
-      <select
-        value={val}
-        onChange={async (e) => {
+onChange={async (e) => {
           const human = e.target.value as "GR" | "ML" | "UN";
           setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov UOM"]: human } : r));
           await updateRow({ prov_id: row["_prov_id"], uom: human });
@@ -286,15 +281,7 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
       </select>
     );
   }
-  if (key === "Prov [g/mL]") {
-    const val = typeof v === "number" ? v : Number(v || 1);
-    return (
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        value={val.toFixed(2)}
-        onChange={async (e) => {
+onChange={async (e) => {
           const num = Number(e.target.value.replace(',', '.'));
           setRows((prev) => prev.map(r => r === row ? { ...r, ["Prov [g/mL]"]: num } : r));
           await updateRow({ product_id: row["_product_id"], gml: num });
