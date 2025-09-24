@@ -62,7 +62,9 @@ INSERT INTO app.proveedor (
   prov_act,
   prov_url,
   prov_descripcion,
-  prov_densidad
+  prov_densidad,
+  product_id,
+  product_presentation_id
 )
 SELECT
   false AS prov_favoritos,
@@ -80,7 +82,9 @@ SELECT
   mt.updated_at::date AS prov_act,
   mt.prov_url,
   mt.prov_desc       AS prov_descripcion,
-  COALESCE(d.g_per_ml, 1.00)::numeric(10,2) AS prov_densidad
+  COALESCE(d.g_per_ml, 1.00)::numeric(10,2) AS prov_densidad,
+  mt.product_id,
+  mt.product_presentation_id
 FROM match_full mt
 LEFT JOIN u ON u.id = mt.uom_id
 LEFT JOIN cost c ON c.product_presentation_id = mt.product_presentation_id
@@ -94,7 +98,6 @@ export async function POST(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // Por defecto: TRUNCATE y reconstruir todo (si querés incremental, lo cambiamos por MERGE/UPSERT)
     await sql(`TRUNCATE TABLE app.proveedor;`);
     await sql(REBUILD_SQL);
 
