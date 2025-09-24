@@ -196,9 +196,29 @@ async function updateRow(payload: any){
 function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetStateAction<Row[]>>) {
   const v = row[key];
   if (key === "Prov *") {
-    const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
-    return <input type="checkbox" checked={!!checked} readOnly />;
-  }
+  const checked = typeof v === 'boolean' ? v : v === 'true' || v === 't' || v === '1';
+  return (
+    <input
+      type="checkbox"
+      checked={!!checked}
+      onChange={async (e) => {
+        const next = e.target.checked;
+        try {
+          await fetch("/api/proveedor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: row["_prov_id"], value: next }),
+          });
+          setRows((prev) => prev.map((r) => (r === row ? { ...r, ["Prov *"]: next } : r)));
+        } catch (err) {
+          // opcional: revertir UI si falla
+          setRows((prev) => prev.map((r) => (r === row ? { ...r, ["Prov *"]: checked } : r)));
+          console.error("Error actualizando favorito:", err);
+        }
+      }}
+    />
+  );
+}
   if (key === "Prov UOM") {
     const val = (v as string) || "GR";
     return (
