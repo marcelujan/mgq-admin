@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    // Meta para g/mL
+    // Meta para g/mL (idempotente)
     await sql(`CREATE TABLE IF NOT EXISTS app.product_meta (
       product_id bigint primary key,
       g_per_ml numeric(10,2) not null default 1.00
@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
     const whereSQLData = whereData.length ? `WHERE ${whereData.join(" AND ")}` : "";
     const whereSQLCount = whereCount.length ? `WHERE ${whereCount.join(" AND ")}` : "";
 
+    // -------------------------
+    // DATA
+    // -------------------------
     const dataQuery = `
       WITH pp AS (
         SELECT id AS product_presentation_id, product_id, prov_pres AS qty, prov_uom_id AS uom_id
@@ -126,6 +129,9 @@ export async function GET(req: NextRequest) {
       ORDER BY b.prov_articulo NULLS LAST
       LIMIT ${limit} OFFSET ${offset}`;
 
+    // -------------------------
+    // COUNT
+    // -------------------------
     const countQuery = `
       WITH pp AS (
         SELECT id AS product_presentation_id, product_id, prov_pres AS qty, prov_uom_id AS uom_id
@@ -138,7 +144,8 @@ export async function GET(req: NextRequest) {
         FROM src.supplier_presentations sp
       ), si AS (
         SELECT si.id AS supplier_item_id,
-               si.nombre_proveedor AS prov_articulo
+               si.nombre_proveedor AS prov_articulo,
+               si.updated_at
         FROM src.supplier_items si
       ), match_full AS (
         SELECT
