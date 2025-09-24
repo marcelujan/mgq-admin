@@ -303,42 +303,6 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   if (typeof v === "boolean") return v ? "Sí" : "No";
   return (v ?? "") as any;
 }
-
-
-    );
-  }
-  if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
-    const num = typeof v === 'string' ? Number(v) : (v as number);
-    if (!isNaN(num)) return nf0.format(Math.round(num));
-  }
-  if (key === "Prov Act" && typeof v === 'string' && v) {
-    const dt = new Date(v);
-    return dt.toLocaleDateString('es-AR');
-  }
-  if (key === "Prov URL" && typeof v === "string" && v) {
-    return (
-      <a href={v} target="_blank" className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700" title={v}>
-        <LinkIcon />
-      </a>
-    );
-  }
-  if (key === "Prov Desc") {
-    const txt = (row["Prov Desc"] as string) || "";
-    const nameHint = (row["Prov Artículo"] as string) || "descripcion";
-    return (
-      <button
-        onClick={() => downloadTxt(txt, nameHint)}
-        className="inline-flex items-center justify-center p-1 rounded hover:bg-zinc-700"
-        title="Descargar descripción (.txt)"
-      >
-        <DownloadIcon />
-      </button>
-    );
-  }
-  if (typeof v === "boolean") return v ? "Sí" : "No";
-  return (v ?? "") as any;
-}
-
 type EditPayload = {
   prov_id?: number;
   product_id?: number;
