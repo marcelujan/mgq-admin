@@ -25,9 +25,10 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
     (form ? (form.get("prov_id") ?? form.get("_prov_id") ?? form.get("id") ?? form.get("_id")) : null);
 
   const ppIdRaw =
-    pick(body, ["_prov_id,"prov_presentacion"]) ??
-    sp.get("_prov_id) ?? sp.get("prov_presentacion") ??
-    (form ? (form.get("_prov_id) ?? form.get("prov_presentacion")) : null);
+    pick(body, ["_prov_id","prov_presentacion"]) ??
+    sp.get("_prov_id") ?? sp.get("prov_presentacion") ??
+    (form ? (form.get("_prov_id") ?? form.get("prov_presentacion")) : null);
+
 
   const productIdRaw =
     pick(body, ["_product_id","product_id"]) ??
