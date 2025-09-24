@@ -162,7 +162,7 @@ export default function ProveedorPage() {
                   setEditorOpen(false);
                   if (updated) {
                     // refrescar en memoria
-                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { r, updated } : r)));
+                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r)));
                   }
                 }}
               />
