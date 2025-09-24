@@ -31,116 +31,14 @@ const columns = [
   "Prov [g/mL]",
 ] as const;
 
-
-type Editable = {
-  prov_id: number;
-  prov_presentacion?: number;
-  prov_uom?: "UN" | "GR" | "MG" | "ML";
-  prov_costo?: number;
-  prov_url?: string;
-  prov_descripcion?: string;
-  prov_act?: string;   // yyyy-mm-dd
-  prov_favoritos?: boolean;
-  product_id?: number;
-};
-
-function RowEditor({
-  row, open, onClose, onSaved,
-}: { row: any; open: boolean; onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = React.useState<Editable>(() => ({
-    prov_id: row?._prov_id ?? row?.["_prov_id"],
-    prov_presentacion: Number(row?.["Prov Pres"]) || undefined,
-    prov_uom: (row?.["Prov UOM"] as any) || "UN",
-    prov_costo: Number(String(row?.["Prov Costo"] ?? "").replaceAll(".","")) || undefined,
-    prov_url: row?.["Prov URL"] || "",
-    prov_descripcion: row?.["Prov Desc"] || "",
-    prov_act: row?.["Prov Act"] ? String(row["Prov Act"]).split("/").reverse().join("-") : undefined,
-    prov_favoritos: Boolean(row?.["Prov *"]),
-    product_id: row?._product_id ?? row?.["_product_id"] || undefined,
-  }));
-
-  async function save() {
-    const res = await fetch("/api/proveedor/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j?.error || "Error");
-    onSaved();
-    onClose();
-  }
-
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-center z-50">
-      <div className="bg-zinc-900 p-4 rounded-xl w-[520px] space-y-3 border border-zinc-700">
-        <h3 className="text-lg font-semibold">Editar proveedor</h3>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">UOM</span>
-          <select
-            className="w-full bg-zinc-800 rounded p-2"
-            value={form.prov_uom}
-            onChange={e=>setForm(f=>({ ...f, prov_uom: e.target.value as any }))}
-          >
-            {["UN","GR","MG","ML"].map(x=> <option key={x} value={x}>{x}</option>)}
-          </select>
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">Presentación</span>
-          <input className="w-full bg-zinc-800 rounded p-2" type="number"
-            value={form.prov_presentacion ?? ""} onChange={e=>setForm(f=>({ ...f, prov_presentacion: e.target.value? Number(e.target.value): undefined }))}/>
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">Costo</span>
-          <input className="w-full bg-zinc-800 rounded p-2" type="number"
-            value={form.prov_costo ?? ""} onChange={e=>setForm(f=>({ ...f, prov_costo: e.target.value? Number(e.target.value): undefined }))}/>
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">Fecha Act</span>
-          <input className="w-full bg-zinc-800 rounded p-2" type="date"
-            value={form.prov_act ?? ""} onChange={e=>setForm(f=>({ ...f, prov_act: e.target.value || undefined }))}/>
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">URL</span>
-          <input className="w-full bg-zinc-800 rounded p-2"
-            value={form.prov_url ?? ""} onChange={e=>setForm(f=>({ ...f, prov_url: e.target.value }))}/>
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-zinc-300">Descripción</span>
-          <textarea className="w-full bg-zinc-800 rounded p-2"
-            value={form.prov_descripcion ?? ""} onChange={e=>setForm(f=>({ ...f, prov_descripcion: e.target.value }))}/>
-        </label>
-
-        <div className="flex items-center gap-2">
-          <input type="checkbox" checked={!!form.prov_favoritos}
-            onChange={e=>setForm(f=>({ ...f, prov_favoritos: e.target.checked }))}/>
-          <span>Favorito</span>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-3 py-2 bg-zinc-700 rounded">Cancelar</button>
-          <button onClick={save} className="px-3 py-2 bg-blue-600 rounded">Guardar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 export default function ProveedorPage() {
   const [rows, setRows] = useState<Row[]>([]);
-  const [editing, setEditing] = useState<any|null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [onlyAct, setOnlyAct] = useState(true);
+  const [onlyAct, setOnlyAct] = useState(false);
   const [limit, setLimit] = useState(100); // default 100
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
