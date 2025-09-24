@@ -39,6 +39,7 @@ export default function ProveedorPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [onlyAct, setOnlyAct] = useState(true);
+  const [conCosto, setConCosto] = useState(true);
   const [limit, setLimit] = useState(100); // default 100
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
