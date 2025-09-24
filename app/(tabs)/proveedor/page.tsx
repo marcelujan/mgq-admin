@@ -35,6 +35,16 @@ const columns = [
 ] as const;
 
 const nf0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+function sortRowsBy(list: Row[]): Row[] {
+  return [...list].sort((a,b)=>{
+    const A = String(a["Prov Artículo"] ?? "").localeCompare(String(b["Prov Artículo"] ?? ""));
+    if (A !== 0) return A;
+    const pa = Number(a["Prov Pres"] ?? 0);
+    const pb = Number(b["Prov Pres"] ?? 0);
+    return pa - pb;
+  });
+}
+
 
 function toISODate(input: any): string | null {
   if (!input) return null;
@@ -206,7 +216,7 @@ export default function ProveedorPage() {
                       return;
                     }
                     // refrescar en memoria
-                    setRows(prev => prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r)));
+                    setRows(prev => sortRowsBy(prev.map(r => (r["_prov_id"] === updated._prov_id ? { ...r, ...updated } : r))));
                   }
                 }}
               />
@@ -322,6 +332,15 @@ function renderCell(row: Row, key: keyof Row, setRows: React.Dispatch<React.SetS
   if ((key === "Prov Pres" || key === "Prov Costo" || key === "Prov CostoUn") && v != null && v !== "") {
     const num = typeof v === 'string' ? Number(v) : (v as number);
     if (!isNaN(num)) return nf0.format(Math.round(num));
+  }
+  // Fallback para costo unitario si viene vacío y UOM es GR o ML
+  if (key === "Prov CostoUn" && (v == null || v === "")) {
+    const costo = Number(row["Prov Costo"] ?? 0);
+    const pres = Number(row["Prov Pres"] ?? 0);
+    if (costo > 0 && pres > 0 && (row["Prov UOM"] === "GR" || row["Prov UOM"] === "ML")) {
+      const calc = Math.round(costo / pres);
+      return nf0.format(calc);
+    }
   }
   if (key === "Prov Act" && v) {
     return formatHumanDate(v);
