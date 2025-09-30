@@ -393,60 +393,120 @@ function fieldVal(v:any){ return v === undefined ? "" : (v ?? ""); }
 function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }){
   const [saving, setSaving] = useState(false);
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-  e.preventDefault();
-  if (saving) return;
-  setSaving(true);
-  try {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>){
+    e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const payload: any = {};
     fd.forEach((val, key) => {
-      // normaliza checkbox
-      if (val === "on") payload[key] = true;
-      else payload[key] = val as any;
+      if (val === "") return;
+      if (["prov_presentacion","prov_costo","product_id","prov_id"].includes(key)) payload[key] = Number(val);
+      else if (key === "prov_densidad") payload[key] = Number(val);
+      else if (key === "prov_favoritos") payload[key] = (val === "on" || val === "true" || val === "1");
+      else if (key === "prov_act") payload[key] = toISODate(val as string);
+      else payload[key] = val;
     });
-    // mapeos explícitos (por si faltan)
-    payload.prov_id = row["_prov_id"];
-    payload.prov_proveedor = payload.prov_proveedor ?? (row["Prov Prov"] ?? null);
-    // para checkbox prov_favoritos: si no vino en fd => false
-    if (typeof payload.prov_favoritos === "undefined") payload.prov_favoritos = false;
-
-    const res = await fetch("/api/proveedor/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json();
-    if (!res.ok || json?.error) throw new Error(json.error || "Error al guardar");
-
-    // Reflejar en la tabla inmediatamente
-    const nextFav = !!payload.prov_favoritos;
-    const nextProvProv = (payload.prov_proveedor ?? row["Prov Prov"]) as any;
-    setRows(prev => prev.map(r => {
-      if (r === row) {
-        return {
-          ...r,
-          ["Prov *"]: nextFav,
-          ["Prov Prov"]: nextProvProv,
-          ["Prov Artículo"]: payload.prov_articulo ?? r["Prov Artículo"],
-          ["Prov Pres"]: payload.prov_presentacion ?? r["Prov Pres"],
-          ["Prov UOM"]: payload.prov_uom ?? r["Prov UOM"],
-          ["Prov Costo"]: payload.prov_costo ?? r["Prov Costo"],
-          ["Prov Act"]: payload.prov_act ?? r["Prov Act"],
-          ["Prov URL"]: payload.prov_url ?? r["Prov URL"],
-          ["Prov Desc"]: payload.prov_descripcion ?? r["Prov Desc"],
-          ["Prov [g/mL]"]: payload.prov_densidad ?? r["Prov [g/mL]"],
-        } as any;
-      }
-      return r;
-    }));
-
-    onClose();
-  } catch (err: any) {
-    alert(err.message || String(err));
-  } finally {
-    setSaving(false);
+    if (!payload.prov_id) payload.prov_id = row["_prov_id"] as number;
+    try{
+      setSaving(true);
+      payload.prov_proveedor = (payload.prov_proveedor ?? (row["Prov Prov"] ?? null));
+      const res = await fetch("/api/proveedor/update", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" }
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error || "Error al actualizar");
+      const updated = {
+        ...row,
+        ["Prov Artículo"]: payload.prov_articulo ?? row["Prov Artículo"],
+        ["Prov Pres"]: payload.prov_presentacion ?? row["Prov Pres"],
+        ["Prov UOM"]: payload.prov_uom ?? row["Prov UOM"],
+        ["Prov Costo"]: payload.prov_costo ?? row["Prov Costo"],
+        // Prov CostoUn es cálculo: no se actualiza aquí
+        ["Prov Act"]: payload.prov_act ?? row["Prov Act"],
+        ["Prov URL"]: payload.prov_url ?? row["Prov URL"],
+        ["Prov Desc"]: payload.prov_descripcion ?? row["Prov Desc"],
+        ["Prov [g/mL]"]: payload.prov_densidad ?? row["Prov [g/mL]"],
+        ["_prov_id"]: payload.product_id ?? row["_prov_id"],
+      };
+      onClose(updated);
+    } catch(e){
+      console.error(e);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
+
+  return (
+    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
+<label className="grid gap-1 text-left">
+    <span className="text-xs text-zinc-300">prov_articulo</span>
+    <input name="prov_articulo" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov Artículo"] ?? "") as any} />
+  </label>
+  <label className="grid gap-1 text-left">
+    <span className="text-xs text-zinc-300">prov_url</span>
+    <input name="prov_url" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov URL"] ?? "") as any} />
+  </label>
+  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_proveedor</span>
+      <input name="prov_proveedor" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov Prov"] ?? "") as any} />
+    </label>
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_presentacion</span>
+      <input name="prov_presentacion" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov Pres"] ?? "") as any} />
+    </label>
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_uom</span>
+      <select name="prov_uom" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov UOM"] ?? "") as any}>
+        <option value="">--</option>
+        <option value="UN">UN</option>
+        <option value="GR">GR</option>
+        <option value="ML">ML</option>
+      </select>
+    </label>
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_costo</span>
+      <input name="prov_costo" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov Costo"] ?? "") as any} />
+    </label>
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_act</span>
+      <input name="prov_act" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov Act"] ?? "") as any} />
+    </label>
+    <label className="grid gap-1 text-left">
+      <span className="text-xs text-zinc-300">prov_densidad</span>
+      <input name="prov_densidad" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov [g/mL]"] ?? "") as any} />
+    </label>
+  </div>
+  <label className="grid gap-1 text-left">
+    <span className="text-xs text-zinc-300">prov_descripcion</span>
+    <textarea name="prov_descripcion" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full min-h-[100px]">{(row["Prov Desc"] ?? "") as any}</textarea>
+  </label>
+  <div className="flex flex-wrap gap-2 justify-end">
+
+    <label className="flex items-center gap-2 mr-auto text-sm">
+      <input type="checkbox" name="prov_favoritos" defaultChecked={!!row["Prov *"]} />
+      <span>prov_favoritos</span>
+    </label>
+    
+    <button type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando..." : "Guardar"}</button>
+    <button type="button" onClick={()=>onClose()} className="px-3 py-1 rounded bg-zinc-700">Cancelar</button>
+    <button type="button"
+      onClick={async ()=>{
+        if (!confirm("¿Eliminar esta fila?")) return;
+        try{
+          const id = row["_prov_id"] as number;
+          const res = await fetch("/api/proveedor/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prov_id: id }) });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || "Error al eliminar");
+          onClose({ _deleted: true, _prov_id: id });
+        } catch(e){ console.error(e); }
+      }}
+      className="px-3 py-1 rounded bg-red-600">Eliminar</button>
+  </div>
+</form>
+  );
 }
 
 
