@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { neon } from "@neondatabase/serverless";
 
 /**
- * Actualiza directamente columnas de app.proveedor.
- * Campos aceptados (opcionales): prov_presentacion, prov_uom, prov_costo, prov_url, prov_descripcion, prov_act, prov_favoritos.
- * Identificación: prov_id (preferido) o product_id.
+ * Actualiza columnas de app.proveedor por prov_id.
+ * Acepta JSON o form-data. Campos soportados:
+ *   prov_presentacion, prov_uom, prov_costo, prov_costoun,
+ *   prov_url, prov_descripcion, prov_act, prov_favoritos, prov_proveedor
  */
 export async function POST(req: NextRequest) {
   try {
@@ -12,76 +13,69 @@ export async function POST(req: NextRequest) {
     if (!DB) return NextResponse.json({ error: "Falta DATABASE_URL" }, { status: 500 });
     const sql = neon(DB);
 
-    const body = await req.json();
+    let body: any = null;
+    try { body = await req.json(); } catch {}
 
-    const sets:string[] = [];
-    const params:any[] = [];
-    const addSet = (col:string, val:any) => { sets.push(`${col} = $${params.length+1}`); params.push(val); };
+    let form: FormData | null = null;
+    try { form = await req.formData(); } catch {}
 
-    if (typeof body?.prov_presentacion !== "undefined") addSet("prov_presentacion", Number(body.prov_presentacion) || null);
-    if (typeof body?.prov_uom === "string") addSet("prov_uom", body.prov_uom);
-    if (typeof body?.prov_costo !== "undefined") addSet("prov_costo", Number(body.prov_costo) || null);
-    if (typeof body?.prov_costoun !== "undefined") addSet("prov_costoun", Number(body.prov_costoun) || null);
-    if (typeof body?.prov_act === "string") addSet("prov_act", body.prov_act);
-    if (typeof body?.prov_url === "string") addSet("prov_url", body.prov_url);
-    if (typeof body?.prov_descripcion === "string") addSet("prov_descripcion", body.prov_descripcion);
-    if (typeof body?.prov_favoritos !== "undefined") addSet("prov_favoritos", Boolean(body.prov_favoritos));
-    if (typeof body?.prov_proveedor === "string") addSet("prov_proveedor", body.prov_proveedor);
+    const getVal = (k: string): any => {
+      const vb = body && typeof body === "object" ? body[k] : undefined;
+      const vf = form ? form.get(k) : undefined;
+      return vb !== undefined ? vb : vf;
+    };
 
-
-    const prov_id = Number(body?.prov_id ?? body?._prov_id);
-    const product_id = Number(body?.product_id ?? body?._product_id);
-
-    if (!Number.isFinite(prov_id) && !Number.isFinite(product_id)) {
-      return NextResponse.json({ error: "Falta prov_id o product_id" }, { status: 400 });
-    }
-
-    // Normalización de UOM
-    let prov_uom: string | undefined = body?.prov_uom ?? body?.uom;
-    if (typeof prov_uom === "string") {
-      prov_uom = prov_uom.toUpperCase();
-      if (prov_uom === "G") prov_uom = "GR";
-      if (prov_uom === "MLL") prov_uom = "ML";
-      if (!["UN","GR","MG","ML"].includes(prov_uom)) {
-        return NextResponse.json({ error: `prov_uom inválido: ${prov_uom}` }, { status: 400 });
-      }
+    const prov_id = Number(getVal("prov_id"));
+    if (!Number.isFinite(prov_id)) {
+      return NextResponse.json({ error: "prov_id requerido" }, { status: 400 });
     }
 
     const sets: string[] = [];
     const params: any[] = [];
+    const add = (col: string, val: any) => { sets.push(`${col} = $${params.length + 1}`); params.push(val); };
 
-    function addSet(col: string, val: any) {
-      params.push(val);
-      sets.push(`${col} = $${params.length}`);
+    // Normalización y agregados
+    const maybeNum = (v: any) => (v === null || v === "" || typeof v === "undefined") ? null : Number(v) || null;
+
+    const pres = getVal("prov_presentacion");
+    if (pres !== undefined) add("prov_presentacion", maybeNum(pres));
+
+    const uom = getVal("prov_uom");
+    if (typeof uom === "string") add("prov_uom", uom);
+
+    const costo = getVal("prov_costo");
+    if (costo !== undefined) add("prov_costo", maybeNum(costo));
+
+    const costoun = getVal("prov_costoun");
+    if (costoun !== undefined) add("prov_costoun", maybeNum(costoun));
+
+    const url = getVal("prov_url");
+    if (typeof url === "string") add("prov_url", url);
+
+    const desc = getVal("prov_descripcion");
+    if (typeof desc === "string") add("prov_descripcion", desc);
+
+    const act = getVal("prov_act");
+    if (typeof act === "string") add("prov_act", act);
+
+    const fav = getVal("prov_favoritos");
+    if (fav !== undefined) {
+      const b = (fav === "on" || fav === "true" || fav === "1" || fav === true);
+      add("prov_favoritos", b);
     }
 
-    if (prov_uom) addSet("prov_uom", prov_uom);
-    if (body?.prov_presentacion != null) addSet("prov_presentacion", Number(body.prov_presentacion));
-    if (body?.presentacion != null) addSet("prov_presentacion", Number(body.presentacion));
-    if (body?.prov_costo != null) addSet("prov_costo", Number(body.prov_costo));
-    if (body?.costo != null) addSet("prov_costo", Number(body.costo));
-    if (typeof body?.prov_url === "string") addSet("prov_url", body.prov_url);
-    if (typeof body?.prov_descripcion === "string") addSet("prov_descripcion", body.prov_descripcion);
-    if (body?.prov_act) addSet("prov_act", body.prov_act); // as DATE (string yyyy-mm-dd)
-    if (typeof body?.prov_favoritos === "boolean") addSet("prov_favoritos", body.prov_favoritos);
+    const provprov = getVal("prov_proveedor");
+    if (typeof provprov === "string") add("prov_proveedor", provprov);
 
-    if (!sets.length) {
-      return NextResponse.json({ error: "Nada para actualizar" }, { status: 400 });
+    if (sets.length === 0) {
+      return NextResponse.json({ ok: true, updated: null });
     }
 
-    // WHERE
-    let where = "";
-    if (Number.isFinite(prov_id)) {
-      params.push(prov_id);
-      where = `prov_id = $${params.length}`;
-    } else {
-      
-    }
-
-    const q = `UPDATE app.proveedor SET ${sets.join(", ")} WHERE ${where} RETURNING prov_id, product_id, prov_uom, prov_presentacion, prov_costo, prov_costoun`;
-    const rows = await sql(q, params);
+    params.push(prov_id);
+    const q = `UPDATE app.proveedor SET ${sets.join(", ")} WHERE prov_id = $${params.length} RETURNING prov_id, prov_uom, prov_presentacion, prov_costo, prov_costoun, prov_proveedor`;
+    const rows = await sql(q, params as any);
     return NextResponse.json({ ok: true, updated: rows?.[0] ?? null });
-  } catch (e:any) {
+  } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }

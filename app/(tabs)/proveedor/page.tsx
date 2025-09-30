@@ -427,7 +427,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
         ["Prov URL"]: payload.prov_url ?? row["Prov URL"],
         ["Prov Desc"]: payload.prov_descripcion ?? row["Prov Desc"],
         ["Prov [g/mL]"]: payload.prov_densidad ?? row["Prov [g/mL]"],
-        ["_product_id"]: payload.product_id ?? row["_product_id"],
+        ["_prov_id"]: payload.product_id ?? row["_prov_id"],
       };
       onClose(updated);
     } catch(e){
