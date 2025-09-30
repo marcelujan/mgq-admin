@@ -14,6 +14,21 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
+    const sets:string[] = [];
+    const params:any[] = [];
+    const addSet = (col:string, val:any) => { sets.push(`${col} = $${params.length+1}`); params.push(val); };
+
+    if (typeof body?.prov_presentacion !== "undefined") addSet("prov_presentacion", Number(body.prov_presentacion) || null);
+    if (typeof body?.prov_uom === "string") addSet("prov_uom", body.prov_uom);
+    if (typeof body?.prov_costo !== "undefined") addSet("prov_costo", Number(body.prov_costo) || null);
+    if (typeof body?.prov_costoun !== "undefined") addSet("prov_costoun", Number(body.prov_costoun) || null);
+    if (typeof body?.prov_act === "string") addSet("prov_act", body.prov_act);
+    if (typeof body?.prov_url === "string") addSet("prov_url", body.prov_url);
+    if (typeof body?.prov_descripcion === "string") addSet("prov_descripcion", body.prov_descripcion);
+    if (typeof body?.prov_favoritos !== "undefined") addSet("prov_favoritos", Boolean(body.prov_favoritos));
+    if (typeof body?.prov_proveedor === "string") addSet("prov_proveedor", body.prov_proveedor);
+
+
     const prov_id = Number(body?.prov_id ?? body?._prov_id);
     const product_id = Number(body?.product_id ?? body?._product_id);
 
@@ -60,8 +75,7 @@ export async function POST(req: NextRequest) {
       params.push(prov_id);
       where = `prov_id = $${params.length}`;
     } else {
-      params.push(product_id);
-      where = `product_id = $${params.length}`;
+      
     }
 
     const q = `UPDATE app.proveedor SET ${sets.join(", ")} WHERE ${where} RETURNING prov_id, product_id, prov_uom, prov_presentacion, prov_costo, prov_costoun`;

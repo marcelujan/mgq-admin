@@ -29,12 +29,6 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
     sp.get("_prov_id") ?? sp.get("prov_presentacion") ??
     (form ? (form.get("_prov_id") ?? form.get("prov_presentacion")) : null);
 
-
-  const productIdRaw =
-    pick(body, ["_product_id","product_id"]) ??
-    sp.get("_product_id") ?? sp.get("product_id") ??
-    (form ? (form.get("_product_id") ?? form.get("product_id")) : null);
-
   const valueRaw =
     pick(body, ["value"]) ?? sp.get("value") ?? (form ? form.get("value") : null);
 
@@ -51,24 +45,6 @@ async function parseIdValue(req: NextRequest): Promise<{ id: number | null, valu
     value = valueRaw;
   } else {
     value = null;
-  }
-
-  if (!Number.isFinite(id)) {
-    const ppId = Number(ppIdRaw);
-    const productId = Number(productIdRaw);
-    if (Number.isFinite(ppId) || Number.isFinite(productId)) {
-      try {
-        const DB = process.env.NEON_DATABASE_URL || process.env.DATABASE_URL;
-        const sql = neon(DB!);
-        const params:any[] = [];
-        const conds:string[] = [];
-        if (Number.isFinite(ppId)) 
-        if (Number.isFinite(productId)) conds.push(`product_id = $${params.push(productId)}`);
-        const q = `SELECT prov_id FROM app.proveedor WHERE ${conds.join(" AND ")} LIMIT 1`;
-        const found:any[] = await sql(q, params as any);
-        if (found?.[0]?.prov_id) id = Number(found[0].prov_id);
-      } catch {}
-    }
   }
 
   return { id: Number.isFinite(id) ? id : null, value };
@@ -105,6 +81,7 @@ export async function GET(req: NextRequest) {
     const dataQuery = `
       SELECT
         prov_favoritos      AS "Prov *",
+        prov_proveedor      AS "Prov Prov",
         prov_articulo       AS "Prov Artículo",
         prov_presentacion   AS "Prov Pres",
         prov_uom            AS "Prov UOM",
@@ -116,7 +93,6 @@ export async function GET(req: NextRequest) {
         prov_densidad       AS "Prov [g/mL]",
         prov_id             AS "_prov_id",
         prov_id             AS "_id",
-        product_id          AS "_product_id"
       FROM app.proveedor
       ${whereSQL}
       ORDER BY "Prov Artículo" NULLS LAST

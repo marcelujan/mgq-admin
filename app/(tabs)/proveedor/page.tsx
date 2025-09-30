@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 type Row = {
   [""]?: null; // columna de acciones sin encabezado
   ["Prov *"]?: boolean | string | null;
+  ["Prov Prov"]?: string | null;
   ["Prov Artículo"]?: string;
   ["Prov Pres"]?: number | string | null;
   ["Prov UOM"]?: string;
@@ -14,14 +15,14 @@ type Row = {
   ["Prov URL"]?: string | null;
   ["Prov Desc"]?: string | null;
   ["Prov [g/mL]"]?: number | string | null;
-  ["_product_id"]?: number;
-  ["_prov_id"]?: number;
+    ["_prov_id"]?: number;
 
   ["_prov_id"]?: number;
 };
 
 const columns = [
   "Prov *",
+  "Prov Prov",
   "Prov Artículo",
   "Prov Pres",
   "Prov UOM",
@@ -407,6 +408,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
     if (!payload.prov_id) payload.prov_id = row["_prov_id"] as number;
     try{
       setSaving(true);
+      payload.prov_proveedor = (payload.prov_proveedor ?? (row["Prov Prov"] ?? null));
       const res = await fetch("/api/proveedor/update", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -510,7 +512,7 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
               onClick={async ()=>{
                 if (!confirm("¿Eliminar esta fila?")) return;
                 try{
-                  const id = (row["_prov_id"] as number) || (row["_product_id"] as number);
+                  const id = (row["_prov_id"] as number);
                   const res = await fetch("/api/proveedor/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prov_id: id }) });
                   const json = await res.json();
                   if (!res.ok || !json.ok) throw new Error(json.error || "Error al eliminar");

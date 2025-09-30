@@ -10,7 +10,11 @@ Conexiones VPC: no bloqueadas
 Replicación lógica: deshabilitada
 Integración con Vercel: el frontend mgq-admin corre en Vercel, consumiendo esta base de datos MGq.
 
+Adjunto la carpeta app del proyecto
+La tabla de la hoja Proveedor es app.proveedor
 
+Quiero añadir una columna a la tabla de mi proveedores llamada prov_proveedor para diferenciarlos. 
+Los datos subidos actualmente deberían rellenarse con 'TD' actualmente y debe incluirse en las opciones editables manualmente por fila
 
 
 Hoja Proveedor
