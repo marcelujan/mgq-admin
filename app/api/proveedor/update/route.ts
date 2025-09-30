@@ -54,17 +54,33 @@ export async function POST(req: NextRequest) {
 
     const desc = getVal("prov_descripcion");
     if (typeof desc === "string") add("prov_descripcion", desc);
-
-    const act = getVal("prov_act");
-    if (typeof act === "string") add("prov_act", act);
-
-    const fav = getVal("prov_favoritos");
+const fav = getVal("prov_favoritos");
     if (fav !== undefined) {
       const b = (fav === "on" || fav === "true" || fav === "1" || fav === true);
       add("prov_favoritos", b);
     }
 
     const provprov = getVal("prov_proveedor");
+    // prov_act: acepta 'DD/MM/YYYY' o 'YYYY-MM-DD'
+    {
+      const raw = getVal("prov_act");
+      if (typeof raw === "string") {
+        const s = raw.trim();
+        let iso: string | null = null;
+        if (s === "") {
+          iso = null;
+        } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+          const [dd, mm, yyyy] = s.split("/");
+          iso = `${yyyy}-${mm}-${dd}`; // YYYY-MM-DD
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          iso = s;
+        } else {
+          return NextResponse.json({ error: `Fecha inválida: ${s}` }, { status: 400 });
+        }
+        add("prov_act", iso);
+      }
+    }
+
     if (typeof provprov === "string") add("prov_proveedor", provprov);
 
     if (sets.length === 0) {
