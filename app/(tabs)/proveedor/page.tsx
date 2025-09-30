@@ -440,7 +440,14 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
 
   return (
     <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
-{/* Campos compactos */}
+<label className="grid gap-1 text-left">
+    <span className="text-xs text-zinc-300">prov_articulo</span>
+    <input name="prov_articulo" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov Artículo"] ?? "") as any} />
+  </label>
+  <label className="grid gap-1 text-left">
+    <span className="text-xs text-zinc-300">prov_url</span>
+    <input name="prov_url" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov URL"] ?? "") as any} />
+  </label>
   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
     <label className="grid gap-1 text-left">
       <span className="text-xs text-zinc-300">prov_proveedor</span>
@@ -452,7 +459,12 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
     </label>
     <label className="grid gap-1 text-left">
       <span className="text-xs text-zinc-300">prov_uom</span>
-      <input name="prov_uom" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov UOM"] ?? "") as any} />
+      <select name="prov_uom" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov UOM"] ?? "") as any}>
+        <option value="">--</option>
+        <option value="UN">UN</option>
+        <option value="GR">GR</option>
+        <option value="ML">ML</option>
+      </select>
     </label>
     <label className="grid gap-1 text-left">
       <span className="text-xs text-zinc-300">prov_costo</span>
@@ -467,24 +479,25 @@ function EditForm({ row, onClose }: { row: Row, onClose: (updated?: any)=>void }
       <input name="prov_densidad" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1" defaultValue={(row["Prov [g/mL]"] ?? "") as any} />
     </label>
   </div>
-
-  {/* Campos anchos */}
-  <label className="grid gap-1 text-left">
-    <span className="text-xs text-zinc-300">prov_articulo</span>
-    <input name="prov_articulo" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov Artículo"] ?? "") as any} />
-  </label>
-  <label className="grid gap-1 text-left">
-    <span className="text-xs text-zinc-300">prov_url</span>
-    <input name="prov_url" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full" defaultValue={(row["Prov URL"] ?? "") as any} />
-  </label>
   <label className="grid gap-1 text-left">
     <span className="text-xs text-zinc-300">prov_descripcion</span>
     <textarea name="prov_descripcion" className="border border-zinc-700 bg-zinc-900 rounded px-2 py-1 w-full min-h-[100px]">{(row["Prov Desc"] ?? "") as any}</textarea>
   </label>
-
-  <div className="flex gap-2">
-    <button type="submit" className="px-3 py-1 rounded bg-blue-600">{saving ? "Guardando..." : "Guardar"}</button>
+  <div className="flex flex-wrap gap-2 justify-end">
+    <button type="submit" className="px-3 py-1 rounded bg-blue-600 disabled:opacity-60">{saving ? "Guardando..." : "Guardar"}</button>
     <button type="button" onClick={()=>onClose()} className="px-3 py-1 rounded bg-zinc-700">Cancelar</button>
+    <button type="button"
+      onClick={async ()=>{
+        if (!confirm("¿Eliminar esta fila?")) return;
+        try{
+          const id = row["_prov_id"] as number;
+          const res = await fetch("/api/proveedor/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prov_id: id }) });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || "Error al eliminar");
+          onClose({ _deleted: true, _prov_id: id });
+        } catch(e){ console.error(e); }
+      }}
+      className="px-3 py-1 rounded bg-red-600">Eliminar</button>
   </div>
 </form>
   );
