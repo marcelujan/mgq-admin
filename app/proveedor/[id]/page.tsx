@@ -14,7 +14,7 @@ export default async function Page({ params }: { params: { id: string }}){
   if (!row) return notFound();
 
   const fields = [
-    "prov_articulo","prov_presentacion","prov_uom","prov_costo","prov_costoun","prov_act","prov_url","prov_descripcion","prov_densidad","prov_proveedor","prov_favoritos"
+    "prov_articulo","prov_presentacion","prov_uom","prov_costo","prov_costoun","prov_act","prov_url","prov_descripcion","prov_densidad","product_id","prov_favoritos"
   ] as const;
 
   return (
