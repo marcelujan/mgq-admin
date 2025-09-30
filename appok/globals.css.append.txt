@@ -1,0 +1,1 @@
+/* tailwind.config.ts debe tener: export default { darkMode: 'class', ... } */
