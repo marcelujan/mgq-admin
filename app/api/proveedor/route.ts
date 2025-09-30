@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         prov_descripcion    AS "Prov Desc",
         prov_densidad       AS "Prov [g/mL]",
         prov_id             AS "_prov_id",
-        prov_id             AS "_id",
+        prov_id             AS "_id"
       FROM app.proveedor
       ${whereSQL}
       ORDER BY "Prov Artículo" NULLS LAST
