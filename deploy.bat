@@ -1,26 +1,48 @@
-﻿@echo off
+@echo off
 setlocal enabledelayedexpansion
 
 REM Ir a la carpeta donde está este .bat
 cd /d "%~dp0"
 
-REM (opcional) inicializar si no es repo
-git rev-parse --is-inside-work-tree >NUL 2>&1 || (
-  echo Inicializando git...
-  git init && git branch -M main
+REM Verificar que sea un repo git
+git rev-parse --is-inside-work-tree >NUL 2>&1
+if errorlevel 1 (
+  echo ERROR: Esta carpeta no es un repo git.
+  pause
+  exit /b 1
 )
 
-REM Mensaje de commit: usa el argumento o uno por defecto
+REM Mensaje de commit
 set MSG=%*
 if "%MSG%"=="" set MSG=deploy: auto
 
-REM Add + commit solo si hay cambios
+REM Asegurar que no estamos en main
+for /f %%b in ('git branch --show-current') do set BRANCH=%%b
+if "%BRANCH%"=="main" (
+  echo ERROR: Estas en main. Este script es SOLO para preview.
+  pause
+  exit /b 1
+)
+
+REM Add + commit si hay cambios
 git add -A
-git diff --cached --quiet || git commit -m "%MSG%"
+git diff --cached --quiet
+if errorlevel 1 (
+  git commit -m "%MSG%"
+)
 
-REM Rebase con remoto (si existe) y push
-git pull --rebase origin main >NUL 2>&1
-git push -u origin main
+REM Push de la rama actual
+git push -u origin %BRANCH%
+if errorlevel 1 (
+  echo ERROR: Fallo el push.
+  pause
+  exit /b 1
+)
 
-echo Listo. Pulsa una tecla para salir.
-pause >NUL
+echo -----------------------------------
+echo Preview deploy OK en rama %BRANCH%
+echo Vercel va a crear el Preview automaticamente
+echo -----------------------------------
+
+REM Cerrar automáticamente
+exit /b 0
