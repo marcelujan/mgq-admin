@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run migrate && next build",
+    "migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "start": "next start",
     "lint": "next lint"
   },
