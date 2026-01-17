@@ -8,7 +8,6 @@ function canonicalizeUrl(raw: string): string | null {
     u.hash = "";
     u.hostname = u.hostname.toLowerCase();
 
-    // opcional: sacar slash final (excepto "/")
     if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
       u.pathname = u.pathname.slice(0, -1);
     }
@@ -18,16 +17,39 @@ function canonicalizeUrl(raw: string): string | null {
   }
 }
 
-// ===== GET /api/items?search=&estado=&seleccionado=&limit=&offset= =====
+// Helper: agrega cláusulas con placeholders correctos ($1..$n)
+// Soporta 0, 1 o múltiples valores (reemplaza cada '?' en orden).
+function addWhere(where: string[], params: any[], clause: string, values?: any | any[]) {
+  if (values === undefined) {
+    where.push(clause);
+    return;
+  }
+  const vs = Array.isArray(values) ? values : [values];
+  for (const v of vs) params.push(v);
+
+  let i = params.length - vs.length + 1; // índice del 1er param recién agregado (1-based)
+  const replaced = clause.replace(/\?/g, () => `$${i++}`);
+  where.push(replaced);
+}
+
+function normalizeQueryResult(res: any): any[] {
+  // Neon/serverless puede devolver { rows: [...] } o directamente un array
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+}
+
+// ===== GET /api/items =====
 export async function GET(req: NextRequest) {
   try {
     const sql = db();
-
     const { searchParams } = new URL(req.url);
 
     const search = (searchParams.get("search") || "").trim();
-    const estado = (searchParams.get("estado") || "").trim(); // item_estado
-    const seleccionadoStr = (searchParams.get("seleccionado") || "").trim(); // "true"/"false"
+    const estado = (searchParams.get("estado") || "").trim();
+    const seleccionadoStr = (searchParams.get("seleccionado") || "").trim();
+
     const limitRaw = Number(searchParams.get("limit") || 50);
     const offsetRaw = Number(searchParams.get("offset") || 0);
 
@@ -36,37 +58,26 @@ export async function GET(req: NextRequest) {
 
     const where: string[] = [];
     const params: any[] = [];
-    const add = (clause: string, value?: any) => {
-      if (value === undefined) {
-        where.push(clause);
-        return;
-      }
-      params.push(value);
-      where.push(clause.replace("?", `$${params.length}`));
-    };
 
+    // ✅ FIX: search con 4 placeholders (sin '?' sueltos)
     if (search) {
-      // busca en url_original/url_canonica y proveedor codigo/nombre
       const like = `%${search}%`;
-      params.push(like, like, like, like);
-      const base = params.length - 3; // índice ($n) del primer param recién agregado
-
-      where.push(
-        `(i.url_original ILIKE $${base} OR ` +
-          `i.url_canonica ILIKE $${base + 1} OR ` +
-          `p.codigo ILIKE $${base + 2} OR ` +
-          `p.nombre ILIKE $${base + 3})`
+      addWhere(
+        where,
+        params,
+        `(i.url_original ILIKE ? OR i.url_canonica ILIKE ? OR p.codigo ILIKE ? OR p.nombre ILIKE ?)`,
+        [like, like, like, like]
       );
     }
 
-    if (estado) add(`i.estado::text = ?`, estado);
+    if (estado) addWhere(where, params, `i.estado::text = ?`, estado);
 
-    if (seleccionadoStr === "true") add(`i.seleccionado = ?`, true);
-    if (seleccionadoStr === "false") add(`i.seleccionado = ?`, false);
+    if (seleccionadoStr === "true") addWhere(where, params, `i.seleccionado = ?`, true);
+    if (seleccionadoStr === "false") addWhere(where, params, `i.seleccionado = ?`, false);
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    // Intento 1: con “latest job” (si tu schema lo soporta)
+    // Intento 1: traer también el “último job” (si el schema lo soporta)
     try {
       const q = `
         SELECT
@@ -81,15 +92,15 @@ export async function GET(req: NextRequest) {
           i.estado::text AS estado,
           i.created_at,
           i.updated_at,
-          j.job_id        AS ultimo_job_id,
-          j.estado::text  AS ultimo_job_estado
+          j.job_id AS ultimo_job_id,
+          j.estado::text AS ultimo_job_estado
         FROM app.item_seguimiento i
         JOIN app.proveedor p ON p.proveedor_id = i.proveedor_id
         LEFT JOIN LATERAL (
           SELECT job_id, estado
           FROM app.job
           WHERE item_id = i.item_id
-          ORDER BY job_id DESC
+          ORDER BY created_at DESC, job_id DESC
           LIMIT 1
         ) j ON true
         ${whereSql}
@@ -97,19 +108,18 @@ export async function GET(req: NextRequest) {
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}
       `;
 
-      const result: any = await sql.query(q, [...params, limit, offset]);
-      const list = Array.isArray(result) ? result : (result?.rows ?? []);
+      const res: any = await sql.query(q, [...params, limit, offset]);
+      const items = normalizeQueryResult(res);
 
       return NextResponse.json({
         ok: true,
         limit,
         offset,
-        count: list.length,
-        items: list,
+        count: items.length,
+        items,
       });
-
     } catch {
-      // Intento 2: sin job
+      // Intento 2: sin job (más compatible)
       const q = `
         SELECT
           i.item_id,
@@ -130,52 +140,50 @@ export async function GET(req: NextRequest) {
         LIMIT $${params.length + 1} OFFSET $${params.length + 2}
       `;
 
-      const rows = await sql.query(q, [...params, limit, offset]);
+      const res: any = await sql.query(q, [...params, limit, offset]);
+      const items = normalizeQueryResult(res);
 
       return NextResponse.json({
         ok: true,
         limit,
         offset,
-        count: rows.rows.length,
-        items: rows.rows,
+        count: items.length,
+        items,
       });
     }
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
 
 // ===== POST /api/items =====
-// Mantengo lo que ya tenés funcionando: inserta item + job, y devuelve { item_id, job_id }.
-// Si querés que el job se cree con defaults distintos, lo tocamos después.
+// Acepta ambos formatos:
+// - viejo:  { url, proveedor_codigo, seleccionado }
+// - nuevo:  { urlOriginal, proveedorCodigo, seleccionado }
 export async function POST(req: NextRequest) {
   try {
     const sql = db();
     const body = await req.json().catch(() => ({} as any));
 
-    // Acepta ambos formatos: el viejo (url/proveedor_codigo) y el nuevo (urlOriginal/proveedorCodigo)
     const urlRaw =
-      typeof body?.url === "string" ? body.url.trim()
-      : typeof body?.urlOriginal === "string" ? body.urlOriginal.trim()
-      : typeof body?.url_original === "string" ? body.url_original.trim()
-      : "";
+      typeof body?.url === "string"
+        ? body.url.trim()
+        : typeof body?.urlOriginal === "string"
+        ? body.urlOriginal.trim()
+        : typeof body?.url_original === "string"
+        ? body.url_original.trim()
+        : "";
 
     const proveedorCodigo =
-      typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim()
-      : typeof body?.proveedorCodigo === "string" ? body.proveedorCodigo.trim()
-      : typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim()
-      : "";
+      typeof body?.proveedor_codigo === "string"
+        ? body.proveedor_codigo.trim()
+        : typeof body?.proveedorCodigo === "string"
+        ? body.proveedorCodigo.trim()
+        : "";
 
-    const seleccionado =
-      body?.seleccionado === true || body?.seleccionado === "true";
+    const seleccionado = body?.seleccionado === true || body?.seleccionado === "true";
 
-      
-    if (!urlRaw) {
-      return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
-    }
+    if (!urlRaw) return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
     if (!proveedorCodigo) {
       return NextResponse.json(
         { ok: false, error: "proveedor_codigo requerido (ej: TD)" },
@@ -188,33 +196,64 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "URL inválida" }, { status: 400 });
     }
 
-    // 1) resolver proveedor_id + motor_id_default
-    const provRows = await sql.query(
-      `
-      SELECT proveedor_id, motor_id_default
-      FROM app.proveedor
-      WHERE codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
+    // 1) resolver proveedor_id + motor_id (robusto: si no existe motor_id_default, usa motor_proveedor)
+    let prov: any = null;
 
-    const prov = provRows.rows[0];
-    if (!prov) {
+    // intento A: motor_id_default (si existe)
+    try {
+      const a: any = await sql.query(
+        `
+        SELECT proveedor_id, motor_id_default
+        FROM app.proveedor
+        WHERE codigo = $1
+        LIMIT 1
+        `,
+        [proveedorCodigo]
+      );
+      const rowsA = normalizeQueryResult(a);
+      prov = rowsA[0] ?? null;
+    } catch {
+      prov = null;
+    }
+
+    // intento B: fallback desde motor_proveedor
+    if (!prov || !prov.motor_id_default) {
+      const b: any = await sql.query(
+        `
+        SELECT p.proveedor_id,
+               mp.motor_id AS motor_id_default
+        FROM app.proveedor p
+        LEFT JOIN LATERAL (
+          SELECT motor_id
+          FROM app.motor_proveedor
+          WHERE proveedor_id = p.proveedor_id
+          ORDER BY motor_id ASC
+          LIMIT 1
+        ) mp ON true
+        WHERE p.codigo = $1
+        LIMIT 1
+        `,
+        [proveedorCodigo]
+      );
+      const rowsB = normalizeQueryResult(b);
+      prov = rowsB[0] ?? prov;
+    }
+
+    if (!prov?.proveedor_id) {
       return NextResponse.json(
         { ok: false, error: `proveedor inválido: ${proveedorCodigo}` },
         { status: 400 }
       );
     }
-    if (!prov.motor_id_default) {
+    if (!prov?.motor_id_default) {
       return NextResponse.json(
-        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor_id_default` },
+        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor asociado` },
         { status: 400 }
       );
     }
 
     // 2) dedupe por url_canonica
-    const dup = await sql.query(
+    const dupRes: any = await sql.query(
       `
       SELECT item_id
       FROM app.item_seguimiento
@@ -223,17 +262,16 @@ export async function POST(req: NextRequest) {
       `,
       [urlCanonica]
     );
-
-    if (dup.rows?.[0]?.item_id) {
+    const dupRows = normalizeQueryResult(dupRes);
+    if (dupRows?.[0]?.item_id) {
       return NextResponse.json(
-        { ok: false, error: "URL ya registrada", item_id: String(dup.rows[0].item_id) },
+        { ok: false, error: "URL ya registrada", item_id: String(dupRows[0].item_id) },
         { status: 409 }
       );
     }
 
     // 3) insertar item
-    // item_estado enum real: PENDING_SCRAPE | WAITING_REVIEW | OK | ERROR_SCRAPE | MANUAL_OVERRIDE
-    const insItem = await sql.query(
+    const insItemRes: any = await sql.query(
       `
       INSERT INTO app.item_seguimiento
         (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
@@ -243,19 +281,17 @@ export async function POST(req: NextRequest) {
       `,
       [prov.proveedor_id, prov.motor_id_default, urlRaw, urlCanonica, seleccionado]
     );
+    const insItemRows = normalizeQueryResult(insItemRes);
+    const item_id = insItemRows?.[0]?.item_id;
 
-    const item_id = insItem.rows[0].item_id;
+    if (!item_id) {
+      return NextResponse.json({ ok: false, error: "no se pudo crear item" }, { status: 500 });
+    }
 
-    // 4) insertar job (enums reales)
-    // job_tipo enum real: SCRAPE_URL
-    // job_estado enum real: PENDING | RUNNING | WAITING_REVIEW | SUCCEEDED | FAILED | CANCELLED
-    // job_result_status enum real: OK | WARNING | ERROR  (si existe en tu tabla)
-    //
-    // OJO: acá asumo que app.job tiene (tipo, estado, item_id, proveedor_id, prioridad)
-    // Si tu tabla job tiene nombres distintos, decime y lo ajusto en 30s.
+    // 4) insertar job (si la tabla permite)
     let job_id: any = null;
     try {
-      const insJob = await sql.query(
+      const insJobRes: any = await sql.query(
         `
         INSERT INTO app.job
           (tipo, estado, item_id, proveedor_id, prioridad)
@@ -265,9 +301,9 @@ export async function POST(req: NextRequest) {
         `,
         [item_id, prov.proveedor_id]
       );
-      job_id = insJob.rows?.[0]?.job_id ?? null;
+      const insJobRows = normalizeQueryResult(insJobRes);
+      job_id = insJobRows?.[0]?.job_id ?? null;
     } catch {
-      // si tu schema todavía no soporta insertar job así, igual devolvemos item_id
       job_id = null;
     }
 
@@ -276,9 +312,6 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
