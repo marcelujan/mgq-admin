@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     const rows = await sql`
       SELECT
         job_id, tipo, estado, prioridad,
-        proveedor_id, motor_id, item_id, corrida_id,
+        proveedor_id, item_id, corrida_id,
         payload, attempts, max_attempts, next_run_at,
         locked_by, locked_until, last_error,
         created_at, started_at, finished_at, updated_at
