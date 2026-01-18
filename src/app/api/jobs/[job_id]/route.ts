@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../lib/db"; // ✅ 5 niveles
+import { db } from "@/lib/db";
 
 export async function GET(
   _req: Request,

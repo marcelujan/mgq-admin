@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../../lib/db"; // ✅ 6 niveles
+import { db } from "@/lib/db";
 
 type ApproveBody = {
   candidato_index?: number;
