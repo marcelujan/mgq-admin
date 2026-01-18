@@ -11,7 +11,7 @@ git rev-parse --is-inside-work-tree >NUL 2>&1 || (
 )
 
 REM Cambiar a la rama preview (ajusta el nombre si tu rama es otra)
-set "TARGET=prueba-preview"
+set "TARGET=v2"
 
 REM Importante: NO ocultar errores. Si falla, lo vas a ver.
 echo Cambiando a %TARGET%...

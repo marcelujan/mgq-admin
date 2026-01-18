@@ -19,7 +19,7 @@ if "%MSG%"=="" set MSG=deploy: auto
 REM Asegurar que no estamos en main
 for /f %%b in ('git branch --show-current') do set BRANCH=%%b
 if "%BRANCH%"=="main" (
-  echo ERROR: Estas en main. Este script es SOLO para preview.
+  echo ERROR: Estas en main. Este script es SOLO para v2.
   pause
   exit /b 1
 )
@@ -40,8 +40,8 @@ if errorlevel 1 (
 )
 
 echo -----------------------------------
-echo Preview deploy OK en rama %BRANCH%
-echo Vercel va a crear el Preview automaticamente
+echo v2 deploy OK en rama %BRANCH%
+echo Vercel va a crear el v2 automaticamente
 echo -----------------------------------
 
 REM Cerrar automáticamente
