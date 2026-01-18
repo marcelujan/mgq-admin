@@ -1,18 +1,25 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-// Aprobar un candidato del job_result y persistirlo en app.oferta_proveedor
-// body: { candidato_index?: number, candidato?: object }
+// Aprueba un candidato del job_result y lo persiste en app.oferta_proveedor
+// Body opcional:
+//   { candidato_index?: number, candidato?: object }
 
-export async function POST(req: Request, ctx: { params: { job_id: string } }) {
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<{ job_id: string }> }
+) {
   try {
-    const jobId = BigInt(ctx.params.job_id);
-    const body = await req.json().catch(() => ({}));
+    const { job_id } = await params;
+    const jobId = BigInt(job_id);
+
+    const body = await req.json().catch(() => ({} as any));
     const candidatoIndex = Number(body?.candidato_index ?? 0);
     const candidatoOverride = body?.candidato;
 
     const sql = db();
 
+    // 1) Job + item_id
     const jobs = await sql`
       SELECT job_id, item_id
       FROM app.job
@@ -20,9 +27,21 @@ export async function POST(req: Request, ctx: { params: { job_id: string } }) {
       LIMIT 1
     `;
     const job = Array.isArray(jobs) ? jobs[0] : (jobs as any).rows?.[0];
-    if (!job) return NextResponse.json({ ok: false, error: "Job no encontrado" }, { status: 404 });
-    if (!job.item_id) return NextResponse.json({ ok: false, error: "Job sin item_id" }, { status: 400 });
 
+    if (!job) {
+      return NextResponse.json(
+        { ok: false, error: "Job no encontrado" },
+        { status: 404 }
+      );
+    }
+    if (!job.item_id) {
+      return NextResponse.json(
+        { ok: false, error: "Job sin item_id" },
+        { status: 400 }
+      );
+    }
+
+    // 2) Candidatos del job_result
     const results = await sql`
       SELECT candidatos
       FROM app.job_result
@@ -30,16 +49,23 @@ export async function POST(req: Request, ctx: { params: { job_id: string } }) {
       LIMIT 1
     `;
     const jr = Array.isArray(results) ? results[0] : (results as any).rows?.[0];
+
     const candidatos: any[] = (jr?.candidatos as any[]) || [];
     const candidato = candidatoOverride ?? candidatos[candidatoIndex];
-    if (!candidato) return NextResponse.json({ ok: false, error: "No hay candidato para aprobar" }, { status: 400 });
 
-    // Mapping basico candidato -> columnas oferta_proveedor
+    if (!candidato) {
+      return NextResponse.json(
+        { ok: false, error: "No hay candidato para aprobar" },
+        { status: 400 }
+      );
+    }
+
+    // 3) Mapping candidato -> oferta_proveedor
     const oferta = {
       item_id: BigInt(job.item_id),
       articulo_prov: candidato.articulo_prov ?? null,
       presentacion: candidato.presentacion ?? null,
-      uom: (candidato.uom ?? "UN") as string,
+      uom: (candidato.uom ?? "UN") as string, // enum app.uom
       costo_base_usd: candidato.costo_base_usd ?? null,
       fx_usado_en_alta: candidato.fx_usado_en_alta ?? null,
       fecha_scrape_base: candidato.fecha_scrape_base ?? null,
@@ -60,7 +86,11 @@ export async function POST(req: Request, ctx: { params: { job_id: string } }) {
       RETURNING oferta_id
     `;
 
-    // Marcar job como SUCCEEDED y item como OK
+    const ofertaId = Array.isArray(inserted)
+      ? inserted[0]?.oferta_id
+      : (inserted as any).rows?.[0]?.oferta_id;
+
+    // 4) Marcar job e item
     await sql`
       UPDATE app.job
       SET estado = 'SUCCEEDED'::app.job_estado,
@@ -75,9 +105,11 @@ export async function POST(req: Request, ctx: { params: { job_id: string } }) {
       WHERE item_id = ${BigInt(job.item_id)}
     `;
 
-    const ofertaId = Array.isArray(inserted) ? inserted[0]?.oferta_id : (inserted as any).rows?.[0]?.oferta_id;
     return NextResponse.json({ ok: true, oferta_id: ofertaId }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error aprobando" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error aprobando" },
+      { status: 500 }
+    );
   }
 }
