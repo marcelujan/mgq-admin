@@ -9,7 +9,7 @@ git status --porcelain | findstr . >nul && (
 git checkout main || exit /b 1
 git pull --rebase origin main || exit /b 1
 
-git merge prueba-preview
+git merge v2
 if errorlevel 1 (
   echo Hubo conflictos. Resolve en VSCode, luego:
   echo   git add -A
