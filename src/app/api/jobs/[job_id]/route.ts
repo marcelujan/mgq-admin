@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../lib/db"; // <--- IMPORT RELATIVO (más compatible)
+import { db } from "../../../../../lib/db"; // ✅ 5 niveles
 
 export async function GET(
   _req: Request,
