@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "../../../../../lib/db";
+import { db } from "../../../../../lib/db"; // <--- IMPORT RELATIVO (más compatible)
 
 export async function GET(
   _req: Request,
@@ -11,9 +11,8 @@ export async function GET(
 
     const sql = db();
 
-    // OJO: no selecciono motor_id desde app.job porque en tu DB te dio "no existe".
-    // El motor está en job_result.motor_id o en item_seguimiento.motor_id.
-    const jobs = await sql`
+    // ⚠️ NO pedimos motor_id desde app.job porque tu DB NO lo tiene (lo viste en Neon)
+    const jobRows = await sql`
       SELECT
         job_id, tipo, estado, prioridad,
         proveedor_id, item_id, corrida_id,
@@ -24,8 +23,8 @@ export async function GET(
       WHERE job_id = ${jobId}
       LIMIT 1
     `;
+    const job = (jobRows as any)?.[0];
 
-    const job = Array.isArray(jobs) ? jobs[0] : (jobs as any).rows?.[0];
     if (!job) {
       return NextResponse.json(
         { ok: false, error: "Job no encontrado" },
@@ -33,7 +32,7 @@ export async function GET(
       );
     }
 
-    const results = await sql`
+    const resultRows = await sql`
       SELECT
         result_id, job_id, motor_id, motor_version, status,
         candidatos, warnings, errors, created_at
@@ -41,9 +40,7 @@ export async function GET(
       WHERE job_id = ${jobId}
       LIMIT 1
     `;
-    const result = Array.isArray(results)
-      ? results[0]
-      : (results as any).rows?.[0];
+    const result = (resultRows as any)?.[0] ?? null;
 
     return NextResponse.json({ ok: true, job, result }, { status: 200 });
   } catch (e: any) {
