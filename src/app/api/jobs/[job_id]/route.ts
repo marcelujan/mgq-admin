@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 function parseJobId(raw: string): bigint | null {
-  // evita el "Cannot convert <job_id> to a BigInt"
   if (!/^\d+$/.test(raw)) return null;
   try {
     return BigInt(raw);
@@ -11,9 +10,12 @@ function parseJobId(raw: string): bigint | null {
   }
 }
 
-export async function GET(_req: Request, ctx: { params: { job_id: string } }) {
+export async function GET(
+  _req: Request,
+  { params }: { params: { job_id: string } }
+) {
   try {
-    const jobId = parseJobId(ctx.params.job_id);
+    const jobId = parseJobId(params.job_id);
     if (jobId === null) {
       return NextResponse.json(
         { ok: false, error: "job_id inválido (debe ser numérico)" },
@@ -23,9 +25,8 @@ export async function GET(_req: Request, ctx: { params: { job_id: string } }) {
 
     const sql = db();
 
-    // OJO: app.job NO tiene motor_id en tu Neon.
-    // Si querés mostrar motor_id, se obtiene desde item_seguimiento.
-    const jobs = await sql`
+    // app.job NO tiene motor_id -> lo traemos desde item_seguimiento
+    const jobRows = (await sql`
       SELECT
         j.job_id, j.tipo, j.estado, j.prioridad,
         j.proveedor_id, j.item_id, j.corrida_id,
@@ -37,24 +38,50 @@ export async function GET(_req: Request, ctx: { params: { job_id: string } }) {
       LEFT JOIN app.item_seguimiento i ON i.item_id = j.item_id
       WHERE j.job_id = ${jobId}
       LIMIT 1
-    `;
+    `) as any[];
 
-    const job = Array.isArray(jobs) ? jobs[0] : (jobs as any).rows?.[0];
+    const job = jobRows?.[0];
     if (!job) {
-      return NextResponse.json({ ok: false, error: "Job no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Job no encontrado" },
+        { status: 404 }
+      );
     }
 
-    const results = await sql`
+    const resultRows = (await sql`
       SELECT
         result_id, job_id, motor_id, motor_version, status,
         candidatos, warnings, errors, created_at
       FROM app.job_result
       WHERE job_id = ${jobId}
       LIMIT 1
-    `;
-    const result = Array.isArray(results) ? results[0] : (results as any).rows?.[0];
+    `) as any[];
 
-    return NextResponse.json({ ok: true, job, result }, { status: 200 });
+    const result = resultRows?.[0] ?? null;
+
+    return NextResponse.json(
+      {
+        ok: true,
+        job: {
+          ...job,
+          // BigInt rompe JSON -> lo pasamos a string si existe
+          job_id: job.job_id?.toString?.() ?? job.job_id,
+          item_id: job.item_id?.toString?.() ?? job.item_id,
+          proveedor_id: job.proveedor_id?.toString?.() ?? job.proveedor_id,
+          corrida_id: job.corrida_id?.toString?.() ?? job.corrida_id,
+          motor_id: job.motor_id?.toString?.() ?? job.motor_id,
+        },
+        result: result
+          ? {
+              ...result,
+              result_id: result.result_id?.toString?.() ?? result.result_id,
+              job_id: result.job_id?.toString?.() ?? result.job_id,
+              motor_id: result.motor_id?.toString?.() ?? result.motor_id,
+            }
+          : null,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "Error leyendo job" },
