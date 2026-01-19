@@ -6,15 +6,57 @@ function getWorkerId() {
   return process.env.WORKER_ID || `api-${Math.random().toString(16).slice(2)}`;
 }
 
+function toBigIntSafe(x: any): bigint | null {
+  if (x === null || x === undefined) return null;
+  if (typeof x === "bigint") return x;
+  const s = String(x).trim();
+  if (!/^\d+$/.test(s)) return null;
+  try {
+    return BigInt(s);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   const sql = db();
+  const workerId = getWorkerId();
+
+  // Body opcional
+  const body = await req.json().catch(() => ({} as any));
+  const ttlSeconds = Number(body?.ttl_seconds || 300);
+
+  // Helper para marcar FAILED y liberar lock
+  async function failJob(jobId: bigint, message: string, itemId?: any) {
+    await sql`
+      UPDATE app.job
+      SET
+        estado = 'FAILED'::app.job_estado,
+        attempts = attempts + 1,
+        last_error = ${message},
+        finished_at = now(),
+        locked_by = NULL,
+        locked_until = NULL,
+        updated_at = now()
+      WHERE job_id = ${jobId}
+    `;
+
+    const itemBig = toBigIntSafe(itemId);
+    if (itemBig) {
+      await sql`
+        UPDATE app.item_seguimiento
+        SET
+          estado = 'ERROR_SCRAPE'::app.item_estado,
+          ultimo_error_scrape = now(),
+          mensaje_error = ${message},
+          updated_at = now()
+        WHERE item_id = ${itemBig}
+      `;
+    }
+  }
 
   try {
-    const workerId = getWorkerId();
-    const body = await req.json().catch(() => ({}));
-    const ttlSeconds = Number(body?.ttl_seconds || 300);
-
-    // 1) Claim job (PENDING -> RUNNING)
+    // 1) Claim 1 job PENDING
     const claimed = await sql`
       WITH picked AS (
         SELECT job_id
@@ -35,79 +77,80 @@ export async function POST(req: Request) {
         updated_at = now()
       FROM picked
       WHERE j.job_id = picked.job_id
-      RETURNING j.job_id, j.tipo, j.estado, j.prioridad, j.proveedor_id, j.item_id, j.corrida_id, j.payload
+      RETURNING j.job_id, j.tipo, j.item_id, j.payload, j.motor_id
     `;
 
-    const job = Array.isArray(claimed) ? claimed[0] : (claimed as any)?.rows?.[0];
+    const job = Array.isArray(claimed) ? claimed[0] : (claimed as any).rows?.[0];
 
     if (!job) {
       return NextResponse.json({ ok: true, claimed: false }, { status: 200 });
     }
 
-    // 2) Resolver motor_id desde item_seguimiento (NO desde app.job)
-    let motorId: bigint | null = null;
+    const jobId = toBigIntSafe(job.job_id);
+    if (!jobId) {
+      return NextResponse.json({ ok: false, error: "job_id inválido" }, { status: 500 });
+    }
 
-    if (job.item_id) {
+    const itemId = toBigIntSafe(job.item_id);
+
+    // 2) Resolver motor_id (NO usar 0: rompe FK)
+    let motorId = toBigIntSafe(job.motor_id);
+
+    if (!motorId && itemId) {
       const motorRows = await sql`
         SELECT motor_id
         FROM app.item_seguimiento
-        WHERE item_id = ${BigInt(job.item_id)}
+        WHERE item_id = ${itemId}
         LIMIT 1
       `;
-
-      const motorRow = Array.isArray(motorRows) ? motorRows[0] : (motorRows as any)?.rows?.[0];
-      const mid = motorRow?.motor_id;
-
-      motorId = mid === null || mid === undefined ? null : BigInt(mid);
+      const motorRow = Array.isArray(motorRows) ? motorRows[0] : (motorRows as any).rows?.[0];
+      motorId = toBigIntSafe(motorRow?.motor_id);
     }
 
     if (!motorId) {
-      // Si no hay motor_id válido, marcamos FAILED y salimos (evita FK en job_result)
-      const msg = "No se pudo resolver motor_id desde item_seguimiento para este job/item.";
-      await sql`
-        UPDATE app.job
-        SET
-          estado = 'FAILED'::app.job_estado,
-          attempts = attempts + 1,
-          last_error = ${msg},
-          finished_at = now(),
-          locked_until = NULL,
-          updated_at = now()
-        WHERE job_id = ${BigInt(job.job_id)}
-      `;
-      return NextResponse.json({ ok: false, error: msg, job_id: String(job.job_id) }, { status: 500 });
+      await failJob(jobId, "No se pudo resolver motor_id (ni en job ni en item_seguimiento).", job.item_id);
+      return NextResponse.json(
+        { ok: false, error: "No se pudo resolver motor_id", job_id: String(jobId) },
+        { status: 500 }
+      );
     }
 
     const motorVersion = "v0";
 
     // 3) Ejecutar motor
-    const tipo = String(job.tipo || "");
     let motorResult: {
-      status: "OK" | "WARNING" | "ERROR";
+      status: "OK" | "ERROR";
       candidatos: any[];
       warnings: any[];
       errors: any[];
     };
 
-    if (tipo === "SCRAPE_URL") {
-      const url =
-        job?.payload?.url || job?.payload?.url_canonica || job?.payload?.url_original || "";
-      motorResult = await scrapeTD(String(url));
+    if (job.tipo === "SCRAPE_URL") {
+      const url = job?.payload?.url || job?.payload?.url_canonica || job?.payload?.url_original;
+      const r = await scrapeTD(String(url || ""));
+      // Normalizamos por si el motor devuelve otras claves
+      motorResult = {
+        status: (r?.status === "ERROR" ? "ERROR" : "OK") as "OK" | "ERROR",
+        candidatos: Array.isArray(r?.candidatos) ? r.candidatos : [],
+        warnings: Array.isArray(r?.warnings) ? r.warnings : [],
+        errors: Array.isArray(r?.errors) ? r.errors : [],
+      };
     } else {
       motorResult = {
         status: "ERROR",
         candidatos: [],
         warnings: [],
-        errors: [{ code: "UNKNOWN_JOB_TYPE", message: `Tipo job no soportado: ${tipo}` }],
+        errors: [{ code: "UNKNOWN_JOB_TYPE", message: `Tipo job no soportado: ${String(job.tipo)}` }],
       };
     }
 
-    // 4) Upsert job_result (motor_id ahora es válido)
+    // 4) Upsert job_result
     await sql`
       INSERT INTO app.job_result
         (job_id, motor_id, motor_version, status, candidatos, warnings, errors, created_at)
       VALUES
-        (${BigInt(job.job_id)}, ${motorId}, ${motorVersion}, ${motorResult.status}::app.job_result_status,
+        (${jobId}, ${motorId}, ${motorVersion},
+         ${motorResult.status}::app.job_result_status,
          ${JSON.stringify(motorResult.candidatos)}::jsonb,
          ${JSON.stringify(motorResult.warnings)}::jsonb,
          ${JSON.stringify(motorResult.errors)}::jsonb,
@@ -115,76 +158,59 @@ export async function POST(req: Request) {
       ON CONFLICT (job_id)
       DO UPDATE SET
         motor_id = EXCLUDED.motor_id,
+        motor_version = EXCLUDED.motor_version,
         status = EXCLUDED.status,
         candidatos = EXCLUDED.candidatos,
         warnings = EXCLUDED.warnings,
         errors = EXCLUDED.errors,
-        motor_version = EXCLUDED.motor_version,
         created_at = now()
     `;
 
-    // 5) Transiciones de estado
+    // 5) Transición de estados + liberar lock
     if (motorResult.status === "ERROR") {
-      await sql`
-        UPDATE app.job
-        SET
-          estado = 'FAILED'::app.job_estado,
-          attempts = attempts + 1,
-          last_error = ${JSON.stringify(motorResult.errors?.[0] ?? motorResult.errors ?? null)},
-          finished_at = now(),
-          locked_until = NULL,
-          updated_at = now()
-        WHERE job_id = ${BigInt(job.job_id)}
-      `;
+      await failJob(
+        jobId,
+        String(motorResult.errors?.[0]?.message || "ERROR ejecutando motor"),
+        job.item_id
+      );
+      return NextResponse.json(
+        { ok: true, claimed: true, job_id: String(jobId), status: "ERROR" },
+        { status: 200 }
+      );
+    }
 
-      if (job.item_id) {
-        await sql`
-          UPDATE app.item_seguimiento
-          SET
-            estado = 'ERROR_SCRAPE'::app.item_estado,
-            ultimo_error_scrape = now(),
-            mensaje_error = ${String(motorResult.errors?.[0]?.message || "ERROR")},
-            updated_at = now()
-          WHERE item_id = ${BigInt(job.item_id)}
-        `;
-      }
-    } else {
-      await sql`
-        UPDATE app.job
-        SET
-          estado = 'WAITING_REVIEW'::app.job_estado,
-          finished_at = now(),
-          locked_until = NULL,
-          updated_at = now()
-        WHERE job_id = ${BigInt(job.job_id)}
-      `;
+    await sql`
+      UPDATE app.job
+      SET
+        estado = 'WAITING_REVIEW'::app.job_estado,
+        finished_at = now(),
+        locked_by = NULL,
+        locked_until = NULL,
+        updated_at = now()
+      WHERE job_id = ${jobId}
+    `;
 
-      if (job.item_id) {
-        await sql`
-          UPDATE app.item_seguimiento
-          SET
-            estado = 'WAITING_REVIEW'::app.item_estado,
-            ultimo_intento_scrape = now(),
-            ultimo_scrape_ok = now(),
-            updated_at = now()
-          WHERE item_id = ${BigInt(job.item_id)}
-        `;
-      }
+    if (itemId) {
+      await sql`
+        UPDATE app.item_seguimiento
+        SET
+          estado = 'WAITING_REVIEW'::app.item_estado,
+          ultimo_intento_scrape = now(),
+          ultimo_scrape_ok = now(),
+          updated_at = now()
+        WHERE item_id = ${itemId}
+      `;
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        claimed: true,
-        job_id: String(job.job_id),
-        motor_id: String(motorId),
-        status: motorResult.status,
-      },
+      { ok: true, claimed: true, job_id: String(jobId), status: "OK" },
       { status: 200 }
     );
   } catch (e: any) {
+    // Si explotó después de claim, lo ideal sería intentar marcar FAILED,
+    // pero sin jobId seguro no podemos. Devolvemos error.
     return NextResponse.json(
-      { ok: false, error: e?.message || "Error ejecutando worker" },
+      { ok: false, error: e?.message || "Error ejecutando run-next" },
       { status: 500 }
     );
   }
