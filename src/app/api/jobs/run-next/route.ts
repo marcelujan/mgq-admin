@@ -30,7 +30,7 @@ export async function POST(_req: Request) {
   const sql = db();
 
   try {
-    // 1) Tomar 1 job PENDING (lock) y pasarlo a RUNNING
+    // 1) Claim 1 job PENDING -> RUNNING (esto es ATOMICO en un UPDATE con CTE + SKIP LOCKED)
     const pickedRows = (await sql`
       WITH picked AS (
         SELECT job_id
@@ -48,6 +48,7 @@ export async function POST(_req: Request) {
         locked_by = 'api/run-next',
         locked_until = now() + interval '5 minutes',
         started_at = COALESCE(started_at, now()),
+        last_error = NULL,
         updated_at = now()
       FROM picked
       WHERE j.job_id = picked.job_id
@@ -65,25 +66,24 @@ export async function POST(_req: Request) {
     const itemId = toBigInt(job.item_id);
 
     if (!jobId) {
-      // caso raro
+      // si esto pasa, devolvemos el job a PENDING con error claro
       await sql`
         UPDATE app.job
         SET
-          estado = 'FAILED'::app.job_estado,
+          estado = 'PENDING'::app.job_estado,
           last_error = 'job_id invalido (no numerico)',
           locked_by = NULL,
           locked_until = NULL,
-          finished_at = now(),
           updated_at = now()
         WHERE job_id = ${job.job_id}
       `;
       return NextResponse.json(
-        { ok: false, claimed: true, error: "job_id invalido" },
+        { ok: false, claimed: true, error: "job_id invalido (no numerico)" },
         { status: 500 }
       );
     }
 
-    // 2) Resolver motor_id desde item_seguimiento (NO desde app.job)
+    // 2) Resolver motor_id desde app.item_seguimiento (NO desde app.job)
     let motorId: bigint | null = null;
 
     if (itemId) {
@@ -98,32 +98,29 @@ export async function POST(_req: Request) {
       motorId = toBigInt(motorRows?.[0]?.motor_id);
     }
 
+    // Si NO hay motor_id, NO intentamos insertar job_result (evita FK/NOT NULL)
+    // y devolvemos el job a PENDING (como vos sospechás: "esa parte aún no está").
     if (!motorId) {
-      // Si todavía no existe esa parte, esto es lo correcto: fallar con mensaje claro.
+      const msg = `motor_id no encontrado para item_id=${itemId ?? "NULL"} (aun no implementado o sin datos)`;
+
       await sql`
         UPDATE app.job
         SET
-          estado = 'FAILED'::app.job_estado,
-          last_error = ${`motor_id no encontrado para item_id=${itemId ?? "NULL"}`},
+          estado = 'PENDING'::app.job_estado,
+          last_error = ${msg},
           locked_by = NULL,
           locked_until = NULL,
-          finished_at = now(),
           updated_at = now()
         WHERE job_id = ${jobId}
       `;
 
       return NextResponse.json(
-        {
-          ok: false,
-          claimed: true,
-          job_id: String(jobId),
-          error: `motor_id no encontrado para item_id=${itemId ?? "NULL"}`,
-        },
-        { status: 500 }
+        { ok: false, claimed: true, job_id: String(jobId), error: msg },
+        { status: 409 }
       );
     }
 
-    // 3) Upsert job_result (dummy candidatos para destrabar UI approve)
+    // 3) Upsert job_result (SIN updated_at, porque tu tabla no lo tiene)
     const candidatos = [
       {
         proveedor_id: job.proveedor_id ?? null,
@@ -145,11 +142,10 @@ export async function POST(_req: Request) {
         motor_id = EXCLUDED.motor_id,
         motor_version = EXCLUDED.motor_version,
         status = EXCLUDED.status,
-        candidatos = EXCLUDED.candidatos,
-        updated_at = now()
+        candidatos = EXCLUDED.candidatos
     `;
 
-    // 4) Pasar a WAITING_REVIEW y liberar lock
+    // 4) WAITING_REVIEW y liberar lock
     await sql`
       UPDATE app.job
       SET
