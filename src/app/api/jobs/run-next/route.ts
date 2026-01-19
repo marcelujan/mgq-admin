@@ -30,7 +30,7 @@ export async function POST(_req: Request) {
   const sql = db();
 
   try {
-    // 1) Claim 1 job PENDING -> RUNNING (esto es ATOMICO en un UPDATE con CTE + SKIP LOCKED)
+    // 1) Claim 1 job PENDING -> RUNNING (atómico)
     const pickedRows = (await sql`
       WITH picked AS (
         SELECT job_id
@@ -66,7 +66,6 @@ export async function POST(_req: Request) {
     const itemId = toBigInt(job.item_id);
 
     if (!jobId) {
-      // si esto pasa, devolvemos el job a PENDING con error claro
       await sql`
         UPDATE app.job
         SET
@@ -83,7 +82,7 @@ export async function POST(_req: Request) {
       );
     }
 
-    // 2) Resolver motor_id desde app.item_seguimiento (NO desde app.job)
+    // 2) Resolver motor_id desde app.item_seguimiento
     let motorId: bigint | null = null;
 
     if (itemId) {
@@ -98,8 +97,7 @@ export async function POST(_req: Request) {
       motorId = toBigInt(motorRows?.[0]?.motor_id);
     }
 
-    // Si NO hay motor_id, NO intentamos insertar job_result (evita FK/NOT NULL)
-    // y devolvemos el job a PENDING (como vos sospechás: "esa parte aún no está").
+    // Si no hay motor_id, devolvemos el job a PENDING (no avanzamos)
     if (!motorId) {
       const msg = `motor_id no encontrado para item_id=${itemId ?? "NULL"} (aun no implementado o sin datos)`;
 
@@ -120,7 +118,7 @@ export async function POST(_req: Request) {
       );
     }
 
-    // 3) Upsert job_result (SIN updated_at, porque tu tabla no lo tiene)
+    // 3) Upsert job_result (sin updated_at porque no existe)
     const candidatos = [
       {
         proveedor_id: job.proveedor_id ?? null,
@@ -145,7 +143,7 @@ export async function POST(_req: Request) {
         candidatos = EXCLUDED.candidatos
     `;
 
-    // 4) WAITING_REVIEW y liberar lock
+    // 4) WAITING_REVIEW
     await sql`
       UPDATE app.job
       SET
