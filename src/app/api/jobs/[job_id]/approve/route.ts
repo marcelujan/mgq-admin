@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 function parseJobId(raw: string): bigint | null {
@@ -11,11 +11,13 @@ function parseJobId(raw: string): bigint | null {
 }
 
 export async function POST(
-  req: Request,
-  { params }: { params: { job_id: string } }
+  request: NextRequest,
+  context: { params: Promise<{ job_id: string }> }
 ) {
   try {
-    const jobId = parseJobId(params.job_id);
+    const { job_id } = await context.params;
+
+    const jobId = parseJobId(job_id);
     if (jobId === null) {
       return NextResponse.json(
         { ok: false, error: "job_id inválido (debe ser numérico)" },
@@ -23,7 +25,7 @@ export async function POST(
       );
     }
 
-    const body = (await req.json().catch(() => ({}))) as any;
+    const body = (await request.json().catch(() => ({}))) as any;
     const candidatoIndex = Number(body?.candidato_index ?? 0);
     const candidatoOverride = body?.candidato;
 
@@ -38,10 +40,16 @@ export async function POST(
 
     const job = jobRows?.[0];
     if (!job) {
-      return NextResponse.json({ ok: false, error: "Job no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Job no encontrado" },
+        { status: 404 }
+      );
     }
     if (!job.item_id) {
-      return NextResponse.json({ ok: false, error: "Job sin item_id" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Job sin item_id" },
+        { status: 400 }
+      );
     }
 
     const jrRows = (await sql`
@@ -51,17 +59,21 @@ export async function POST(
       LIMIT 1
     `) as any[];
 
-    const candidatos = Array.isArray(jrRows?.[0]?.candidatos) ? jrRows[0].candidatos : [];
-    const candidato = candidatoOverride ?? candidatos[candidatoIndex];
+    const candidatos = Array.isArray(jrRows?.[0]?.candidatos)
+      ? jrRows[0].candidatos
+      : [];
 
+    const candidato = candidatoOverride ?? candidatos[candidatoIndex];
     if (!candidato) {
       return NextResponse.json(
-        { ok: false, error: "No hay candidato para aprobar (index inválido o candidatos vacíos)" },
+        {
+          ok: false,
+          error: "No hay candidato para aprobar (index inválido o candidatos vacíos)",
+        },
         { status: 400 }
       );
     }
 
-    // Mapping candidato -> oferta_proveedor
     const oferta = {
       item_id: job.item_id,
       articulo_prov: candidato.articulo_prov ?? null,
@@ -89,7 +101,10 @@ export async function POST(
 
     const ofertaId = inserted?.[0]?.oferta_id;
     if (!ofertaId) {
-      return NextResponse.json({ ok: false, error: "No se pudo obtener oferta_id del INSERT" }, { status: 500 });
+      return NextResponse.json(
+        { ok: false, error: "No se pudo obtener oferta_id del INSERT" },
+        { status: 500 }
+      );
     }
 
     await sql`
@@ -111,7 +126,7 @@ export async function POST(
     `;
 
     return NextResponse.json(
-      { ok: true, oferta_id: ofertaId.toString() },
+      { ok: true, oferta_id: String(ofertaId) },
       { status: 200 }
     );
   } catch (e: any) {

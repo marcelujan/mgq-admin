@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 function parseJobId(raw: string): bigint | null {
@@ -11,11 +11,13 @@ function parseJobId(raw: string): bigint | null {
 }
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { job_id: string } }
+  _request: NextRequest,
+  context: { params: Promise<{ job_id: string }> }
 ) {
   try {
-    const jobId = parseJobId(params.job_id);
+    const { job_id } = await context.params;
+
+    const jobId = parseJobId(job_id);
     if (jobId === null) {
       return NextResponse.json(
         { ok: false, error: "job_id inválido (debe ser numérico)" },
@@ -64,7 +66,6 @@ export async function GET(
         ok: true,
         job: {
           ...job,
-          // BigInt rompe JSON -> lo pasamos a string si existe
           job_id: job.job_id?.toString?.() ?? job.job_id,
           item_id: job.item_id?.toString?.() ?? job.item_id,
           proveedor_id: job.proveedor_id?.toString?.() ?? job.proveedor_id,
