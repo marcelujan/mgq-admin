@@ -1,7 +1,6 @@
 {
   "name": "mgq-admin",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
-  "features": {},
   "customizations": {
     "vscode": {
       "extensions": [
@@ -10,10 +9,10 @@
       ]
     }
   },
-  "forwardPorts": [5173, 3000],
+  "forwardPorts": [3000],
   "portsAttributes": {
-    "3000": { "label": "web" },
-    "5173": { "label": "vite" }
+    "3000": { "label": "Next dev server", "onAutoForward": "openBrowser" }
   },
-  "postCreateCommand": "corepack enable && (pnpm -v >/dev/null 2>&1 && pnpm install || npm install)"
+  "postCreateCommand": "npm ci",
+  "postStartCommand": "npm run dev -- -H 0.0.0.0 -p 3000"
 }
