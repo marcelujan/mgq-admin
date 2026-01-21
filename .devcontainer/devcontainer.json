@@ -1,18 +1,21 @@
 {
   "name": "mgq-admin",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bookworm",
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode"
-      ]
-    }
-  },
+
   "forwardPorts": [3000],
   "portsAttributes": {
-    "3000": { "label": "Next dev server", "onAutoForward": "openBrowser" }
+    "3000": {
+      "label": "Next dev",
+      "onAutoForward": "openBrowser"
+    }
   },
+
   "postCreateCommand": "npm ci",
-  "postStartCommand": "npm run dev -- -H 0.0.0.0 -p 3000"
+  "postStartCommand": "npm run dev -- -H 0.0.0.0 -p 3000",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
 }
