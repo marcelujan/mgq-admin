@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 function parseJobId(raw: unknown): bigint | null {
-  // Next.js puede entregar params como string o string[]
   const s =
     typeof raw === "string"
       ? raw.trim()
@@ -22,17 +21,20 @@ function parseJobId(raw: unknown): bigint | null {
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { job_id?: string | string[] } }
+  context: { params: Promise<{ job_id: string }> }
 ) {
-  const jobId = parseJobId(context?.params?.job_id);
-  if (jobId === null) {
-    return NextResponse.json(
-      { ok: false, error: "job_id inválido (debe ser numérico)" },
-      { status: 400 }
-    );
-  }
-
   try {
+    // Mantener firma esperada por el build, pero permitir robustez en runtime
+    const { job_id } = (await context.params) as any;
+
+    const jobId = parseJobId(job_id);
+    if (jobId === null) {
+      return NextResponse.json(
+        { ok: false, error: "job_id inválido (debe ser numérico)" },
+        { status: 400 }
+      );
+    }
+
     const sql = db();
 
     // app.job NO tiene motor_id -> lo traemos desde item_seguimiento
