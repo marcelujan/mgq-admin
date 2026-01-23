@@ -1,20 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-function parseJobId(raw: unknown): bigint | null {
-  // Next.js puede entregar params como string o string[]
-  const s =
-    typeof raw === "string"
-      ? raw.trim()
-      : Array.isArray(raw) && typeof raw[0] === "string"
-      ? raw[0].trim()
-      : null;
-
-  if (!s) return null;
-  if (!/^\d+$/.test(s)) return null;
-
+function parseJobId(raw: string): bigint | null {
+  if (!/^\d+$/.test(raw)) return null;
   try {
-    return BigInt(s);
+    return BigInt(raw);
   } catch {
     return null;
   }
@@ -22,17 +12,19 @@ function parseJobId(raw: unknown): bigint | null {
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { job_id?: string | string[] } }
+  context: { params: Promise<{ job_id: string }> }
 ) {
-  const jobId = parseJobId(context?.params?.job_id);
-  if (jobId === null) {
-    return NextResponse.json(
-      { ok: false, error: "job_id inválido (debe ser numérico)" },
-      { status: 400 }
-    );
-  }
-
   try {
+    const { job_id } = await context.params;
+
+    const jobId = parseJobId(job_id);
+    if (jobId === null) {
+      return NextResponse.json(
+        { ok: false, error: "job_id inválido (debe ser numérico)" },
+        { status: 400 }
+      );
+    }
+
     const sql = db();
 
     // app.job NO tiene motor_id -> lo traemos desde item_seguimiento
