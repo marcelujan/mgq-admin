@@ -277,7 +277,7 @@ export async function POST(_req: Request) {
     let warnings: string[] = [];
     let errors: string[] = [];
 
-    if (motorId === 1n) {
+    if (motorId === BigInt(1)) {
       motor_version = "puraquimica_v1";
       const r = await motorPuraQuimica(job.payload, job, itemId);
       status = r.status;
