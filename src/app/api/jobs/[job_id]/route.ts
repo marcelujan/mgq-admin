@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-function parseJobId(raw: unknown): bigint | null {
-  const s =
-    typeof raw === "string"
-      ? raw.trim()
-      : Array.isArray(raw) && typeof raw[0] === "string"
-      ? raw[0].trim()
-      : null;
+function normalizeRaw(raw: unknown): { kind: string; value: any; normalized: string | null } {
+  const kind = Array.isArray(raw) ? "array" : typeof raw;
 
-  if (!s) return null;
-  if (!/^\d+$/.test(s)) return null;
+  let normalized: string | null = null;
+  if (typeof raw === "string") normalized = raw.trim();
+  else if (Array.isArray(raw) && typeof raw[0] === "string") normalized = raw[0].trim();
+
+  return { kind, value: raw as any, normalized };
+}
+
+function parseJobId(raw: unknown): bigint | null {
+  const { normalized } = normalizeRaw(raw);
+  if (!normalized) return null;
+  if (!/^\d+$/.test(normalized)) return null;
 
   try {
-    return BigInt(s);
+    return BigInt(normalized);
   } catch {
     return null;
   }
@@ -24,20 +28,31 @@ export async function GET(
   context: { params: Promise<{ job_id: string }> }
 ) {
   try {
-    // Mantener firma esperada por el build, pero permitir robustez en runtime
-    const { job_id } = (await context.params) as any;
+    const paramsAny = (await context.params) as any;
+    const rawJobId = paramsAny?.job_id;
 
-    const jobId = parseJobId(job_id);
+    // logs en Vercel
+    console.log("[/api/jobs/[job_id]] raw job_id:", rawJobId, "typeof:", typeof rawJobId, "isArray:", Array.isArray(rawJobId));
+
+    const jobId = parseJobId(rawJobId);
     if (jobId === null) {
+      const dbg = normalizeRaw(rawJobId);
       return NextResponse.json(
-        { ok: false, error: "job_id inválido (debe ser numérico)" },
+        {
+          ok: false,
+          error: "job_id inválido (debe ser numérico)",
+          debug: {
+            kind: dbg.kind,
+            normalized: dbg.normalized,
+            value: dbg.value,
+          },
+        },
         { status: 400 }
       );
     }
 
     const sql = db();
 
-    // app.job NO tiene motor_id -> lo traemos desde item_seguimiento
     const jobRows = (await sql`
       SELECT
         j.job_id, j.tipo, j.estado, j.prioridad,
