@@ -176,7 +176,7 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   });
 
   const status =
-    errors.length > 0 ? ("ERROR" as const) : warnings.length > 0 ? ("WARN" as const) : ("OK" as const);
+    errors.length > 0 ? ("ERROR" as const) : warnings.length > 0 ? ("WARNING" as const) : ("OK" as const);
 
   return { status, candidatos, warnings, errors, meta: { url, title, sku, fx, pres_count: pres.length } };
 }
@@ -272,7 +272,7 @@ export async function POST(_req: Request) {
 
     // 3) Ejecutar motor
     let motor_version = "v0";
-    let status: "OK" | "WARN" | "ERROR" = "ERROR";
+    let status: "OK" | "WARNING" | "ERROR" = "ERROR";
     let candidatos: any[] = [];
     let warnings: string[] = [];
     let errors: string[] = [];
@@ -333,7 +333,7 @@ export async function POST(_req: Request) {
       );
     }
 
-    // OK o WARN -> WAITING_REVIEW
+    // OK o WARNING -> WAITING_REVIEW
     await sql`
       UPDATE app.job
       SET
