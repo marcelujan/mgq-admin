@@ -1,38 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
-function normalizeId(v: unknown): string | null {
-  if (typeof v === "string") return v.trim();
-  if (Array.isArray(v) && typeof v[0] === "string") return v[0].trim();
-  return null;
-}
-
-export default function JobDetailPage() {
-  const params = useParams();
-
-  // soporta ambos por si el folder fuera [job_id] o [jobId]
-  const jobId = useMemo(() => {
-    const raw = (params as any)?.job_id ?? (params as any)?.jobId;
-    return normalizeId(raw);
-  }, [params]);
-
+export default function JobDetailPage({ params }: { params: { job_id: string } }) {
+  const jobId = params.job_id;
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
   const [sel, setSel] = useState(0);
 
   async function load() {
-    if (!jobId) {
-      setErr("job_id inválido (debe ser numérico)");
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setErr(null);
-
     try {
       const res = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
       const j = await res.json();
@@ -46,11 +25,6 @@ export default function JobDetailPage() {
   }
 
   async function approve() {
-    if (!jobId) {
-      alert("job_id inválido (debe ser numérico)");
-      return;
-    }
-
     try {
       const res = await fetch(`/api/jobs/${jobId}/approve`, {
         method: "POST",
@@ -68,8 +42,7 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
+  }, []);
 
   if (loading) return <div style={{ padding: 16 }}>Cargando...</div>;
   if (err) return <div style={{ padding: 16 }}><b>Error:</b> {err}</div>;
@@ -83,23 +56,15 @@ export default function JobDetailPage() {
       <h1 style={{ marginTop: 0 }}>Job {jobId}</h1>
 
       <h3>Job</h3>
-      <pre style={{ background: "#111", padding: 12, overflowX: "auto" }}>
-        {JSON.stringify(job, null, 2)}
-      </pre>
+      <pre style={{ background: "#111", padding: 12, overflowX: "auto" }}>{JSON.stringify(job, null, 2)}</pre>
 
       <h3>Result</h3>
-      <pre style={{ background: "#111", padding: 12, overflowX: "auto" }}>
-        {JSON.stringify(result, null, 2)}
-      </pre>
+      <pre style={{ background: "#111", padding: 12, overflowX: "auto" }}>{JSON.stringify(result, null, 2)}</pre>
 
       <h3>Candidatos ({candidatos.length})</h3>
       {candidatos.length > 0 ? (
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <select
-            value={sel}
-            onChange={(e) => setSel(Number(e.target.value))}
-            style={{ padding: "6px 10px" }}
-          >
+          <select value={sel} onChange={(e) => setSel(Number(e.target.value))} style={{ padding: "6px 10px" }}>
             {candidatos.map((_c, idx) => (
               <option key={idx} value={idx}>
                 #{idx}
