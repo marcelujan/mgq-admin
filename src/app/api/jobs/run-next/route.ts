@@ -125,10 +125,12 @@ export async function POST(_req: Request) {
         item_id: itemId ? String(itemId) : null,
         descripcion: "Candidato TD (dummy)",
         presentacion: null,
-        unidad: null,
+        uom: null,                 // <— antes unidad
         articulo_prov: null,
         costo_base_usd: null,
-        fx_usado_en_alt: null,
+        fx_usado_en_alta: null,    // <— corregido (antes fx_usado_en_alt)
+        fecha_scrape_base: null,   // <— approve ya lo lee
+        densidad: null,            // <— approve ya lo lee
       },
     ];
 
