@@ -55,31 +55,19 @@ function parseSkuFromHtml(html: string): string | null {
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
+  // SOLO opciones del select (fuente canónica)
+  const re = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
   const out: number[] = [];
 
-  // 1) Buscar el <select> específico de presentación
-  const selectMatch = html.match(
-    /<select[^>]*(?:name|id)="[^"]*(?:presentacion|pa_presentacion|attribute_pa_presentacion)[^"]*"[^>]*>([\s\S]*?)<\/select>/i
-  );
-
-  const scope = selectMatch ? selectMatch[1] : "";
-
-  // 2) Extraer SOLO values con formato tipo 1.0000 / 25.0000
-  const optRe = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
-  for (let m; (m = optRe.exec(scope)); ) {
+  for (let m; (m = re.exec(html)); ) {
     const n = Number(m[1]);
-    if (Number.isFinite(n) && n > 0 && n <= 1000) out.push(n);
+    if (Number.isFinite(n)) out.push(n);
   }
 
-  // 3) Fallback mínimo: si el select no vino, buscar query param explícito (NO números sueltos)
-  if (out.length === 0) {
-    const qpRe = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
-    for (let m; (m = qpRe.exec(html)); ) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > 0 && n <= 1000) out.push(n);
-    }
-  }
+  // Si no hay options, es error real
+  if (out.length === 0) return [];
 
+  // Normalizar y ordenar
   return Array.from(new Set(out)).sort((a, b) => a - b);
 }
 
