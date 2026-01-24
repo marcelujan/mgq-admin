@@ -26,6 +26,171 @@ function toBigInt(v: any): bigint | null {
   }
 }
 
+function normalizeUrl(raw: unknown): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
+function parseFxFromHtml(html: string): number | null {
+  // "La cotización de dolar de: $1450.00."
+  const m = html.match(/cotizaci[oó]n\s+de\s+dolar\s+de:\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  if (!m) return null;
+  const n = Number(String(m[1]).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseTitleFromHtml(html: string): string | null {
+  // suele venir como <h1 class="product_title ...">...</h1>
+  const m = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  if (!m) return null;
+  return m[1].replace(/\s+/g, " ").trim();
+}
+
+function parseSkuFromHtml(html: string): string | null {
+  // "SKU: M0007"
+  const m = html.match(/SKU:\s*([A-Z0-9_-]+)/i);
+  return m ? m[1].trim() : null;
+}
+
+function parsePresentationsFromHtml(html: string): number[] {
+  const out: number[] = [];
+
+  // 1) Intentar aislar el <select> de presentación (más tolerante)
+  const selectMatch =
+    html.match(/<select[^>]*(?:pa_presentacion|presentaci[oó]n|presentacion)[^>]*>([\s\S]*?)<\/select>/i);
+
+  const scope = selectMatch ? selectMatch[1] : html;
+
+  // 2) Capturar valores desde value="1.0000"
+  const optValRe = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
+  for (let m; (m = optValRe.exec(scope)); ) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) out.push(n);
+  }
+
+  // 3) Capturar si el value viene vacío y el número está como texto: <option>1.0000</option>
+  const optTextRe = /<option[^>]*>\s*([0-9]+(?:\.[0-9]{4})?)\s*<\/option>/gi;
+  for (let m; (m = optTextRe.exec(scope)); ) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) out.push(n);
+  }
+
+  // 4) Fallback acotado: query param explícito (sin números sueltos)
+  if (out.length === 0) {
+    const qpRe = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
+    for (let m; (m = qpRe.exec(html)); ) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n)) out.push(n);
+    }
+  }
+
+  // Unique + sort
+  return Array.from(new Set(out)).sort((a, b) => a - b);
+}
+
+function inferUomAndAmountFromTitleOrUrl(
+  title: string | null,
+  url: string,
+  presValue: number
+): { uom: "GR" | "ML" | "UN"; amount: number } {
+  const hay = `${title ?? ""} ${url}`.toUpperCase();
+
+  // heurística mínima:
+  // - si el producto indica XKG o "KG" -> presValue es Kg => GR
+  // - si indica XLT o "LT" o "LITRO" -> presValue es Lt => ML
+  // - sino: asumir UN (no ideal, pero explícito)
+  if (hay.includes("XKG") || hay.includes(" KG")) {
+    return { uom: "GR", amount: Math.round(presValue * 1000) };
+  }
+  if (hay.includes("XLT") || hay.includes(" LT") || hay.includes("LITRO")) {
+    return { uom: "ML", amount: Math.round(presValue * 1000) };
+  }
+  return { uom: "UN", amount: Math.round(presValue) };
+}
+
+async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null) {
+  const url = normalizeUrl(payload?.url);
+  if (!url) {
+    return {
+      status: "ERROR" as const,
+      candidatos: [],
+      warnings: [],
+      errors: ["payload.url inválida o ausente"],
+      meta: {},
+    };
+  }
+
+  const res = await fetch(url, {
+    // headers simples para evitar bloqueos triviales
+    headers: {
+      "user-agent": "MGqBot/1.0 (+https://vercel.app)",
+      "accept": "text/html,application/xhtml+xml",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    return {
+      status: "ERROR" as const,
+      candidatos: [],
+      warnings: [],
+      errors: [`fetch falló: HTTP ${res.status}`],
+      meta: { url },
+    };
+  }
+
+  const html = await res.text();
+  const htmlSnippet = html.slice(0, 1200);
+
+  const title = parseTitleFromHtml(html);
+  const sku = parseSkuFromHtml(html);
+  const fx = parseFxFromHtml(html);
+  const pres = parsePresentationsFromHtml(html);
+
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  if (!title) warnings.push("No se pudo extraer el título del producto");
+  if (!sku) warnings.push("No se pudo extraer SKU");
+  if (!fx) warnings.push("No se pudo extraer cotización FX (dólar) del HTML");
+  if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
+
+  const candidatos = pres.map((p) => {
+    const { uom, amount } = inferUomAndAmountFromTitleOrUrl(title, url, p);
+
+    return {
+      proveedor_id: job.proveedor_id ?? null,
+      item_id: itemId ? String(itemId) : null,
+
+      // campos “de negocio”
+      descripcion: title ?? "Producto sin título",
+      articulo_prov: sku ?? null,
+
+      // normalización (Opción A): uom en {GR, ML, UN}
+      uom,
+      presentacion: amount,
+
+      // por ahora sin precio (PuraQuímica lo muestra al elegir variante)
+      costo_base_usd: null,
+      fx_usado_en_alta: fx ?? null,
+
+      fecha_scrape_base: new Date().toISOString(),
+      densidad: null,
+
+      // opcional: para auditoría
+      source_url: url,
+      source_presentacion_raw: p,
+    };
+  });
+
+  const status =
+    errors.length > 0 ? ("ERROR" as const) : warnings.length > 0 ? ("WARNING" as const) : ("OK" as const);
+
+  return { status, candidatos, warnings, errors, meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet } };
+}
+
 export async function POST(_req: Request) {
   const sql = db();
 
@@ -97,10 +262,8 @@ export async function POST(_req: Request) {
       motorId = toBigInt(motorRows?.[0]?.motor_id);
     }
 
-    // Si no hay motor_id, devolvemos el job a PENDING (no avanzamos)
     if (!motorId) {
-      const msg = `motor_id no encontrado para item_id=${itemId ?? "NULL"} (aun no implementado o sin datos)`;
-
+      const msg = `motor_id no encontrado para item_id=${itemId ?? "NULL"}`;
       await sql`
         UPDATE app.job
         SET
@@ -111,41 +274,76 @@ export async function POST(_req: Request) {
           updated_at = now()
         WHERE job_id = ${jobId}
       `;
-
       return NextResponse.json(
         { ok: false, claimed: true, job_id: String(jobId), error: msg },
         { status: 409 }
       );
     }
 
-    // 3) Upsert job_result (sin updated_at porque no existe)
-    const candidatos = [
-      {
-        proveedor_id: job.proveedor_id ?? null,
-        item_id: itemId ? String(itemId) : null,
-        descripcion: "Candidato TD (dummy)",
-        presentacion: null,
-        uom: null,                 // <— antes unidad
-        articulo_prov: null,
-        costo_base_usd: null,
-        fx_usado_en_alta: null,    // <— corregido (antes fx_usado_en_alt)
-        fecha_scrape_base: null,   // <— approve ya lo lee
-        densidad: null,            // <— approve ya lo lee
-      },
-    ];
+    // 3) Ejecutar motor
+    let motor_version = "v0";
+    let status: "OK" | "WARNING" | "ERROR" = "ERROR";
+    let candidatos: any[] = [];
+    let warnings: string[] = [];
+    let errors: string[] = [];
 
+    if (motorId === BigInt(1)) {
+      motor_version = "puraquimica_v1";
+      const r = await motorPuraQuimica(job.payload, job, itemId);
+      status = r.status;
+      candidatos = r.candidatos;
+      warnings = r.warnings;
+      errors = r.errors;
+    } else {
+      status = "ERROR";
+      errors = [`motor_id=${String(motorId)} no implementado`];
+    }
+
+    // 4) Upsert job_result (sin updated_at porque no existe)
     await sql`
-      INSERT INTO app.job_result (job_id, motor_id, motor_version, status, candidatos, created_at)
-      VALUES (${jobId}, ${motorId}, 'v0', 'OK', ${JSON.stringify(candidatos)}::jsonb, now())
+      INSERT INTO app.job_result (job_id, motor_id, motor_version, status, candidatos, warnings, errors, created_at)
+      VALUES (
+        ${jobId},
+        ${motorId},
+        ${motor_version},
+        ${status}::app.job_result_status,
+        ${JSON.stringify(candidatos)}::jsonb,
+        ${JSON.stringify(warnings)}::jsonb,
+        ${JSON.stringify(errors)}::jsonb,
+        now()
+      )
       ON CONFLICT (job_id)
       DO UPDATE SET
         motor_id = EXCLUDED.motor_id,
         motor_version = EXCLUDED.motor_version,
         status = EXCLUDED.status,
-        candidatos = EXCLUDED.candidatos
+        candidatos = EXCLUDED.candidatos,
+        warnings = EXCLUDED.warnings,
+        errors = EXCLUDED.errors
     `;
 
-    // 4) WAITING_REVIEW
+    // 5) Estado del job
+    if (status === "ERROR") {
+      const msg = errors[0] ?? "Error en motor";
+      await sql`
+        UPDATE app.job
+        SET
+          estado = 'FAILED'::app.job_estado,
+          finished_at = COALESCE(finished_at, now()),
+          locked_by = NULL,
+          locked_until = NULL,
+          last_error = ${msg},
+          updated_at = now()
+        WHERE job_id = ${jobId}
+      `;
+
+      return NextResponse.json(
+        { ok: false, claimed: true, job_id: String(jobId), status, error: msg },
+        { status: 500 }
+      );
+    }
+
+    // OK o WARNING -> WAITING_REVIEW
     await sql`
       UPDATE app.job
       SET
@@ -166,6 +364,7 @@ export async function POST(_req: Request) {
           motor_id: String(motorId),
           tipo: job.tipo,
         },
+        result: { status, candidatos_len: candidatos.length, warnings, errors },
       },
       { status: 200 }
     );
