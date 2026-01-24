@@ -128,11 +128,80 @@ function parseArsNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+type PrecioParsed = { value: number | null; source: string | null };
+
 /**
- * Precio ARS observado (MVP): intenta meta tags y patrones "precio ... $1234".
- * Si PuraQuímica no expone precio en HTML sin seleccionar variante, esto puede devolver null (=> WARNING).
+ * Precio ARS observado (MVP): intenta JSON-LD, spans WooCommerce y meta tags.
+ * Importante: NO usa fallback "primer $ número" (suele capturar FX).
+ * anti-FX: si fxHint está disponible, descarta precios ~fxHint (+/- 15%).
  */
-function parsePrecioArsFromHtml(html: string): number | null {
+function parsePrecioArsFromHtml(html: string, fxHint?: number | null): PrecioParsed {
+  const isFxLike = (n: number) =>
+    !!fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15;
+
+  // 1) JSON-LD (muy común en WooCommerce): "price": "...", "priceCurrency": "ARS"
+  const jsonLdRe =
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+
+  for (let m; (m = jsonLdRe.exec(html)); ) {
+    const block = m[1];
+
+    try {
+      const data = JSON.parse(block);
+
+      // soportar @graph
+      const list: any[] = [];
+      if (Array.isArray(data)) list.push(...data);
+      else if (data && Array.isArray(data["@graph"])) list.push(...data["@graph"]);
+      else list.push(data);
+
+      for (const obj of list) {
+        const offersRaw = obj?.offers;
+        const offers = offersRaw
+          ? Array.isArray(offersRaw)
+            ? offersRaw
+            : [offersRaw]
+          : [];
+
+        for (const off of offers) {
+          const cur = String(off?.priceCurrency ?? "").toUpperCase();
+          const priceRaw = off?.price;
+
+          const n =
+            priceRaw !== undefined && priceRaw !== null
+              ? parseArsNumber(String(priceRaw))
+              : null;
+
+          if (cur === "ARS" && n !== null) {
+            if (isFxLike(n)) continue;
+            return { value: n, source: "jsonld:offers.price" };
+          }
+        }
+      }
+    } catch {
+      // ignore invalid blocks
+    }
+  }
+
+  // 2) WooCommerce price spans
+  const wcPriceRe =
+    /woocommerce-Price-amount[^>]*>[\s\S]*?\$\s*<\/span>\s*([0-9][0-9\.,]*)/gi;
+
+  for (let m; (m = wcPriceRe.exec(html)); ) {
+    const n = parseArsNumber(m[1]);
+    if (n === null) continue;
+
+    // extra anti-FX por contexto
+    const idx = m.index ?? -1;
+    const around =
+      idx >= 0 ? html.slice(Math.max(0, idx - 200), idx + 200).toLowerCase() : "";
+    if (around.includes("cotiz")) continue;
+
+    if (isFxLike(n)) continue;
+    return { value: n, source: "html:woocommerce-Price-amount" };
+  }
+
+  // 3) Meta tags comunes
   const metaPatterns = [
     /property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i,
     /itemprop=["']price["'][^>]*content=["']([^"']+)["']/i,
@@ -141,30 +210,29 @@ function parsePrecioArsFromHtml(html: string): number | null {
 
   for (const re of metaPatterns) {
     const m = html.match(re);
-    if (m?.[1]) {
-      const n = parseArsNumber(m[1]);
-      if (n !== null) return n;
-    }
-  }
-
-  // cercano a "price/precio"
-  const reNearPrice = /(?:price|precio)[^$]{0,120}\$\s*([0-9][0-9\.,]*)/i;
-  {
-    const m = html.match(reNearPrice);
-    if (m?.[1]) {
-      const n = parseArsNumber(m[1]);
-      if (n !== null) return n;
-    }
-  }
-
-  // fallback: primer "$ <número>" razonable
-  const reAnyDollar = /\$\s*([0-9][0-9\.,]*)/g;
-  for (let m; (m = reAnyDollar.exec(html)); ) {
+    if (!m?.[1]) continue;
     const n = parseArsNumber(m[1]);
-    if (n !== null) return n;
+    if (n === null) continue;
+    if (isFxLike(n)) continue;
+    return { value: n, source: "meta:price" };
   }
 
-  return null;
+  // 4) Regex cerca de "price/precio" (pero no cerca de "cotización")
+  const reNearPrice = /(?:price|precio)[\s\S]{0,160}\$\s*([0-9][0-9\.,]*)/i;
+  const m4 = html.match(reNearPrice);
+  if (m4?.[1]) {
+    const idx = m4.index ?? -1;
+    const around =
+      idx >= 0 ? html.slice(Math.max(0, idx - 120), idx + 200).toLowerCase() : "";
+    if (!around.includes("cotiz")) {
+      const n = parseArsNumber(m4[1]);
+      if (n !== null && !isFxLike(n)) {
+        return { value: n, source: "regex:near-price" };
+      }
+    }
+  }
+
+  return { value: null, source: null };
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
@@ -224,7 +292,12 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
-async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: bigint | null) {
+async function motorPuraQuimica(
+  sql: any,
+  payload: any,
+  job: JobRow,
+  itemId: bigint | null
+) {
   const url = normalizeUrl(payload?.url);
   if (!url) {
     return {
@@ -263,12 +336,17 @@ async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: big
   const sku = parseSkuFromHtml(html);
   const pres = parsePresentationsFromHtml(html);
 
-  // Precio ARS observado (web) + FX del día (DB)
-  const precio_ars_observado = parsePrecioArsFromHtml(html);
-
+  // FX del día (DB) con fallback HTML
   const fxDb = await getFxToday(sql);
-  const fxHtml = parseFxFromHtml(html); // fallback
+  const fxHtml = parseFxFromHtml(html);
   const fxUsed = fxDb ?? fxHtml;
+
+  const fxOrigen = fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null;
+
+  // Precio ARS observado (web) - pasar hint para anti-FX
+  const precioParsed = parsePrecioArsFromHtml(html, fxUsed);
+  const precio_ars_observado: number | null = precioParsed.value;
+  const precio_ars_source: string | null = precioParsed.source;
 
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -279,8 +357,10 @@ async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: big
   if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
 
   // Precio/FX para costo_base_usd
-  if (!precio_ars_observado) warnings.push("No se pudo extraer precio ARS observado del HTML");
-  if (!fxUsed) warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
+  if (precio_ars_observado === null)
+    warnings.push("No se pudo extraer precio ARS observado del HTML");
+  if (!fxUsed)
+    warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
 
   if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
 
@@ -290,7 +370,7 @@ async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: big
     const { uom, amount } = inferUomAndAmountFromTitleOrUrl(title, url, p);
 
     const costo_base_usd =
-      precio_ars_observado && fxUsed
+      precio_ars_observado !== null && fxUsed
         ? Number((precio_ars_observado / fxUsed).toFixed(6))
         : null;
 
@@ -311,9 +391,10 @@ async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: big
       fx_usado_en_alta: fxUsed ?? null,
       fecha_scrape_base: fechaScrape,
 
-      // auditoría útil (queda en job_result JSON, no rompe inserts)
-      precio_ars_observado: precio_ars_observado ?? null,
-      fx_origen: fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null,
+      // auditoría
+      precio_ars_observado: precio_ars_observado,
+      precio_ars_source: precio_ars_source,
+      fx_origen: fxOrigen,
 
       densidad: null,
 
@@ -342,7 +423,9 @@ async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: big
       fx_db: fxDb,
       fx_html: fxHtml,
       fx_used: fxUsed,
+      fx_origen: fxOrigen,
       precio_ars_observado,
+      precio_ars_source,
       pres_count: pres.length,
       html_snippet: htmlSnippet,
     },
