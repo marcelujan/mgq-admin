@@ -21,7 +21,7 @@ export default function JobDetailPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
-  const [sel, setSel] = useState(0); // se mantiene solo para inspección/UI (no se usa en approve nuevo)
+  const [sel, setSel] = useState(0);
 
   async function load() {
     if (!jobId) {
@@ -55,26 +55,11 @@ export default function JobDetailPage() {
       const res = await fetch(`/api/jobs/${jobId}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Nuevo approve: por defecto usa TODOS los candidatos del job_result.
-        // Si más adelante querés permitir overrides manuales, acá podrías mandar { candidatos: [...] }.
-        body: JSON.stringify({}),
+        body: JSON.stringify({ candidato_index: sel }),
       });
-
       const j = await res.json();
       if (!res.ok || !j?.ok) throw new Error(j?.error || `HTTP ${res.status}`);
-
-      const ofertaIds: string[] = Array.isArray(j?.oferta_ids)
-        ? j.oferta_ids.map((x: any) => String(x))
-        : j?.oferta_id
-        ? [String(j.oferta_id)]
-        : [];
-
-      if (ofertaIds.length > 0) {
-        alert(`Ofertas creadas/confirmadas: ${ofertaIds.join(", ")}`);
-      } else {
-        alert("Aprobado, pero no se recibieron IDs de ofertas (revisar respuesta del endpoint).");
-      }
-
+      alert(`Oferta creada: ${j.oferta_id}`);
       await load();
     } catch (e: any) {
       alert(e?.message || "Error aprobando");
@@ -87,12 +72,7 @@ export default function JobDetailPage() {
   }, [jobId]);
 
   if (loading) return <div style={{ padding: 16 }}>Cargando...</div>;
-  if (err)
-    return (
-      <div style={{ padding: 16 }}>
-        <b>Error:</b> {err}
-      </div>
-    );
+  if (err) return <div style={{ padding: 16 }}><b>Error:</b> {err}</div>;
 
   const job = data?.job;
   const result = data?.result;
@@ -126,9 +106,8 @@ export default function JobDetailPage() {
               </option>
             ))}
           </select>
-
           <button onClick={approve} style={{ padding: "6px 10px" }}>
-            Aprobar (crear todas las ofertas)
+            Aprobar candidato
           </button>
         </div>
       ) : (
