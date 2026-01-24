@@ -57,38 +57,31 @@ function parseSkuFromHtml(html: string): string | null {
 function parsePresentationsFromHtml(html: string): number[] {
   const out: number[] = [];
 
-  // 1) Caso WooCommerce típico: select de variación "presentacion"
-  // name="attribute_pa_presentacion" o id similar
-  const selectMatch = html.match(
-    /<select[^>]+(?:name|id)="attribute_pa_presentacion"[^>]*>([\s\S]*?)<\/select>/i
-  );
+  // 1) Caso WooCommerce típico: <select name="attribute_pa_presentacion"> ... <option value="1.0000">
+  // Limitar el parseo SOLO al select de "presentacion" para no tomar otros <option>.
+  const selectMatch =
+    html.match(/<select[^>]*name="attribute_pa_presentacion"[^>]*>([\s\S]*?)<\/select>/i) ||
+    html.match(/<select[^>]*id="pa_presentacion"[^>]*>([\s\S]*?)<\/select>/i);
 
   if (selectMatch?.[1]) {
-    const selectInner = selectMatch[1];
-
-    // Toma el value="1.0000" / "5.0000" / "25.0000"
-    const reOpt = /<option[^>]*value="([^"]+)"[^>]*>/gi;
-    for (let m; (m = reOpt.exec(selectInner)); ) {
-      const raw = String(m[1]).trim();
-
-      // saltear placeholders tipo "" o "elige-una-opcion"
-      if (!raw || raw.toLowerCase().includes("elige")) continue;
-
-      // algunos themes usan "1.0000", otros "1", etc.
-      const n = Number(raw.replace(",", "."));
-      if (Number.isFinite(n) && n > 0) out.push(n);
+    const block = selectMatch[1];
+    const reOpt = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
+    for (let m; (m = reOpt.exec(block)); ) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n)) out.push(n);
     }
   }
 
-  // 2) Fallback seguro: buscar SOLO querystring attribute_pa_presentacion=...
+  // 2) Fallback seguro: links tipo ?attribute_pa_presentacion=1.0000
   if (out.length === 0) {
-    const reQs = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
-    for (let m; (m = reQs.exec(html)); ) {
-      const n = Number(String(m[1]).replace(",", "."));
-      if (Number.isFinite(n) && n > 0) out.push(n);
+    const reLink = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
+    for (let m; (m = reLink.exec(html)); ) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n)) out.push(n);
     }
   }
 
+  // 3) Si sigue vacío, NO barrer todo el HTML: preferible fallar (para no inventar 127 variantes)
   // unique + sort
   return Array.from(new Set(out)).sort((a, b) => a - b);
 }
