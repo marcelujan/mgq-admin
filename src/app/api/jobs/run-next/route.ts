@@ -55,19 +55,38 @@ function parseSkuFromHtml(html: string): string | null {
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
-  // SOLO opciones del select (fuente canónica)
-  const re = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
   const out: number[] = [];
 
-  for (let m; (m = re.exec(html)); ) {
+  // 1) Intentar aislar el <select> de presentación (más tolerante)
+  const selectMatch =
+    html.match(/<select[^>]*(?:pa_presentacion|presentaci[oó]n|presentacion)[^>]*>([\s\S]*?)<\/select>/i);
+
+  const scope = selectMatch ? selectMatch[1] : html;
+
+  // 2) Capturar valores desde value="1.0000"
+  const optValRe = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
+  for (let m; (m = optValRe.exec(scope)); ) {
     const n = Number(m[1]);
     if (Number.isFinite(n)) out.push(n);
   }
 
-  // Si no hay options, es error real
-  if (out.length === 0) return [];
+  // 3) Capturar si el value viene vacío y el número está como texto: <option>1.0000</option>
+  const optTextRe = /<option[^>]*>\s*([0-9]+(?:\.[0-9]{4})?)\s*<\/option>/gi;
+  for (let m; (m = optTextRe.exec(scope)); ) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) out.push(n);
+  }
 
-  // Normalizar y ordenar
+  // 4) Fallback acotado: query param explícito (sin números sueltos)
+  if (out.length === 0) {
+    const qpRe = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
+    for (let m; (m = qpRe.exec(html)); ) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n)) out.push(n);
+    }
+  }
+
+  // Unique + sort
   return Array.from(new Set(out)).sort((a, b) => a - b);
 }
 
