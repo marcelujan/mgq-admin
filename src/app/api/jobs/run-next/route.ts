@@ -123,6 +123,7 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   }
 
   const html = await res.text();
+  const htmlSnippet = html.slice(0, 1200);
 
   const title = parseTitleFromHtml(html);
   const sku = parseSkuFromHtml(html);
@@ -168,7 +169,7 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   const status =
     errors.length > 0 ? ("ERROR" as const) : warnings.length > 0 ? ("WARNING" as const) : ("OK" as const);
 
-  return { status, candidatos, warnings, errors, meta: { url, title, sku, fx, pres_count: pres.length } };
+  return { status, candidatos, warnings, errors, meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet } };
 }
 
 export async function POST(_req: Request) {
