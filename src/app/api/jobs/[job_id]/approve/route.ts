@@ -21,21 +21,20 @@ function parseJobId(raw: unknown): bigint | null {
 
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ job_id: string }> }
+  //context: { params: Promise<{ job_id: string }> }
+  { params }: { params: { job_id: string } }
 ) {
   try {
-    // Importante: mantenemos la firma original para que compile,
-    // pero leemos params como "any" por si llega algo inesperado en runtime.
-    const { job_id } = (await context.params) as any;
-
-    const jobId = parseJobId(job_id);
+    //const { job_id } = (await context.params) as any;
+    //const jobId = parseJobId(job_id);
+    const jobId = parseJobId(params.job_id);
     if (jobId === null) {
       return NextResponse.json(
         { ok: false, error: "job_id inválido (debe ser numérico)" },
         { status: 400 }
       );
     }
-
+     
     const body = (await request.json().catch(() => ({}))) as any;
     const candidatoIndex = Number(body?.candidato_index ?? 0);
     const candidatoOverride = body?.candidato;

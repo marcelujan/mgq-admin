@@ -25,11 +25,13 @@ function parseJobId(raw: unknown): bigint | null {
 
 export async function GET(
   _request: NextRequest,
-  context: { params: Promise<{ job_id: string }> }
+  //context: { params: Promise<{ job_id: string }> }
+  { params }: { params: { job_id: string } }
 ) {
   try {
-    const paramsAny = (await context.params) as any;
-    const rawJobId = paramsAny?.job_id;
+    //const paramsAny = (await context.params) as any;
+    //const rawJobId = paramsAny?.job_id;
+    const rawJobId = params.job_id;
 
     // logs en Vercel
     console.log("[/api/jobs/[job_id]] raw job_id:", rawJobId, "typeof:", typeof rawJobId, "isArray:", Array.isArray(rawJobId));

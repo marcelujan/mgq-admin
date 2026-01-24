@@ -296,7 +296,7 @@ export async function POST(_req: Request) {
         ${jobId},
         ${motorId},
         ${motor_version},
-        ${status},
+        ${status}::app.job_result_status,
         ${JSON.stringify(candidatos)}::jsonb,
         ${JSON.stringify(warnings)}::jsonb,
         ${JSON.stringify(errors)}::jsonb,
