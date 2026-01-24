@@ -128,111 +128,111 @@ function parseArsNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-type PrecioParsed = { value: number | null; source: string | null };
+type PriceByPres = Record<
+  string,
+  {
+    precio_ars: number;
+    source: string;
+  }
+>;
+
+function normalizePresKey(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // Woo suele traer "1.0000" en attribute_pa_presentacion
+  const n = Number(s);
+  if (Number.isFinite(n)) {
+    // normalizamos a 4 decimales para matchear keys de variaciones
+    return n.toFixed(4);
+  }
+
+  // si viene algo raro, igual lo devolvemos (por si el sitio usa texto)
+  return s.toLowerCase();
+}
 
 /**
- * Precio ARS observado (MVP): intenta JSON-LD, spans WooCommerce y meta tags.
- * Importante: NO usa fallback "primer $ número" (suele capturar FX).
- * anti-FX: si fxHint está disponible, descarta precios ~fxHint (+/- 15%).
+ * Extrae precios ARS POR PRESENTACIÓN.
+ * Principal: dataset WooCommerce "data-product_variations".
+ * Fallback: asignar un único precio (si existe) a todas las presentaciones (no ideal).
  */
-function parsePrecioArsFromHtml(html: string, fxHint?: number | null): PrecioParsed {
-  const isFxLike = (n: number) =>
-    !!fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15;
+function parsePricesByPresentationFromHtml(html: string, fxHint?: number | null): PriceByPres {
+  const byPres: PriceByPres = {};
 
-  // 1) JSON-LD (muy común en WooCommerce): "price": "...", "priceCurrency": "ARS"
-  const jsonLdRe =
-    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-
-  for (let m; (m = jsonLdRe.exec(html)); ) {
-    const block = m[1];
+  // 1) WooCommerce: data-product_variations="[...]"
+  // Nota: a veces está escapado como &quot; y entidades HTML.
+  const dvRe = /data-product_variations=(?:"([^"]+)"|'([^']+)')/i;
+  const dv = html.match(dvRe);
+  if (dv?.[1] || dv?.[2]) {
+    const rawAttr = dv[1] ?? dv[2] ?? "";
+    const decoded = rawAttr
+      .replace(/&quot;/g, '"')
+      .replace(/&#34;/g, '"')
+      .replace(/&amp;/g, "&")
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
 
     try {
-      const data = JSON.parse(block);
+      const variations = JSON.parse(decoded);
+      if (Array.isArray(variations)) {
+        for (const v of variations) {
+          // key de presentación: attribute_pa_presentacion
+          const presKeyRaw =
+            v?.attributes?.attribute_pa_presentacion ??
+            v?.attributes?.pa_presentacion ??
+            v?.attributes?.attribute_presentacion ??
+            null;
 
-      // soportar @graph
-      const list: any[] = [];
-      if (Array.isArray(data)) list.push(...data);
-      else if (data && Array.isArray(data["@graph"])) list.push(...data["@graph"]);
-      else list.push(data);
+          const presKey = normalizePresKey(presKeyRaw);
+          if (!presKey) continue;
 
-      for (const obj of list) {
-        const offersRaw = obj?.offers;
-        const offers = offersRaw
-          ? Array.isArray(offersRaw)
-            ? offersRaw
-            : [offersRaw]
-          : [];
+          // WooCommerce: display_price suele ser número (ARS)
+          const priceCandidate =
+            v?.display_price ??
+            v?.display_regular_price ??
+            v?.variation_display_price ??
+            v?.variation_price ??
+            null;
 
-        for (const off of offers) {
-          const cur = String(off?.priceCurrency ?? "").toUpperCase();
-          const priceRaw = off?.price;
+          const price =
+            priceCandidate === null || priceCandidate === undefined
+              ? null
+              : Number(priceCandidate);
 
-          const n =
-            priceRaw !== undefined && priceRaw !== null
-              ? parseArsNumber(String(priceRaw))
-              : null;
+          if (!Number.isFinite(price as any)) continue;
 
-          if (cur === "ARS" && n !== null) {
-            if (isFxLike(n)) continue;
-            return { value: n, source: "jsonld:offers.price" };
-          }
+          // anti-FX: si el "precio" parece ser el FX, lo descartamos
+          if (fxHint && price! >= fxHint * 0.85 && price! <= fxHint * 1.15) continue;
+
+          byPres[presKey] = {
+            precio_ars: price as number,
+            source: "wc:data-product_variations.display_price",
+          };
         }
       }
     } catch {
-      // ignore invalid blocks
+      // ignore
     }
   }
 
-  // 2) WooCommerce price spans
-  const wcPriceRe =
-    /woocommerce-Price-amount[^>]*>[\s\S]*?\$\s*<\/span>\s*([0-9][0-9\.,]*)/gi;
-
-  for (let m; (m = wcPriceRe.exec(html)); ) {
-    const n = parseArsNumber(m[1]);
-    if (n === null) continue;
-
-    // extra anti-FX por contexto
-    const idx = m.index ?? -1;
-    const around =
-      idx >= 0 ? html.slice(Math.max(0, idx - 200), idx + 200).toLowerCase() : "";
-    if (around.includes("cotiz")) continue;
-
-    if (isFxLike(n)) continue;
-    return { value: n, source: "html:woocommerce-Price-amount" };
-  }
-
-  // 3) Meta tags comunes
-  const metaPatterns = [
-    /property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i,
-    /itemprop=["']price["'][^>]*content=["']([^"']+)["']/i,
-    /property=["']og:price:amount["'][^>]*content=["']([^"']+)["']/i,
-  ];
-
-  for (const re of metaPatterns) {
-    const m = html.match(re);
-    if (!m?.[1]) continue;
-    const n = parseArsNumber(m[1]);
-    if (n === null) continue;
-    if (isFxLike(n)) continue;
-    return { value: n, source: "meta:price" };
-  }
-
-  // 4) Regex cerca de "price/precio" (pero no cerca de "cotización")
-  const reNearPrice = /(?:price|precio)[\s\S]{0,160}\$\s*([0-9][0-9\.,]*)/i;
-  const m4 = html.match(reNearPrice);
-  if (m4?.[1]) {
-    const idx = m4.index ?? -1;
-    const around =
-      idx >= 0 ? html.slice(Math.max(0, idx - 120), idx + 200).toLowerCase() : "";
-    if (!around.includes("cotiz")) {
-      const n = parseArsNumber(m4[1]);
-      if (n !== null && !isFxLike(n)) {
-        return { value: n, source: "regex:near-price" };
-      }
+  // 2) Fallback: intentar capturar un precio “único” en el HTML (sin garantizar por variante)
+  if (Object.keys(byPres).length === 0) {
+    // WooCommerce price spans (bdi / woocommerce-Price-amount)
+    const wcPriceRe =
+      /woocommerce-Price-amount[^>]*>[\s\S]*?\$\s*<\/span>\s*([0-9][0-9\.,]*)/gi;
+    for (let m; (m = wcPriceRe.exec(html)); ) {
+      const n = parseArsNumber(m[1]);
+      if (n === null) continue;
+      if (fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15) continue;
+      // guardo como "__single__"
+      byPres["__single__"] = { precio_ars: n, source: "html:woocommerce-Price-amount" };
+      break;
     }
   }
 
-  return { value: null, source: null };
+  return byPres;
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
@@ -292,12 +292,7 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
-async function motorPuraQuimica(
-  sql: any,
-  payload: any,
-  job: JobRow,
-  itemId: bigint | null
-) {
+async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: bigint | null) {
   const url = normalizeUrl(payload?.url);
   if (!url) {
     return {
@@ -336,17 +331,13 @@ async function motorPuraQuimica(
   const sku = parseSkuFromHtml(html);
   const pres = parsePresentationsFromHtml(html);
 
-  // FX del día (DB) con fallback HTML
+  // FX del día (DB) + fallback HTML
   const fxDb = await getFxToday(sql);
-  const fxHtml = parseFxFromHtml(html);
+  const fxHtml = parseFxFromHtml(html); // fallback
   const fxUsed = fxDb ?? fxHtml;
 
-  const fxOrigen = fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null;
-
-  // Precio ARS observado (web) - pasar hint para anti-FX
-  const precioParsed = parsePrecioArsFromHtml(html, fxUsed);
-  const precio_ars_observado: number | null = precioParsed.value;
-  const precio_ars_source: string | null = precioParsed.source;
+  // Precios ARS por presentación (ideal) con anti-FX
+  const pricesByPres = parsePricesByPresentationFromHtml(html, fxUsed);
 
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -356,18 +347,30 @@ async function motorPuraQuimica(
   // Opción B: configurable por proveedor
   if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
 
-  // Precio/FX para costo_base_usd
-  if (precio_ars_observado === null)
-    warnings.push("No se pudo extraer precio ARS observado del HTML");
-  if (!fxUsed)
-    warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
+  if (!fxUsed) warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
 
   if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
+
+  // Si no pudimos mapear precios por presentación, esto debe ser WARNING (no ERROR)
+  // porque igual podemos generar candidatos (pero no economía de escalas).
+  const hasPerPresentationPrices = Object.keys(pricesByPres).some((k) => k !== "__single__");
+  const hasAnyPrice =
+    Object.keys(pricesByPres).length > 0 && (hasPerPresentationPrices || !!pricesByPres["__single__"]);
+
+  if (!hasAnyPrice) warnings.push("No se pudieron extraer precios ARS por presentación del HTML");
 
   const fechaScrape = new Date().toISOString();
 
   const candidatos = pres.map((p) => {
     const { uom, amount } = inferUomAndAmountFromTitleOrUrl(title, url, p);
+
+    const presKey = normalizePresKey(p) ?? String(p);
+
+    // Preferimos precio por presentación; si no existe, usamos "__single__" si lo hay.
+    const priceRow = pricesByPres[presKey] ?? pricesByPres["__single__"] ?? null;
+
+    const precio_ars_observado = priceRow?.precio_ars ?? null;
+    const precio_ars_source = priceRow?.source ?? null;
 
     const costo_base_usd =
       precio_ars_observado !== null && fxUsed
@@ -391,16 +394,17 @@ async function motorPuraQuimica(
       fx_usado_en_alta: fxUsed ?? null,
       fecha_scrape_base: fechaScrape,
 
-      // auditoría
-      precio_ars_observado: precio_ars_observado,
-      precio_ars_source: precio_ars_source,
-      fx_origen: fxOrigen,
+      // auditoría útil (queda en job_result JSON)
+      precio_ars_observado,
+      precio_ars_source,
+      fx_origen: fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null,
 
       densidad: null,
 
       // opcional: para auditoría
       source_url: url,
       source_presentacion_raw: p,
+      source_presentacion_key: presKey,
     };
   });
 
@@ -423,10 +427,9 @@ async function motorPuraQuimica(
       fx_db: fxDb,
       fx_html: fxHtml,
       fx_used: fxUsed,
-      fx_origen: fxOrigen,
-      precio_ars_observado,
-      precio_ars_source,
       pres_count: pres.length,
+      prices_keys: Object.keys(pricesByPres),
+      has_per_presentation_prices: hasPerPresentationPrices,
       html_snippet: htmlSnippet,
     },
   };
