@@ -21,13 +21,12 @@ function parseJobId(raw: unknown): bigint | null {
 
 export async function POST(
   request: NextRequest,
-  //context: { params: Promise<{ job_id: string }> }
-  { params }: { params: { job_id: string } }
+  context: { params: Promise<{ job_id: string }> }
 ) {
   try {
-    //const { job_id } = (await context.params) as any;
-    //const jobId = parseJobId(job_id);
-    const jobId = parseJobId(params.job_id);
+    const { job_id } = await Promise.resolve(context.params as any);
+
+    const jobId = parseJobId(job_id);
     if (jobId === null) {
       return NextResponse.json(
         { ok: false, error: "job_id inválido (debe ser numérico)" },
