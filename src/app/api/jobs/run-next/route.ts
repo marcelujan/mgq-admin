@@ -57,32 +57,29 @@ function parseSkuFromHtml(html: string): string | null {
 function parsePresentationsFromHtml(html: string): number[] {
   const out: number[] = [];
 
-  // 1) Caso WooCommerce típico: <select name="attribute_pa_presentacion"> ... <option value="1.0000">
-  // Limitar el parseo SOLO al select de "presentacion" para no tomar otros <option>.
-  const selectMatch =
-    html.match(/<select[^>]*name="attribute_pa_presentacion"[^>]*>([\s\S]*?)<\/select>/i) ||
-    html.match(/<select[^>]*id="pa_presentacion"[^>]*>([\s\S]*?)<\/select>/i);
+  // 1) Buscar el <select> específico de presentación
+  const selectMatch = html.match(
+    /<select[^>]*(?:name|id)="[^"]*(?:presentacion|pa_presentacion|attribute_pa_presentacion)[^"]*"[^>]*>([\s\S]*?)<\/select>/i
+  );
 
-  if (selectMatch?.[1]) {
-    const block = selectMatch[1];
-    const reOpt = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
-    for (let m; (m = reOpt.exec(block)); ) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n)) out.push(n);
-    }
+  const scope = selectMatch ? selectMatch[1] : "";
+
+  // 2) Extraer SOLO values con formato tipo 1.0000 / 25.0000
+  const optRe = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
+  for (let m; (m = optRe.exec(scope)); ) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > 0 && n <= 1000) out.push(n);
   }
 
-  // 2) Fallback seguro: links tipo ?attribute_pa_presentacion=1.0000
+  // 3) Fallback mínimo: si el select no vino, buscar query param explícito (NO números sueltos)
   if (out.length === 0) {
-    const reLink = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
-    for (let m; (m = reLink.exec(html)); ) {
+    const qpRe = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
+    for (let m; (m = qpRe.exec(html)); ) {
       const n = Number(m[1]);
-      if (Number.isFinite(n)) out.push(n);
+      if (Number.isFinite(n) && n > 0 && n <= 1000) out.push(n);
     }
   }
 
-  // 3) Si sigue vacío, NO barrer todo el HTML: preferible fallar (para no inventar 127 variantes)
-  // unique + sort
   return Array.from(new Set(out)).sort((a, b) => a - b);
 }
 
