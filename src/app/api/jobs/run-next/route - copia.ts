@@ -33,9 +33,31 @@ function normalizeUrl(raw: unknown): string | null {
   return s;
 }
 
+/**
+ * Opción B (configurable por proveedor) sin tocar DB:
+ * configuración por hostname de la URL.
+ */
+function providerConfigFromUrl(url: string) {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    host = "";
+  }
+
+  // PuraQuimica: el SKU no viene en la URL, no debe generar WARNING
+  if (host.endsWith("puraquimica.com.ar")) {
+    return { allowMissingSku: true };
+  }
+
+  return { allowMissingSku: false };
+}
+
 function parseFxFromHtml(html: string): number | null {
   // "La cotización de dolar de: $1450.00."
-  const m = html.match(/cotizaci[oó]n\s+de\s+dolar\s+de:\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const m = html.match(
+    /cotizaci[oó]n\s+de\s+dolar\s+de:\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i
+  );
   if (!m) return null;
   const n = Number(String(m[1]).replace(",", "."));
   return Number.isFinite(n) ? n : null;
@@ -58,8 +80,9 @@ function parsePresentationsFromHtml(html: string): number[] {
   const out: number[] = [];
 
   // 1) Intentar aislar el <select> de presentación (más tolerante)
-  const selectMatch =
-    html.match(/<select[^>]*(?:pa_presentacion|presentaci[oó]n|presentacion)[^>]*>([\s\S]*?)<\/select>/i);
+  const selectMatch = html.match(
+    /<select[^>]*(?:pa_presentacion|presentaci[oó]n|presentacion)[^>]*>([\s\S]*?)<\/select>/i
+  );
 
   const scope = selectMatch ? selectMatch[1] : html;
 
@@ -122,11 +145,13 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
     };
   }
 
+  const cfg = providerConfigFromUrl(url);
+
   const res = await fetch(url, {
     // headers simples para evitar bloqueos triviales
     headers: {
       "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-      "accept": "text/html,application/xhtml+xml",
+      accept: "text/html,application/xhtml+xml",
     },
     cache: "no-store",
   });
@@ -153,7 +178,10 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   const errors: string[] = [];
 
   if (!title) warnings.push("No se pudo extraer el título del producto");
-  if (!sku) warnings.push("No se pudo extraer SKU");
+
+  // Opción B: configurable por proveedor
+  if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
+
   if (!fx) warnings.push("No se pudo extraer cotización FX (dólar) del HTML");
   if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
 
@@ -168,7 +196,7 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
       descripcion: title ?? "Producto sin título",
       articulo_prov: sku ?? null,
 
-      // normalización (Opción A): uom en {GR, ML, UN}
+      // normalización: uom en {GR, ML, UN}
       uom,
       presentacion: amount,
 
@@ -186,9 +214,19 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   });
 
   const status =
-    errors.length > 0 ? ("ERROR" as const) : warnings.length > 0 ? ("WARNING" as const) : ("OK" as const);
+    errors.length > 0
+      ? ("ERROR" as const)
+      : warnings.length > 0
+      ? ("WARNING" as const)
+      : ("OK" as const);
 
-  return { status, candidatos, warnings, errors, meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet } };
+  return {
+    status,
+    candidatos,
+    warnings,
+    errors,
+    meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet },
+  };
 }
 
 export async function POST(_req: Request) {
@@ -343,7 +381,36 @@ export async function POST(_req: Request) {
       );
     }
 
-    // OK o WARNING -> WAITING_REVIEW
+    if (status === "OK") {
+      // OK -> SUCCEEDED (no requiere revisión humana)
+      await sql`
+        UPDATE app.job
+        SET
+          estado = 'SUCCEEDED'::app.job_estado,
+          finished_at = COALESCE(finished_at, now()),
+          locked_by = NULL,
+          locked_until = NULL,
+          updated_at = now()
+        WHERE job_id = ${jobId}
+      `;
+
+      return NextResponse.json(
+        {
+          ok: true,
+          claimed: true,
+          job: {
+            job_id: String(jobId),
+            item_id: itemId ? String(itemId) : null,
+            motor_id: String(motorId),
+            tipo: job.tipo,
+          },
+          result: { status, candidatos_len: candidatos.length, warnings, errors },
+        },
+        { status: 200 }
+      );
+    }
+
+    // WARNING -> WAITING_REVIEW
     await sql`
       UPDATE app.job
       SET
@@ -369,9 +436,6 @@ export async function POST(_req: Request) {
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Error en run-next" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Error en run-next" }, { status: 500 });
   }
 }

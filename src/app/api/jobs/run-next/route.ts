@@ -53,6 +53,25 @@ function providerConfigFromUrl(url: string) {
   return { allowMissingSku: false };
 }
 
+/**
+ * FX desde DB (app.fx): BNA venta del día.
+ */
+async function getFxToday(sql: any): Promise<number | null> {
+  const rows = (await sql`
+    SELECT valor
+    FROM app.fx
+    WHERE fecha = current_date
+    LIMIT 1
+  `) as any[];
+
+  const v = rows?.[0]?.valor;
+  const n = v === null || v === undefined ? null : Number(v);
+  return Number.isFinite(n as any) ? (n as number) : null;
+}
+
+/**
+ * Fallback FX desde HTML (no recomendado como fuente primaria).
+ */
 function parseFxFromHtml(html: string): number | null {
   // "La cotización de dolar de: $1450.00."
   const m = html.match(
@@ -74,6 +93,78 @@ function parseSkuFromHtml(html: string): string | null {
   // "SKU: M0007"
   const m = html.match(/SKU:\s*([A-Z0-9_-]+)/i);
   return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse num ARS robusto: "1.234,56" / "1,234.56" / "1234" / "$ 12.345"
+ */
+function parseArsNumber(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  const cleaned = s.replace(/[^\d.,]/g, "");
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+
+  let normalized = cleaned;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    // tomar el último separador como decimal
+    const decPos = Math.max(lastComma, lastDot);
+    const intPart = cleaned.slice(0, decPos).replace(/[.,]/g, "");
+    const decPart = cleaned.slice(decPos + 1).replace(/[.,]/g, "");
+    normalized = `${intPart}.${decPart}`;
+  } else if (lastComma !== -1) {
+    // solo coma => coma decimal
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else {
+    // solo punto o ninguno
+    normalized = cleaned.replace(/,/g, "");
+  }
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Precio ARS observado (MVP): intenta meta tags y patrones "precio ... $1234".
+ * Si PuraQuímica no expone precio en HTML sin seleccionar variante, esto puede devolver null (=> WARNING).
+ */
+function parsePrecioArsFromHtml(html: string): number | null {
+  const metaPatterns = [
+    /property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i,
+    /itemprop=["']price["'][^>]*content=["']([^"']+)["']/i,
+    /property=["']og:price:amount["'][^>]*content=["']([^"']+)["']/i,
+  ];
+
+  for (const re of metaPatterns) {
+    const m = html.match(re);
+    if (m?.[1]) {
+      const n = parseArsNumber(m[1]);
+      if (n !== null) return n;
+    }
+  }
+
+  // cercano a "price/precio"
+  const reNearPrice = /(?:price|precio)[^$]{0,120}\$\s*([0-9][0-9\.,]*)/i;
+  {
+    const m = html.match(reNearPrice);
+    if (m?.[1]) {
+      const n = parseArsNumber(m[1]);
+      if (n !== null) return n;
+    }
+  }
+
+  // fallback: primer "$ <número>" razonable
+  const reAnyDollar = /\$\s*([0-9][0-9\.,]*)/g;
+  for (let m; (m = reAnyDollar.exec(html)); ) {
+    const n = parseArsNumber(m[1]);
+    if (n !== null) return n;
+  }
+
+  return null;
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
@@ -133,7 +224,7 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
-async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null) {
+async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: bigint | null) {
   const url = normalizeUrl(payload?.url);
   if (!url) {
     return {
@@ -148,7 +239,6 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   const cfg = providerConfigFromUrl(url);
 
   const res = await fetch(url, {
-    // headers simples para evitar bloqueos triviales
     headers: {
       "user-agent": "MGqBot/1.0 (+https://vercel.app)",
       accept: "text/html,application/xhtml+xml",
@@ -171,8 +261,14 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
 
   const title = parseTitleFromHtml(html);
   const sku = parseSkuFromHtml(html);
-  const fx = parseFxFromHtml(html);
   const pres = parsePresentationsFromHtml(html);
+
+  // Precio ARS observado (web) + FX del día (DB)
+  const precio_ars_observado = parsePrecioArsFromHtml(html);
+
+  const fxDb = await getFxToday(sql);
+  const fxHtml = parseFxFromHtml(html); // fallback
+  const fxUsed = fxDb ?? fxHtml;
 
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -182,11 +278,21 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   // Opción B: configurable por proveedor
   if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
 
-  if (!fx) warnings.push("No se pudo extraer cotización FX (dólar) del HTML");
+  // Precio/FX para costo_base_usd
+  if (!precio_ars_observado) warnings.push("No se pudo extraer precio ARS observado del HTML");
+  if (!fxUsed) warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
+
   if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
+
+  const fechaScrape = new Date().toISOString();
 
   const candidatos = pres.map((p) => {
     const { uom, amount } = inferUomAndAmountFromTitleOrUrl(title, url, p);
+
+    const costo_base_usd =
+      precio_ars_observado && fxUsed
+        ? Number((precio_ars_observado / fxUsed).toFixed(6))
+        : null;
 
     return {
       proveedor_id: job.proveedor_id ?? null,
@@ -200,11 +306,15 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
       uom,
       presentacion: amount,
 
-      // por ahora sin precio (PuraQuímica lo muestra al elegir variante)
-      costo_base_usd: null,
-      fx_usado_en_alta: fx ?? null,
+      // Precio base (USD): precio ARS observado / FX BNA venta (DB)
+      costo_base_usd,
+      fx_usado_en_alta: fxUsed ?? null,
+      fecha_scrape_base: fechaScrape,
 
-      fecha_scrape_base: new Date().toISOString(),
+      // auditoría útil (queda en job_result JSON, no rompe inserts)
+      precio_ars_observado: precio_ars_observado ?? null,
+      fx_origen: fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null,
+
       densidad: null,
 
       // opcional: para auditoría
@@ -225,7 +335,17 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
     candidatos,
     warnings,
     errors,
-    meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet },
+    meta: {
+      url,
+      title,
+      sku,
+      fx_db: fxDb,
+      fx_html: fxHtml,
+      fx_used: fxUsed,
+      precio_ars_observado,
+      pres_count: pres.length,
+      html_snippet: htmlSnippet,
+    },
   };
 }
 
@@ -327,7 +447,7 @@ export async function POST(_req: Request) {
 
     if (motorId === BigInt(1)) {
       motor_version = "puraquimica_v1";
-      const r = await motorPuraQuimica(job.payload, job, itemId);
+      const r = await motorPuraQuimica(sql, job.payload, job, itemId);
       status = r.status;
       candidatos = r.candidatos;
       warnings = r.warnings;
@@ -436,6 +556,9 @@ export async function POST(_req: Request) {
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error en run-next" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error en run-next" },
+      { status: 500 }
+    );
   }
 }
