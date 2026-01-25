@@ -70,33 +70,40 @@ export async function POST(
       );
     }
 
-    // Idempotencia simple: si ya está SUCCEEDED, devolver ofertas existentes (si las hay)
+    // 1.b) Si ya está SUCCEEDED: idempotencia si existen ofertas.
+    // Si está SUCCEEDED pero NO hay ofertas, dejamos continuar para poder crearlas.
     if (job.estado === "SUCCEEDED") {
-      const existing = (await sql`
+      const existingSucceeded = (await sql`
         SELECT oferta_id
         FROM app.oferta_proveedor
         WHERE item_id = ${job.item_id}
         ORDER BY oferta_id ASC
       `) as any[];
 
-      const ofertaIds = existing.map((r) => String(r.oferta_id)).filter(Boolean);
-      return NextResponse.json(
-        {
-          ok: true,
-          already_succeeded: true,
-          oferta_ids: ofertaIds,
-          oferta_id: ofertaIds[0] ?? null,
-        },
-        { status: 200 }
-      );
+      const ofertaIds = existingSucceeded
+        .map((r) => String(r.oferta_id))
+        .filter(Boolean);
+
+      if (ofertaIds.length > 0) {
+        return NextResponse.json(
+          {
+            ok: true,
+            already_succeeded: true,
+            oferta_ids: ofertaIds,
+            oferta_id: ofertaIds[0] ?? null,
+          },
+          { status: 200 }
+        );
+      }
+      // else: SUCCEEDED sin ofertas => seguimos
     }
 
-    // 2) Validar estado esperado del flujo: WAITING_REVIEW
-    if (job.estado !== "WAITING_REVIEW") {
+    // 2) Validar estado esperado del flujo: WAITING_REVIEW o SUCCEEDED (sin ofertas)
+    if (job.estado !== "WAITING_REVIEW" && job.estado !== "SUCCEEDED") {
       return NextResponse.json(
         {
           ok: false,
-          error: `El job no está en WAITING_REVIEW (estado actual: ${job.estado})`,
+          error: `El job no está en WAITING_REVIEW/SUCCEEDED (estado actual: ${job.estado})`,
         },
         { status: 409 }
       );
@@ -174,7 +181,7 @@ export async function POST(
     const insertedIds: string[] = [];
     let skippedExisting = 0;
 
-    // 5) Insertar TODAS las ofertas (según spec: confirmar -> crear todas las ofertas)
+    // 5) Insertar TODAS las ofertas (según spec)
     for (const c of candidatos) {
       const uom = (c?.uom ?? "UN") as string;
       const presentacion = c?.presentacion ?? null;
@@ -219,7 +226,6 @@ export async function POST(
 
     const allOfertaIds = [...existingIds, ...insertedIds];
 
-    // Si no insertó nada y no había existentes, algo raro: no aprobar.
     if (allOfertaIds.length === 0) {
       return NextResponse.json(
         {
@@ -253,7 +259,7 @@ export async function POST(
       {
         ok: true,
         oferta_ids: allOfertaIds,
-        oferta_id: allOfertaIds[0] ?? null, // compat con frontend viejo
+        oferta_id: allOfertaIds[0] ?? null,
         inserted_count: insertedIds.length,
         skipped_existing: skippedExisting,
       },
