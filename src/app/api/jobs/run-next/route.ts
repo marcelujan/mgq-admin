@@ -438,13 +438,27 @@ async function motorPuraQuimica(
   job: JobRow,
   itemId: bigint | null
 ) {
-  const url = normalizeUrl(payload?.url);
+
+  let url = normalizeUrl(payload?.url);
+
+  if (!url && itemId) {
+    const rows = (await sql`
+      SELECT url_canonica, url_original
+      FROM app.item_seguimiento
+      WHERE item_id = ${itemId}
+      LIMIT 1
+    `) as any[];
+
+    const r = rows?.[0];
+    url = normalizeUrl(r?.url_canonica) ?? normalizeUrl(r?.url_original);
+  }
+
   if (!url) {
     return {
       status: "ERROR" as const,
       candidatos: [],
       warnings: [],
-      errors: ["payload.url inválida o ausente"],
+      errors: ["payload.url inválida o ausente (y no se pudo resolver por item_id)"],
       meta: {},
     };
   }

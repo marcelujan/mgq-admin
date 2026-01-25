@@ -326,6 +326,112 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
+/**
+ * Normalización de costo por unidad base:
+ * - GR => precio por 1 GR
+ * - ML => precio por 1 ML
+ * - UN => precio por 1 UN (equivale al total)
+ */
+function computeUnitPricing(
+  uom: "GR" | "ML" | "UN",
+  presentacionAmount: number,
+  precioArs: number | null,
+  costoUsd: number | null
+): { ars_por_unidad: number | null; usd_por_unidad: number | null; unidad_base: string } {
+  const unidad_base =
+    uom === "GR" ? "ARS/GR, USD/GR" : uom === "ML" ? "ARS/ML, USD/ML" : "ARS/UN, USD/UN";
+
+  if (!Number.isFinite(presentacionAmount) || presentacionAmount <= 0) {
+    return { ars_por_unidad: null, usd_por_unidad: null, unidad_base };
+  }
+
+  const denom = presentacionAmount;
+
+  const ars_por_unidad =
+    precioArs !== null && Number.isFinite(precioArs)
+      ? Number((precioArs / denom).toFixed(12))
+      : null;
+
+  const usd_por_unidad =
+    costoUsd !== null && Number.isFinite(costoUsd)
+      ? Number((costoUsd / denom).toFixed(12))
+      : null;
+
+  return { ars_por_unidad, usd_por_unidad, unidad_base };
+}
+
+/**
+ * (3) Economía de escala (comparativo interno):
+ * - Calcula el mínimo usd_por_unidad y ars_por_unidad dentro del mismo uom
+ * - ratio_vs_min_* = (unit_price / min_unit_price)
+ * - is_best_value_* marca las que empatan el mínimo (tolerancia)
+ */
+function attachScaleEconomyMetrics(candidatos: any[]) {
+  const EPS = 1e-12;
+
+  // min por UOM
+  const mins: Record<
+    string,
+    { usd_min: number | null; ars_min: number | null }
+  > = {};
+
+  for (const c of candidatos) {
+    const uom = String(c?.uom ?? "");
+    if (!uom) continue;
+
+    const usd = c?.usd_por_unidad;
+    const ars = c?.ars_por_unidad;
+
+    if (!mins[uom]) mins[uom] = { usd_min: null, ars_min: null };
+
+    if (usd !== null && Number.isFinite(usd)) {
+      const cur = mins[uom].usd_min;
+      mins[uom].usd_min = cur === null ? usd : Math.min(cur, usd);
+    }
+    if (ars !== null && Number.isFinite(ars)) {
+      const cur = mins[uom].ars_min;
+      mins[uom].ars_min = cur === null ? ars : Math.min(cur, ars);
+    }
+  }
+
+  // anexar métricas
+  for (const c of candidatos) {
+    const uom = String(c?.uom ?? "");
+    const m = mins[uom] ?? { usd_min: null, ars_min: null };
+
+    const usd = c?.usd_por_unidad;
+    const ars = c?.ars_por_unidad;
+
+    const usd_min = m.usd_min;
+    const ars_min = m.ars_min;
+
+    c.usd_por_unidad_min = usd_min;
+    c.ars_por_unidad_min = ars_min;
+
+    c.ratio_vs_min_usd =
+      usd !== null && Number.isFinite(usd) && usd_min !== null && usd_min > 0
+        ? Number((usd / usd_min).toFixed(12))
+        : null;
+
+    c.ratio_vs_min_ars =
+      ars !== null && Number.isFinite(ars) && ars_min !== null && ars_min > 0
+        ? Number((ars / ars_min).toFixed(12))
+        : null;
+
+    c.is_best_value_usd =
+      usd !== null && Number.isFinite(usd) && usd_min !== null
+        ? Math.abs(usd - usd_min) <= Math.max(EPS, usd_min * 1e-9)
+        : false;
+
+    c.is_best_value_ars =
+      ars !== null && Number.isFinite(ars) && ars_min !== null
+        ? Math.abs(ars - ars_min) <= Math.max(EPS, ars_min * 1e-9)
+        : false;
+  }
+
+  return mins;
+}
+
 async function motorPuraQuimica(
   sql: any,
   payload: any,
@@ -433,6 +539,9 @@ async function motorPuraQuimica(
           precio_ars_observado <= fxUsed * SANITY_FX_HI
         : false;
 
+    // --- (2) Precio por unidad base persistido en candidatos ---
+    const unit = computeUnitPricing(uom, amount, precio_ars_observado, costo_base_usd);
+
     return {
       proveedor_id: job.proveedor_id ?? null,
       item_id: itemId ? String(itemId) : null,
@@ -455,6 +564,11 @@ async function motorPuraQuimica(
       precio_ars_source,
       fx_origen: fxOrigen,
 
+      // (2) unit economics (persistido)
+      ars_por_unidad: unit.ars_por_unidad,
+      usd_por_unidad: unit.usd_por_unidad,
+      unidad_base: unit.unidad_base,
+
       // sanity anti-FX
       sanity_fx_as_price,
       sanity_fx_ratio,
@@ -474,6 +588,32 @@ async function motorPuraQuimica(
     const presList = suspects.map((s) => String(s.source_presentacion_raw)).join(", ");
     warnings.push(
       `SUSPECT_FX_AS_PRICE: ${suspects.length}/${candidatos.length} (presentaciones: ${presList})`
+    );
+  }
+
+  // Warning si no se puede calcular unit economics (presentacion inválida)
+  const unitMissing = candidatos.filter(
+    (c) =>
+      (c?.precio_ars_observado !== null || c?.costo_base_usd !== null) &&
+      (c?.ars_por_unidad === null && c?.usd_por_unidad === null)
+  );
+  if (unitMissing.length > 0) {
+    warnings.push(
+      `UNIT_PRICE_MISSING: ${unitMissing.length}/${candidatos.length} (presentacion<=0 o inválida)`
+    );
+  }
+
+  // --- (3) Economía de escala: ratios vs mínimo (por uom) ---
+  const mins = attachScaleEconomyMetrics(candidatos);
+
+  // Info adicional: si no hay mínimo (todo null) por uom, avisar
+  const uoms = Object.keys(mins);
+  const uomMissingMin = uoms.filter(
+    (u) => mins[u]?.usd_min === null && mins[u]?.ars_min === null
+  );
+  if (uomMissingMin.length > 0) {
+    warnings.push(
+      `SCALE_MIN_MISSING: sin precios por unidad para uom=${uomMissingMin.join(",")}`
     );
   }
 
@@ -501,6 +641,8 @@ async function motorPuraQuimica(
       precios_by_pres_count: precioByPres.size,
       sanity_fx_suspects: suspects.length,
       sanity_fx_band: SANITY_FX_BAND,
+      unit_price_missing: unitMissing.length,
+      scale_mins_by_uom: mins, // queda como objeto en meta
       html_snippet: htmlSnippet,
     },
   };
