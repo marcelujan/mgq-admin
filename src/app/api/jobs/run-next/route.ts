@@ -164,7 +164,7 @@ function parsePrecioArsByPresentacionFromHtml(
 
     if (priceNum === null || !Number.isFinite(priceNum)) return;
 
-    // anti-FX: si el "precio" parece ser el FX, lo descartamos
+    // anti-FX (parser-level): si el "precio" parece ser el FX, lo descartamos
     if (fxHint && priceNum >= fxHint * 0.85 && priceNum <= fxHint * 1.15) return;
 
     byPres.set(presNum, { precio_ars: Number(priceNum), source });
@@ -244,7 +244,6 @@ function parsePrecioArsByPresentacionFromHtml(
   // 3) Último fallback (solo si hay 1 presentación): intentar extraer un precio único ARS
   // (no sirve para economía de escala; evitamos aplicarlo cuando hay múltiples presentaciones).
   if (byPres.size === 0) {
-    // JSON-LD (priceCurrency ARS)
     const jsonLdRe =
       /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
     for (let m; (m = jsonLdRe.exec(html)); ) {
@@ -266,7 +265,6 @@ function parsePrecioArsByPresentacionFromHtml(
             if (cur === "ARS" && n !== null) {
               if (fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15) continue;
               // NO asignamos a pres acá (no sabemos cuál); lo devuelve vacío.
-              // Se usa solo desde motor si pres.length === 1.
               break;
             }
           }
@@ -283,28 +281,24 @@ function parsePrecioArsByPresentacionFromHtml(
 function parsePresentationsFromHtml(html: string): number[] {
   const out: number[] = [];
 
-  // 1) Intentar aislar el <select> de presentación (más tolerante)
   const selectMatch = html.match(
     /<select[^>]*(?:pa_presentacion|presentaci[oó]n|presentacion)[^>]*>([\s\S]*?)<\/select>/i
   );
 
   const scope = selectMatch ? selectMatch[1] : html;
 
-  // 2) Capturar valores desde value="1.0000"
   const optValRe = /<option[^>]*value="([0-9]+(?:\.[0-9]{4})?)"[^>]*>/gi;
   for (let m; (m = optValRe.exec(scope)); ) {
     const n = Number(m[1]);
     if (Number.isFinite(n)) out.push(n);
   }
 
-  // 3) Capturar si el value viene vacío y el número está como texto: <option>1.0000</option>
   const optTextRe = /<option[^>]*>\s*([0-9]+(?:\.[0-9]{4})?)\s*<\/option>/gi;
   for (let m; (m = optTextRe.exec(scope)); ) {
     const n = Number(m[1]);
     if (Number.isFinite(n)) out.push(n);
   }
 
-  // 4) Fallback acotado: query param explícito (sin números sueltos)
   if (out.length === 0) {
     const qpRe = /attribute_pa_presentacion=([0-9]+(?:\.[0-9]{4})?)/gi;
     for (let m; (m = qpRe.exec(html)); ) {
@@ -313,7 +307,6 @@ function parsePresentationsFromHtml(html: string): number[] {
     }
   }
 
-  // Unique + sort
   return Array.from(new Set(out)).sort((a, b) => a - b);
 }
 
@@ -324,10 +317,6 @@ function inferUomAndAmountFromTitleOrUrl(
 ): { uom: "GR" | "ML" | "UN"; amount: number } {
   const hay = `${title ?? ""} ${url}`.toUpperCase();
 
-  // heurística mínima:
-  // - si el producto indica XKG o "KG" -> presValue es Kg => GR
-  // - si indica XLT o "LT" o "LITRO" -> presValue es Lt => ML
-  // - sino: asumir UN (no ideal, pero explícito)
   if (hay.includes("XKG") || hay.includes(" KG")) {
     return { uom: "GR", amount: Math.round(presValue * 1000) };
   }
@@ -394,8 +383,6 @@ async function motorPuraQuimica(
   const errors: string[] = [];
 
   if (!title) warnings.push("No se pudo extraer el título del producto");
-
-  // Opción B: configurable por proveedor
   if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
 
   if (!fxUsed) {
@@ -416,6 +403,11 @@ async function motorPuraQuimica(
     }
   }
 
+  // --- (1) Sanity check anti-FX (no bloqueante) ---
+  const SANITY_FX_LO = 0.85;
+  const SANITY_FX_HI = 1.15;
+  const SANITY_FX_BAND = "0.85-1.15";
+
   const fechaScrape = new Date().toISOString();
 
   const candidatos = pres.map((p) => {
@@ -429,6 +421,17 @@ async function motorPuraQuimica(
       precio_ars_observado !== null && fxUsed
         ? Number((precio_ars_observado / fxUsed).toFixed(6))
         : null;
+
+    const sanity_fx_ratio =
+      precio_ars_observado !== null && fxUsed
+        ? Number((precio_ars_observado / fxUsed).toFixed(6))
+        : null;
+
+    const sanity_fx_as_price =
+      precio_ars_observado !== null && fxUsed
+        ? precio_ars_observado >= fxUsed * SANITY_FX_LO &&
+          precio_ars_observado <= fxUsed * SANITY_FX_HI
+        : false;
 
     return {
       proveedor_id: job.proveedor_id ?? null,
@@ -452,6 +455,11 @@ async function motorPuraQuimica(
       precio_ars_source,
       fx_origen: fxOrigen,
 
+      // sanity anti-FX
+      sanity_fx_as_price,
+      sanity_fx_ratio,
+      sanity_fx_band: SANITY_FX_BAND,
+
       densidad: null,
 
       // opcional: para auditoría
@@ -459,6 +467,15 @@ async function motorPuraQuimica(
       source_presentacion_raw: p,
     };
   });
+
+  // Warning agregado si hay sospechosos
+  const suspects = candidatos.filter((c) => c?.sanity_fx_as_price);
+  if (suspects.length > 0) {
+    const presList = suspects.map((s) => String(s.source_presentacion_raw)).join(", ");
+    warnings.push(
+      `SUSPECT_FX_AS_PRICE: ${suspects.length}/${candidatos.length} (presentaciones: ${presList})`
+    );
+  }
 
   const status =
     errors.length > 0
@@ -482,6 +499,8 @@ async function motorPuraQuimica(
       fx_origen: fxOrigen,
       pres_count: pres.length,
       precios_by_pres_count: precioByPres.size,
+      sanity_fx_suspects: suspects.length,
+      sanity_fx_band: SANITY_FX_BAND,
       html_snippet: htmlSnippet,
     },
   };
