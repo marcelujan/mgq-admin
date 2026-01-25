@@ -360,6 +360,78 @@ function computeUnitPricing(
   return { ars_por_unidad, usd_por_unidad, unidad_base };
 }
 
+/**
+ * (3) Economía de escala (comparativo interno):
+ * - Calcula el mínimo usd_por_unidad y ars_por_unidad dentro del mismo uom
+ * - ratio_vs_min_* = (unit_price / min_unit_price)
+ * - is_best_value_* marca las que empatan el mínimo (tolerancia)
+ */
+function attachScaleEconomyMetrics(candidatos: any[]) {
+  const EPS = 1e-12;
+
+  // min por UOM
+  const mins: Record<
+    string,
+    { usd_min: number | null; ars_min: number | null }
+  > = {};
+
+  for (const c of candidatos) {
+    const uom = String(c?.uom ?? "");
+    if (!uom) continue;
+
+    const usd = c?.usd_por_unidad;
+    const ars = c?.ars_por_unidad;
+
+    if (!mins[uom]) mins[uom] = { usd_min: null, ars_min: null };
+
+    if (usd !== null && Number.isFinite(usd)) {
+      const cur = mins[uom].usd_min;
+      mins[uom].usd_min = cur === null ? usd : Math.min(cur, usd);
+    }
+    if (ars !== null && Number.isFinite(ars)) {
+      const cur = mins[uom].ars_min;
+      mins[uom].ars_min = cur === null ? ars : Math.min(cur, ars);
+    }
+  }
+
+  // anexar métricas
+  for (const c of candidatos) {
+    const uom = String(c?.uom ?? "");
+    const m = mins[uom] ?? { usd_min: null, ars_min: null };
+
+    const usd = c?.usd_por_unidad;
+    const ars = c?.ars_por_unidad;
+
+    const usd_min = m.usd_min;
+    const ars_min = m.ars_min;
+
+    c.usd_por_unidad_min = usd_min;
+    c.ars_por_unidad_min = ars_min;
+
+    c.ratio_vs_min_usd =
+      usd !== null && Number.isFinite(usd) && usd_min !== null && usd_min > 0
+        ? Number((usd / usd_min).toFixed(12))
+        : null;
+
+    c.ratio_vs_min_ars =
+      ars !== null && Number.isFinite(ars) && ars_min !== null && ars_min > 0
+        ? Number((ars / ars_min).toFixed(12))
+        : null;
+
+    c.is_best_value_usd =
+      usd !== null && Number.isFinite(usd) && usd_min !== null
+        ? Math.abs(usd - usd_min) <= Math.max(EPS, usd_min * 1e-9)
+        : false;
+
+    c.is_best_value_ars =
+      ars !== null && Number.isFinite(ars) && ars_min !== null
+        ? Math.abs(ars - ars_min) <= Math.max(EPS, ars_min * 1e-9)
+        : false;
+  }
+
+  return mins;
+}
+
 async function motorPuraQuimica(
   sql: any,
   payload: any,
@@ -531,74 +603,18 @@ async function motorPuraQuimica(
     );
   }
 
-  // --- (3) Economía de escala: ratio_vs_min_usd + warning por no-monotonía (no bloqueante) ---
-  // Esperado: usd_por_unidad NO debería subir cuando aumenta presentacion.
-  const SCALE_TOL = 0.02; // 2%
-  const scaleRows = candidatos
-    .map((c: any) => ({
-      presentacion: Number(c?.presentacion),
-      usd_por_unidad:
-        c?.usd_por_unidad === null || c?.usd_por_unidad === undefined ? null : Number(c.usd_por_unidad),
-      source_presentacion_raw: c?.source_presentacion_raw ?? null,
-    }))
-    .filter(
-      (r: any) =>
-        Number.isFinite(r.presentacion) &&
-        r.presentacion > 0 &&
-        r.usd_por_unidad !== null &&
-        Number.isFinite(r.usd_por_unidad)
-    )
-    .sort((a: any, b: any) => a.presentacion - b.presentacion);
+  // --- (3) Economía de escala: ratios vs mínimo (por uom) ---
+  const mins = attachScaleEconomyMetrics(candidatos);
 
-  let scaleNonMonotonicCount = 0;
-
-  if (scaleRows.length >= 2) {
-    const minUsd = Math.min(...scaleRows.map((r: any) => r.usd_por_unidad as number));
-
-    // Persistimos métricas en cada candidato (si hay usd_por_unidad)
-    for (const c of candidatos as any[]) {
-      const u =
-        c?.usd_por_unidad === null || c?.usd_por_unidad === undefined ? null : Number(c.usd_por_unidad);
-      if (u !== null && Number.isFinite(u) && Number.isFinite(minUsd) && minUsd > 0) {
-        c.usd_por_unidad_min = Number(minUsd.toFixed(12));
-        c.ratio_vs_min_usd = Number((u / minUsd).toFixed(12));
-      } else {
-        c.usd_por_unidad_min = null;
-        c.ratio_vs_min_usd = null;
-      }
-    }
-
-    // Chequeo no-monotonía
-    let prev = scaleRows[0].usd_por_unidad as number;
-    const viols: string[] = [];
-
-    for (let i = 1; i < scaleRows.length; i++) {
-      const cur = scaleRows[i].usd_por_unidad as number;
-
-      if (cur > prev * (1 + SCALE_TOL)) {
-        scaleNonMonotonicCount++;
-        viols.push(
-          `${String(scaleRows[i].source_presentacion_raw ?? "?")}:${cur.toFixed(6)} (prev ${prev.toFixed(6)})`
-        );
-      }
-
-      // conservador: prev se queda con el mejor (menor) visto hasta ahora
-      prev = Math.min(prev, cur);
-    }
-
-    if (viols.length > 0) {
-      warnings.push(
-        `SCALE_NON_MONOTONIC: usd_por_unidad sube con mayor presentación (tol=${SCALE_TOL}). ${viols.join(
-          " | "
-        )}`
-      );
-    }
-  } else {
-    // si no hay suficientes datos USD por unidad, igual dejamos nulls
-    for (const c of candidatos as any[]) {
-      if (!("usd_por_unidad_min" in c)) c.usd_por_unidad_min = null;
-      if (!("ratio_vs_min_usd" in c)) c.ratio_vs_min_usd = null;
-    }
+  // Info adicional: si no hay mínimo (todo null) por uom, avisar
+  const uoms = Object.keys(mins);
+  const uomMissingMin = uoms.filter(
+    (u) => mins[u]?.usd_min === null && mins[u]?.ars_min === null
+  );
+  if (uomMissingMin.length > 0) {
+    warnings.push(
+      `SCALE_MIN_MISSING: sin precios por unidad para uom=${uomMissingMin.join(",")}`
+    );
   }
 
   const status =
@@ -626,9 +642,7 @@ async function motorPuraQuimica(
       sanity_fx_suspects: suspects.length,
       sanity_fx_band: SANITY_FX_BAND,
       unit_price_missing: unitMissing.length,
-      scale_rows: scaleRows.length,
-      scale_non_monotonic: scaleNonMonotonicCount,
-      scale_tol: SCALE_TOL,
+      scale_mins_by_uom: mins, // queda como objeto en meta
       html_snippet: htmlSnippet,
     },
   };
