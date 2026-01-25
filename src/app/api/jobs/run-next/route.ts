@@ -83,12 +83,14 @@ function parseFxFromHtml(html: string): number | null {
 }
 
 function parseTitleFromHtml(html: string): string | null {
+  // suele venir como <h1 class="product_title ...">...</h1>
   const m = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
   if (!m) return null;
   return m[1].replace(/\s+/g, " ").trim();
 }
 
 function parseSkuFromHtml(html: string): string | null {
+  // "SKU: M0007"
   const m = html.match(/SKU:\s*([A-Z0-9_-]+)/i);
   return m ? m[1].trim() : null;
 }
@@ -109,13 +111,16 @@ function parseArsNumber(raw: string): number | null {
   let normalized = cleaned;
 
   if (lastComma !== -1 && lastDot !== -1) {
+    // tomar el último separador como decimal
     const decPos = Math.max(lastComma, lastDot);
     const intPart = cleaned.slice(0, decPos).replace(/[.,]/g, "");
     const decPart = cleaned.slice(decPos + 1).replace(/[.,]/g, "");
     normalized = `${intPart}.${decPart}`;
   } else if (lastComma !== -1) {
+    // solo coma => coma decimal
     normalized = cleaned.replace(/\./g, "").replace(",", ".");
   } else {
+    // solo punto o ninguno
     normalized = cleaned.replace(/,/g, "");
   }
 
@@ -138,25 +143,13 @@ function decodeHtmlEntities(s: string): string {
  * Precio ARS por presentación (clave = valor numérico de "pa_presentacion", ej 1.0000, 5.0000).
  * Fuente principal: WooCommerce product variations embebidas (data-product_variations o JS).
  *
- * Importante: NO descartamos acá el caso "precio≈FX". Eso se detecta y maneja en motor (sanity anti-FX).
+ * NOTA: Si el sitio no expone precios por variante en el HTML, el map puede quedar vacío.
  */
 function parsePrecioArsByPresentacionFromHtml(
-  html: string
+  html: string,
+  fxHint?: number | null
 ): Map<number, { precio_ars: number; source: string }> {
   const byPres = new Map<number, { precio_ars: number; source: string }>();
-
-  const upsertPreferNonSuspect = (
-    presNum: number,
-    priceNum: number,
-    source: string
-  ) => {
-    const prev = byPres.get(presNum);
-    if (!prev) {
-      byPres.set(presNum, { precio_ars: priceNum, source });
-      return;
-    }
-    // Si ya hay uno, no lo reemplazamos (evita flapping). Se puede refinar luego.
-  };
 
   const maybeAdd = (presRaw: any, priceRaw: any, source: string) => {
     const presNum = presRaw === null || presRaw === undefined ? null : Number(presRaw);
@@ -171,10 +164,14 @@ function parsePrecioArsByPresentacionFromHtml(
 
     if (priceNum === null || !Number.isFinite(priceNum)) return;
 
-    upsertPreferNonSuspect(presNum, Number(priceNum), source);
+    // anti-FX (parser-level): si el "precio" parece ser el FX, lo descartamos
+    if (fxHint && priceNum >= fxHint * 0.85 && priceNum <= fxHint * 1.15) return;
+
+    byPres.set(presNum, { precio_ars: Number(priceNum), source });
   };
 
   // 1) WooCommerce: data-product_variations="[...]"
+  // Puede venir con entities (&quot;) dentro del atributo.
   const attrRe = /data-product_variations\s*=\s*(?:"([^"]+)"|'([^']+)')/i;
   const mAttr = html.match(attrRe);
   if (mAttr) {
@@ -209,7 +206,7 @@ function parsePrecioArsByPresentacionFromHtml(
     }
   }
 
-  // 2) Fallback: JS inline con "product_variations = [...]"
+  // 2) Fallback: buscar JS inline con "product_variations = [...]"
   if (byPres.size === 0) {
     const jsRe = /product_variations\s*=\s*(\[[\s\S]*?\])\s*;?/i;
     const mJs = html.match(jsRe);
@@ -244,8 +241,39 @@ function parsePrecioArsByPresentacionFromHtml(
     }
   }
 
-  // 3) JSON-LD (ARS) no se asigna a pres (no sabemos cuál) -> se ignora acá
-  // (se puede usar en motor solo si pres.length === 1, más adelante si hace falta)
+  // 3) Último fallback (solo si hay 1 presentación): intentar extraer un precio único ARS
+  // (no sirve para economía de escala; evitamos aplicarlo cuando hay múltiples presentaciones).
+  if (byPres.size === 0) {
+    const jsonLdRe =
+      /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    for (let m; (m = jsonLdRe.exec(html)); ) {
+      const block = m[1];
+      try {
+        const data = JSON.parse(block);
+        const objs = Array.isArray(data) ? data : [data];
+
+        for (const obj of objs) {
+          const offers = obj?.offers
+            ? Array.isArray(obj.offers)
+              ? obj.offers
+              : [obj.offers]
+            : [];
+          for (const off of offers) {
+            const cur = String(off?.priceCurrency ?? "").toUpperCase();
+            const priceRaw = off?.price;
+            const n = priceRaw !== undefined ? parseArsNumber(String(priceRaw)) : null;
+            if (cur === "ARS" && n !== null) {
+              if (fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15) continue;
+              // NO asignamos a pres acá (no sabemos cuál); lo devuelve vacío.
+              break;
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
 
   return byPres;
 }
@@ -298,6 +326,37 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
+/**
+ * Normalización de costo por unidad base:
+ * - GR => precio por 1 GR
+ * - ML => precio por 1 ML
+ * - UN => precio por 1 UN (equivale al total)
+ */
+function computeUnitPricing(
+  uom: "GR" | "ML" | "UN",
+  presentacionAmount: number,
+  precioArs: number | null,
+  costoUsd: number | null
+): { ars_por_unidad: number | null; usd_por_unidad: number | null; unidad_base: string } {
+  const unidad_base = uom === "GR" ? "ARS/GR, USD/GR" : uom === "ML" ? "ARS/ML, USD/ML" : "ARS/UN, USD/UN";
+
+  if (!Number.isFinite(presentacionAmount) || presentacionAmount <= 0) {
+    return { ars_por_unidad: null, usd_por_unidad: null, unidad_base };
+  }
+
+  // Para UN, dividir por "cantidad" no tiene sentido si amount representa unidades;
+  // pero igual es válido: precio por unidad = precio / unidades.
+  const denom = presentacionAmount;
+
+  const ars_por_unidad =
+    precioArs !== null && Number.isFinite(precioArs) ? Number((precioArs / denom).toFixed(12)) : null;
+
+  const usd_por_unidad =
+    costoUsd !== null && Number.isFinite(costoUsd) ? Number((costoUsd / denom).toFixed(12)) : null;
+
+  return { ars_por_unidad, usd_por_unidad, unidad_base };
+}
+
 async function motorPuraQuimica(
   sql: any,
   payload: any,
@@ -348,8 +407,8 @@ async function motorPuraQuimica(
   const fxUsed = fxDb ?? fxHtml;
   const fxOrigen = fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null;
 
-  // Precio ARS por presentación
-  const precioByPres = parsePrecioArsByPresentacionFromHtml(html);
+  // Precio ARS por presentación (clave = valor pres del select)
+  const precioByPres = parsePrecioArsByPresentacionFromHtml(html, fxUsed);
 
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -375,7 +434,7 @@ async function motorPuraQuimica(
     }
   }
 
-  // --- (1) Sanity check anti-FX (WARNING / bloqueo parcial y total) ---
+  // --- (1) Sanity check anti-FX (no bloqueante) ---
   const SANITY_FX_LO = 0.85;
   const SANITY_FX_HI = 1.15;
   const SANITY_FX_BAND = "0.85-1.15";
@@ -389,6 +448,11 @@ async function motorPuraQuimica(
     const precio_ars_observado = priceObj?.precio_ars ?? null;
     const precio_ars_source = priceObj?.source ?? null;
 
+    const costo_base_usd =
+      precio_ars_observado !== null && fxUsed
+        ? Number((precio_ars_observado / fxUsed).toFixed(6))
+        : null;
+
     const sanity_fx_ratio =
       precio_ars_observado !== null && fxUsed
         ? Number((precio_ars_observado / fxUsed).toFixed(6))
@@ -400,12 +464,8 @@ async function motorPuraQuimica(
           precio_ars_observado <= fxUsed * SANITY_FX_HI
         : false;
 
-    // BLOQUEO POR PRESENTACIÓN:
-    // si parece FX, no calculamos costo_base_usd (para no “dolarizar” una cotización)
-    const costo_base_usd =
-      precio_ars_observado !== null && fxUsed && !sanity_fx_as_price
-        ? Number((precio_ars_observado / fxUsed).toFixed(6))
-        : null;
+    // --- (2) Precio por unidad base persistido en candidatos ---
+    const unit = computeUnitPricing(uom, amount, precio_ars_observado, costo_base_usd);
 
     return {
       proveedor_id: job.proveedor_id ?? null,
@@ -429,6 +489,11 @@ async function motorPuraQuimica(
       precio_ars_source,
       fx_origen: fxOrigen,
 
+      // (2) unit economics (persistido)
+      ars_por_unidad: unit.ars_por_unidad,
+      usd_por_unidad: unit.usd_por_unidad,
+      unidad_base: unit.unidad_base,
+
       // sanity anti-FX
       sanity_fx_as_price,
       sanity_fx_ratio,
@@ -442,20 +507,23 @@ async function motorPuraQuimica(
     };
   });
 
-  // WARNING / ERROR según severidad
-  const suspects = candidatos.filter((c) => c?.sanity_fx_as_price === true);
+  // Warning agregado si hay sospechosos
+  const suspects = candidatos.filter((c) => c?.sanity_fx_as_price);
   if (suspects.length > 0) {
     const presList = suspects.map((s) => String(s.source_presentacion_raw)).join(", ");
     warnings.push(
-      `SUSPECT_FX_AS_PRICE: ${suspects.length}/${candidatos.length} (presentaciones: ${presList}, banda=${SANITY_FX_BAND})`
+      `SUSPECT_FX_AS_PRICE: ${suspects.length}/${candidatos.length} (presentaciones: ${presList})`
     );
+  }
 
-    // Si TODAS las presentaciones parecen FX => ERROR (bloqueante)
-    if (candidatos.length > 0 && suspects.length === candidatos.length) {
-      errors.push(
-        `Sanity anti-FX: todas las presentaciones parecen FX (banda=${SANITY_FX_BAND}). Se bloquea el job.`
-      );
-    }
+  // Warning si no se puede calcular unit economics (presentacion inválida)
+  const unitMissing = candidatos.filter(
+    (c) =>
+      (c?.precio_ars_observado !== null || c?.costo_base_usd !== null) &&
+      (c?.ars_por_unidad === null && c?.usd_por_unidad === null)
+  );
+  if (unitMissing.length > 0) {
+    warnings.push(`UNIT_PRICE_MISSING: ${unitMissing.length}/${candidatos.length} (presentacion<=0 o inválida)`);
   }
 
   const status =
@@ -482,6 +550,7 @@ async function motorPuraQuimica(
       precios_by_pres_count: precioByPres.size,
       sanity_fx_suspects: suspects.length,
       sanity_fx_band: SANITY_FX_BAND,
+      unit_price_missing: unitMissing.length,
       html_snippet: htmlSnippet,
     },
   };
@@ -640,6 +709,7 @@ export async function POST(_req: Request) {
     }
 
     if (status === "OK") {
+      // OK -> SUCCEEDED (no requiere revisión humana)
       await sql`
         UPDATE app.job
         SET
