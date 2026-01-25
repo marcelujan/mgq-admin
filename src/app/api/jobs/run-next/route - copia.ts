@@ -53,6 +53,25 @@ function providerConfigFromUrl(url: string) {
   return { allowMissingSku: false };
 }
 
+/**
+ * FX desde DB (app.fx): BNA venta del día.
+ */
+async function getFxToday(sql: any): Promise<number | null> {
+  const rows = (await sql`
+    SELECT valor
+    FROM app.fx
+    WHERE fecha = current_date
+    LIMIT 1
+  `) as any[];
+
+  const v = rows?.[0]?.valor;
+  const n = v === null || v === undefined ? null : Number(v);
+  return Number.isFinite(n as any) ? (n as number) : null;
+}
+
+/**
+ * Fallback FX desde HTML (no recomendado como fuente primaria).
+ */
 function parseFxFromHtml(html: string): number | null {
   // "La cotización de dolar de: $1450.00."
   const m = html.match(
@@ -74,6 +93,146 @@ function parseSkuFromHtml(html: string): string | null {
   // "SKU: M0007"
   const m = html.match(/SKU:\s*([A-Z0-9_-]+)/i);
   return m ? m[1].trim() : null;
+}
+
+/**
+ * Parse num ARS robusto: "1.234,56" / "1,234.56" / "1234" / "$ 12.345"
+ */
+function parseArsNumber(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  const cleaned = s.replace(/[^\d.,]/g, "");
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+
+  let normalized = cleaned;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    // tomar el último separador como decimal
+    const decPos = Math.max(lastComma, lastDot);
+    const intPart = cleaned.slice(0, decPos).replace(/[.,]/g, "");
+    const decPart = cleaned.slice(decPos + 1).replace(/[.,]/g, "");
+    normalized = `${intPart}.${decPart}`;
+  } else if (lastComma !== -1) {
+    // solo coma => coma decimal
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else {
+    // solo punto o ninguno
+    normalized = cleaned.replace(/,/g, "");
+  }
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+type PriceByPres = Record<
+  string,
+  {
+    precio_ars: number;
+    source: string;
+  }
+>;
+
+function normalizePresKey(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // Woo suele traer "1.0000" en attribute_pa_presentacion
+  const n = Number(s);
+  if (Number.isFinite(n)) {
+    // normalizamos a 4 decimales para matchear keys de variaciones
+    return n.toFixed(4);
+  }
+
+  // si viene algo raro, igual lo devolvemos (por si el sitio usa texto)
+  return s.toLowerCase();
+}
+
+/**
+ * Extrae precios ARS POR PRESENTACIÓN.
+ * Principal: dataset WooCommerce "data-product_variations".
+ * Fallback: asignar un único precio (si existe) a todas las presentaciones (no ideal).
+ */
+function parsePricesByPresentationFromHtml(html: string, fxHint?: number | null): PriceByPres {
+  const byPres: PriceByPres = {};
+
+  // 1) WooCommerce: data-product_variations="[...]"
+  // Nota: a veces está escapado como &quot; y entidades HTML.
+  const dvRe = /data-product_variations=(?:"([^"]+)"|'([^']+)')/i;
+  const dv = html.match(dvRe);
+  if (dv?.[1] || dv?.[2]) {
+    const rawAttr = dv[1] ?? dv[2] ?? "";
+    const decoded = rawAttr
+      .replace(/&quot;/g, '"')
+      .replace(/&#34;/g, '"')
+      .replace(/&amp;/g, "&")
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
+
+    try {
+      const variations = JSON.parse(decoded);
+      if (Array.isArray(variations)) {
+        for (const v of variations) {
+          // key de presentación: attribute_pa_presentacion
+          const presKeyRaw =
+            v?.attributes?.attribute_pa_presentacion ??
+            v?.attributes?.pa_presentacion ??
+            v?.attributes?.attribute_presentacion ??
+            null;
+
+          const presKey = normalizePresKey(presKeyRaw);
+          if (!presKey) continue;
+
+          // WooCommerce: display_price suele ser número (ARS)
+          const priceCandidate =
+            v?.display_price ??
+            v?.display_regular_price ??
+            v?.variation_display_price ??
+            v?.variation_price ??
+            null;
+
+          const price =
+            priceCandidate === null || priceCandidate === undefined
+              ? null
+              : Number(priceCandidate);
+
+          if (!Number.isFinite(price as any)) continue;
+
+          // anti-FX: si el "precio" parece ser el FX, lo descartamos
+          if (fxHint && price! >= fxHint * 0.85 && price! <= fxHint * 1.15) continue;
+
+          byPres[presKey] = {
+            precio_ars: price as number,
+            source: "wc:data-product_variations.display_price",
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2) Fallback: intentar capturar un precio “único” en el HTML (sin garantizar por variante)
+  if (Object.keys(byPres).length === 0) {
+    // WooCommerce price spans (bdi / woocommerce-Price-amount)
+    const wcPriceRe =
+      /woocommerce-Price-amount[^>]*>[\s\S]*?\$\s*<\/span>\s*([0-9][0-9\.,]*)/gi;
+    for (let m; (m = wcPriceRe.exec(html)); ) {
+      const n = parseArsNumber(m[1]);
+      if (n === null) continue;
+      if (fxHint && n >= fxHint * 0.85 && n <= fxHint * 1.15) continue;
+      // guardo como "__single__"
+      byPres["__single__"] = { precio_ars: n, source: "html:woocommerce-Price-amount" };
+      break;
+    }
+  }
+
+  return byPres;
 }
 
 function parsePresentationsFromHtml(html: string): number[] {
@@ -133,7 +292,7 @@ function inferUomAndAmountFromTitleOrUrl(
   return { uom: "UN", amount: Math.round(presValue) };
 }
 
-async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null) {
+async function motorPuraQuimica(sql: any, payload: any, job: JobRow, itemId: bigint | null) {
   const url = normalizeUrl(payload?.url);
   if (!url) {
     return {
@@ -148,7 +307,6 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   const cfg = providerConfigFromUrl(url);
 
   const res = await fetch(url, {
-    // headers simples para evitar bloqueos triviales
     headers: {
       "user-agent": "MGqBot/1.0 (+https://vercel.app)",
       accept: "text/html,application/xhtml+xml",
@@ -171,8 +329,15 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
 
   const title = parseTitleFromHtml(html);
   const sku = parseSkuFromHtml(html);
-  const fx = parseFxFromHtml(html);
   const pres = parsePresentationsFromHtml(html);
+
+  // FX del día (DB) + fallback HTML
+  const fxDb = await getFxToday(sql);
+  const fxHtml = parseFxFromHtml(html); // fallback
+  const fxUsed = fxDb ?? fxHtml;
+
+  // Precios ARS por presentación (ideal) con anti-FX
+  const pricesByPres = parsePricesByPresentationFromHtml(html, fxUsed);
 
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -182,11 +347,35 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
   // Opción B: configurable por proveedor
   if (!sku && !cfg.allowMissingSku) warnings.push("No se pudo extraer SKU");
 
-  if (!fx) warnings.push("No se pudo extraer cotización FX (dólar) del HTML");
+  if (!fxUsed) warnings.push("FX (BNA venta) no disponible (app.fx) y no se pudo inferir del HTML");
+
   if (pres.length === 0) errors.push("No se pudieron extraer presentaciones/variantes");
+
+  // Si no pudimos mapear precios por presentación, esto debe ser WARNING (no ERROR)
+  // porque igual podemos generar candidatos (pero no economía de escalas).
+  const hasPerPresentationPrices = Object.keys(pricesByPres).some((k) => k !== "__single__");
+  const hasAnyPrice =
+    Object.keys(pricesByPres).length > 0 && (hasPerPresentationPrices || !!pricesByPres["__single__"]);
+
+  if (!hasAnyPrice) warnings.push("No se pudieron extraer precios ARS por presentación del HTML");
+
+  const fechaScrape = new Date().toISOString();
 
   const candidatos = pres.map((p) => {
     const { uom, amount } = inferUomAndAmountFromTitleOrUrl(title, url, p);
+
+    const presKey = normalizePresKey(p) ?? String(p);
+
+    // Preferimos precio por presentación; si no existe, usamos "__single__" si lo hay.
+    const priceRow = pricesByPres[presKey] ?? pricesByPres["__single__"] ?? null;
+
+    const precio_ars_observado = priceRow?.precio_ars ?? null;
+    const precio_ars_source = priceRow?.source ?? null;
+
+    const costo_base_usd =
+      precio_ars_observado !== null && fxUsed
+        ? Number((precio_ars_observado / fxUsed).toFixed(6))
+        : null;
 
     return {
       proveedor_id: job.proveedor_id ?? null,
@@ -200,16 +389,22 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
       uom,
       presentacion: amount,
 
-      // por ahora sin precio (PuraQuímica lo muestra al elegir variante)
-      costo_base_usd: null,
-      fx_usado_en_alta: fx ?? null,
+      // Precio base (USD): precio ARS observado / FX BNA venta (DB)
+      costo_base_usd,
+      fx_usado_en_alta: fxUsed ?? null,
+      fecha_scrape_base: fechaScrape,
 
-      fecha_scrape_base: new Date().toISOString(),
+      // auditoría útil (queda en job_result JSON)
+      precio_ars_observado,
+      precio_ars_source,
+      fx_origen: fxDb ? "DB" : fxHtml ? "HTML_FALLBACK" : null,
+
       densidad: null,
 
       // opcional: para auditoría
       source_url: url,
       source_presentacion_raw: p,
+      source_presentacion_key: presKey,
     };
   });
 
@@ -225,7 +420,18 @@ async function motorPuraQuimica(payload: any, job: JobRow, itemId: bigint | null
     candidatos,
     warnings,
     errors,
-    meta: { url, title, sku, fx, pres_count: pres.length, html_snippet: htmlSnippet },
+    meta: {
+      url,
+      title,
+      sku,
+      fx_db: fxDb,
+      fx_html: fxHtml,
+      fx_used: fxUsed,
+      pres_count: pres.length,
+      prices_keys: Object.keys(pricesByPres),
+      has_per_presentation_prices: hasPerPresentationPrices,
+      html_snippet: htmlSnippet,
+    },
   };
 }
 
@@ -327,7 +533,7 @@ export async function POST(_req: Request) {
 
     if (motorId === BigInt(1)) {
       motor_version = "puraquimica_v1";
-      const r = await motorPuraQuimica(job.payload, job, itemId);
+      const r = await motorPuraQuimica(sql, job.payload, job, itemId);
       status = r.status;
       candidatos = r.candidatos;
       warnings = r.warnings;
@@ -436,6 +642,9 @@ export async function POST(_req: Request) {
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error en run-next" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error en run-next" },
+      { status: 500 }
+    );
   }
 }
