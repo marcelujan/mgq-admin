@@ -1,118 +1,118 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
 
-function canonicalizeUrl(raw: string): string | null {
-  try {
-    const u = new URL(String(raw).trim());
-    u.hash = "";
-    u.hostname = u.hostname.toLowerCase();
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
-  if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
+type PreviewRow = {
+  url: string;
+  status: "OK" | "WARNING" | "ERROR";
+  title?: string | null;
+  sku?: string | null;
+  prices?: Array<{ presentacion: number; priceArs: number }>;
+  warnings?: string[];
+  errors?: string[];
+};
+
+function splitAndNormalizeUrls(urls: unknown): string[] {
+  if (Array.isArray(urls)) {
+    return urls.map(String).map((s) => s.trim()).filter(Boolean);
+  }
+  if (typeof urls === "string") {
+    return urls
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
   return [];
 }
 
-async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
-  let prov: any = null;
-
-  try {
-    const a: any = await sql.query(
-      `
-      SELECT proveedor_id, motor_id_default
-      FROM app.proveedor
-      WHERE codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
-    const rowsA = normalizeQueryResult(a);
-    prov = rowsA[0] ?? null;
-  } catch {
-    prov = null;
+async function resolveMotorId(sql: any, body: any): Promise<number> {
+  // Prioridad:
+  // 1) motor_id explícito
+  // 2) proveedor_id -> proveedor.motor_id_default
+  // 3) proveedor_codigo -> proveedor.motor_id_default
+  const motorIdRaw = body?.motor_id ?? body?.motorId;
+  if (motorIdRaw !== undefined && motorIdRaw !== null && String(motorIdRaw).trim() !== "") {
+    const n = Number(motorIdRaw);
+    if (Number.isFinite(n) && n > 0) return n;
   }
 
-  if (!prov || !prov.motor_id_default) {
-    const b: any = await sql.query(
-      `
-      SELECT p.proveedor_id,
-             mp.motor_id AS motor_id_default
-      FROM app.proveedor p
-      LEFT JOIN LATERAL (
-        SELECT motor_id
-        FROM app.motor_proveedor
-        WHERE proveedor_id = p.proveedor_id
-        ORDER BY motor_id ASC
-        LIMIT 1
-      ) mp ON true
-      WHERE p.codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
+  const proveedorIdRaw = body?.proveedor_id ?? body?.proveedorId;
+  if (proveedorIdRaw !== undefined && proveedorIdRaw !== null && String(proveedorIdRaw).trim() !== "") {
+    const proveedorId = Number(proveedorIdRaw);
+    const r = await sql.query(
+      `select motor_id_default from app.proveedor where proveedor_id = $1 limit 1;`,
+      [proveedorId]
     );
-    const rowsB = normalizeQueryResult(b);
-    prov = rowsB[0] ?? prov;
+    const mid = Number(r?.rows?.[0]?.motor_id_default ?? 0);
+    if (Number.isFinite(mid) && mid > 0) return mid;
+    throw new Error(`proveedor_id=${proveedorId} sin motor_id_default`);
   }
 
-  return {
-    proveedor_id: prov?.proveedor_id ?? null,
-    motor_id: prov?.motor_id_default ?? null,
-  };
+  const proveedorCodigoRaw = body?.proveedor_codigo ?? body?.proveedorCodigo;
+  if (typeof proveedorCodigoRaw === "string" && proveedorCodigoRaw.trim()) {
+    const codigo = proveedorCodigoRaw.trim();
+    const r = await sql.query(
+      `select motor_id_default from app.proveedor where codigo = $1 limit 1;`,
+      [codigo]
+    );
+    const mid = Number(r?.rows?.[0]?.motor_id_default ?? 0);
+    if (Number.isFinite(mid) && mid > 0) return mid;
+    throw new Error(`proveedor_codigo=${codigo} sin motor_id_default`);
+  }
+
+  throw new Error("motor_id requerido (o proveedor_id/proveedor_codigo con motor_id_default)");
 }
 
-// POST /api/ofertas/bulk/preview
-// body: { proveedor_codigo, url }
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const sql = db();
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}));
 
-    const urlRaw = typeof body?.url === "string" ? body.url.trim() : "";
-    const proveedorCodigo = typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim() : "";
+    // Acepta urls[] o url (fallback legacy)
+    const urls =
+      splitAndNormalizeUrls(body?.urls).length > 0
+        ? splitAndNormalizeUrls(body?.urls)
+        : splitAndNormalizeUrls(body?.url);
 
-    if (!urlRaw) return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
-    if (!proveedorCodigo) {
-      return NextResponse.json({ ok: false, error: "proveedor_codigo requerido (ej: TD)" }, { status: 400 });
+    if (urls.length === 0) {
+      return NextResponse.json({ ok: false, error: "urls requerida (array) o url requerida" }, { status: 400 });
     }
 
-    const urlCanonica = canonicalizeUrl(urlRaw);
-    if (!urlCanonica) return NextResponse.json({ ok: false, error: "URL inválida" }, { status: 400 });
+    const motorId = await resolveMotorId(sql, body);
 
-    const { proveedor_id, motor_id } = await resolveProveedorAndMotor(sql, proveedorCodigo);
+    const previews: PreviewRow[] = [];
 
-    if (!proveedor_id) {
-      return NextResponse.json({ ok: false, error: `proveedor inválido: ${proveedorCodigo}` }, { status: 400 });
+    for (const url of urls) {
+      try {
+        const r = await runMotorForPricesByPresentacion(BigInt(motorId), url);
+
+        previews.push({
+          url,
+          status: "OK",
+          title: (r as any)?.title ?? null,
+          sku: (r as any)?.sku ?? null,
+          prices: Array.isArray((r as any)?.prices) ? (r as any).prices : [],
+          warnings: Array.isArray((r as any)?.warnings) ? (r as any).warnings : [],
+          errors: [],
+        });
+      } catch (e: any) {
+        previews.push({
+          url,
+          status: "ERROR",
+          title: null,
+          sku: null,
+          prices: [],
+          warnings: [],
+          errors: [String(e?.message ?? e)],
+        });
+      }
     }
-    if (!motor_id) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor asociado` },
-        { status: 400 }
-      );
-    }
 
-    const r = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
-    const prices = Array.isArray((r as any)?.prices) ? (r as any).prices : [];
-
-    return NextResponse.json(
-      {
-        ok: true,
-        proveedor_id: String(proveedor_id),
-        motor_id: String(motor_id),
-        url_canonica: urlCanonica,
-        sourceUrl: String((r as any)?.sourceUrl ?? urlCanonica),
-        prices,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({ ok: true, motor_id: motorId, previews }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: 500 });
   }
 }
