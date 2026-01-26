@@ -161,8 +161,10 @@ export default function JobsPage() {
             </thead>
             <tbody>
               {filtered.map((j) => {
+                // approve sólo cuando tiene sentido (review o ya succeeded pero querés persistir)
                 const canApprove = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
                 const busy = approvingJobId === j.job_id;
+
                 return (
                   <tr key={j.job_id}>
                     <td style={{ borderBottom: "1px solid #222" }}>
