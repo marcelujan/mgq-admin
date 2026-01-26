@@ -66,6 +66,7 @@ export default function ItemsPage() {
         <button onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
           {loading ? "Cargando..." : "Refrescar"}
         </button>
+
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -81,7 +82,7 @@ export default function ItemsPage() {
       )}
 
       {loading ? (
-        <div>Cargando...</div>
+        <div>Cargando.</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -104,6 +105,7 @@ export default function ItemsPage() {
                 ))}
               </tr>
             </thead>
+
             <tbody>
               {filtered.map((it) => (
                 <tr key={it.item_id}>
@@ -122,9 +124,11 @@ export default function ItemsPage() {
                   <td style={{ borderBottom: "1px solid #222" }}>{it.motor_id}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.estado}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.seleccionado ? "true" : "false"}</td>
+
                   <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-all" }}>
                     {it.url_canonica}
                   </td>
+
                   <td style={{ borderBottom: "1px solid #222" }}>{it.updated_at}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.last_job_id ?? ""}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.last_job_estado ?? ""}</td>
