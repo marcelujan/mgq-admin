@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { Pool } from "pg";
 
 export const runtime = "nodejs";
@@ -12,10 +13,12 @@ const pool = new Pool({
 });
 
 export async function GET(
-  _req: Request,
-  { params }: { params: { item_id: string } }
+  _req: NextRequest,
+  context: { params: Promise<{ item_id: string }> }
 ) {
-  const itemId = Number(params.item_id);
+  const { item_id } = await context.params;
+
+  const itemId = Number(item_id);
   if (!Number.isFinite(itemId) || itemId <= 0) {
     return NextResponse.json({ error: "invalid_item_id" }, { status: 400 });
   }
