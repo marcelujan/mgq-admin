@@ -17,6 +17,7 @@ type JobRow = {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  ofertas_count?: number; // nuevo
 };
 
 export default function JobsPage() {
@@ -69,7 +70,6 @@ export default function JobsPage() {
         body: "{}",
       });
 
-      // puede ser JSON o texto; hacemos robusto
       const text = await res.text();
       let parsed: any = null;
       try {
@@ -161,8 +161,9 @@ export default function JobsPage() {
             </thead>
             <tbody>
               {filtered.map((j) => {
-                // approve sólo cuando tiene sentido (review o ya succeeded pero querés persistir)
-                const canApprove = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
+                const offers = Number(j.ofertas_count ?? 0);
+                const canApproveByStatus = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
+                const canApprove = canApproveByStatus && offers === 0;
                 const busy = approvingJobId === j.job_id;
 
                 return (
@@ -184,7 +185,13 @@ export default function JobsPage() {
                         onClick={() => approve(j.job_id)}
                         disabled={!canApprove || busy}
                         style={{ padding: "6px 10px" }}
-                        title={canApprove ? "Aprobar y persistir ofertas" : "Solo disponible en WAITING_REVIEW o SUCCEEDED"}
+                        title={
+                          !canApproveByStatus
+                            ? "Solo disponible en WAITING_REVIEW o SUCCEEDED"
+                            : offers > 0
+                              ? `Ya existen ofertas (${offers})`
+                              : "Aprobar y persistir ofertas"
+                        }
                       >
                         {busy ? "Approving..." : "Approve"}
                       </button>

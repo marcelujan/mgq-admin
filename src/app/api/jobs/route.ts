@@ -11,14 +11,19 @@ export async function GET(req: Request) {
 
     const rows = await sql`
       SELECT
-        job_id, tipo, estado, prioridad,
-        proveedor_id, item_id, corrida_id,
-        payload, attempts, max_attempts, next_run_at,
-        locked_by, locked_until, last_error,
-        created_at, started_at, finished_at, updated_at
-      FROM app.job
-      WHERE (${estado}::text IS NULL OR estado = ${estado}::app.job_estado)
-      ORDER BY job_id DESC
+        j.job_id, j.tipo, j.estado, j.prioridad,
+        j.proveedor_id, j.item_id, j.corrida_id,
+        j.payload, j.attempts, j.max_attempts, j.next_run_at,
+        j.locked_by, j.locked_until, j.last_error,
+        j.created_at, j.started_at, j.finished_at, j.updated_at,
+        (
+          SELECT count(*)
+          FROM app.oferta_proveedor o
+          WHERE o.item_id = j.item_id
+        )::int AS ofertas_count
+      FROM app.job j
+      WHERE (${estado}::text IS NULL OR j.estado = ${estado}::app.job_estado)
+      ORDER BY j.job_id DESC
       LIMIT ${limit}
     `;
 
