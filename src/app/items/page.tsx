@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 type ItemRow = {
   item_id: number;
   proveedor_id: number;
+  proveedor_codigo?: string | null;
+  proveedor_nombre?: string | null;
   motor_id: number;
   url_original: string;
   url_canonica: string;
@@ -13,6 +15,10 @@ type ItemRow = {
   estado: string;
   updated_at: string;
   created_at: string;
+  ultimo_job_id?: number | null;
+  ultimo_job_estado?: string | null;
+
+  // compat (por si tu API usa estos nombres)
   last_job_id?: number | null;
   last_job_estado?: string | null;
 };
@@ -42,8 +48,8 @@ export default function ItemsPage() {
   const [q, setQ] = useState("");
 
   // bulk add
-  const [proveedorId, setProveedorId] = useState<number>(3);
-  const [motorId, setMotorId] = useState<number>(1);
+  const [proveedorId, setProveedorId] = useState<number>(0);
+  const [motorId, setMotorId] = useState<number>(0);
   const [urlsText, setUrlsText] = useState<string>("");
 
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -54,14 +60,54 @@ export default function ItemsPage() {
   const [commitErr, setCommitErr] = useState<string | null>(null);
   const [commitOkMsg, setCommitOkMsg] = useState<string | null>(null);
 
+  // ===== Helpers: infer providers list from current items =====
+  const providers = useMemo(() => {
+    const map = new Map<
+      number,
+      { proveedor_id: number; proveedor_nombre: string; proveedor_codigo?: string | null; motor_id: number }
+    >();
+
+    for (const it of items) {
+      const pid = Number(it.proveedor_id);
+      if (!Number.isFinite(pid)) continue;
+
+      const nombre = String(it.proveedor_nombre ?? it.proveedor_codigo ?? `Proveedor ${pid}`);
+      const motor = Number(it.motor_id);
+
+      if (!map.has(pid)) {
+        map.set(pid, {
+          proveedor_id: pid,
+          proveedor_nombre: nombre,
+          proveedor_codigo: it.proveedor_codigo ?? null,
+          motor_id: Number.isFinite(motor) ? motor : 0,
+        });
+      } else {
+        // si ya existe, pero el motor_id estaba en 0 y encontramos uno válido, lo completamos
+        const cur = map.get(pid)!;
+        if ((!cur.motor_id || cur.motor_id === 0) && Number.isFinite(motor) && motor > 0) {
+          cur.motor_id = motor;
+          map.set(pid, cur);
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.proveedor_nombre.localeCompare(b.proveedor_nombre));
+  }, [items]);
+
+  const providerById = useMemo(() => {
+    const m = new Map<number, { motor_id: number; proveedor_nombre: string; proveedor_codigo?: string | null }>();
+    for (const p of providers) m.set(p.proveedor_id, p);
+    return m;
+  }, [providers]);
+
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/items?limit=50&offset=0`, { cache: "no-store" });
+      const res = await fetch(`/api/items?limit=200&offset=0`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setItems(data.items ?? []);
+      setItems((data.items ?? []) as ItemRow[]);
     } catch (e: any) {
       setErr(e?.message || "Error cargando items");
     } finally {
@@ -73,17 +119,35 @@ export default function ItemsPage() {
     load();
   }, []);
 
+  // Inicializar proveedorId/motorId en base a lo que haya en items
+  useEffect(() => {
+    if (proveedorId > 0) return;
+    if (providers.length === 0) return;
+    const first = providers[0];
+    setProveedorId(first.proveedor_id);
+    setMotorId(first.motor_id || 0);
+  }, [providers, proveedorId]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return items;
+
     return items.filter((it) => {
+      const proveedorNombre = (it.proveedor_nombre ?? "").toLowerCase();
+      const proveedorCodigo = (it.proveedor_codigo ?? "").toLowerCase();
+      const estado = (it.estado ?? "").toLowerCase();
+      const uo = (it.url_original ?? "").toLowerCase();
+      const uc = (it.url_canonica ?? "").toLowerCase();
+
       return (
         String(it.item_id).includes(needle) ||
-        (it.url_original || "").toLowerCase().includes(needle) ||
-        (it.url_canonica || "").toLowerCase().includes(needle) ||
+        uo.includes(needle) ||
+        uc.includes(needle) ||
         String(it.proveedor_id).includes(needle) ||
+        proveedorNombre.includes(needle) ||
+        proveedorCodigo.includes(needle) ||
         String(it.motor_id).includes(needle) ||
-        (it.estado || "").toLowerCase().includes(needle)
+        estado.includes(needle)
       );
     });
   }, [items, q]);
@@ -100,6 +164,13 @@ export default function ItemsPage() {
       return;
     }
 
+    const inferredMotor = providerById.get(proveedorId)?.motor_id ?? motorId;
+
+    if (!proveedorId || !inferredMotor) {
+      setPreviewErr("Seleccioná un proveedor (y que tenga motor asociado).");
+      return;
+    }
+
     setPreviewLoading(true);
     try {
       const res = await fetch(`/api/ofertas/bulk/preview`, {
@@ -107,7 +178,7 @@ export default function ItemsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           proveedor_id: proveedorId,
-          motor_id: motorId,
+          motor_id: inferredMotor,
           urls,
         }),
       });
@@ -115,7 +186,6 @@ export default function ItemsPage() {
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
-      // Esperado: data.previews (ajustar si tu route devuelve otro nombre)
       setPreviewRows((data.previews ?? data.rows ?? []) as PreviewRow[]);
     } catch (e: any) {
       setPreviewErr(e?.message || "Error en preview");
@@ -134,6 +204,13 @@ export default function ItemsPage() {
       return;
     }
 
+    const inferredMotor = providerById.get(proveedorId)?.motor_id ?? motorId;
+
+    if (!proveedorId || !inferredMotor) {
+      setCommitErr("Seleccioná un proveedor (y que tenga motor asociado).");
+      return;
+    }
+
     setCommitLoading(true);
     try {
       const res = await fetch(`/api/ofertas/bulk`, {
@@ -141,7 +218,7 @@ export default function ItemsPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           proveedor_id: proveedorId,
-          motor_id: motorId,
+          motor_id: inferredMotor,
           urls,
         }),
       });
@@ -153,12 +230,7 @@ export default function ItemsPage() {
         `OK. items_creados=${data.items_created ?? "?"}, offers_creadas=${data.offers_created ?? "?"}`
       );
 
-      // refrescar lista
       await load();
-
-      // opcional: limpiar preview
-      // setPreviewRows([]);
-      // setUrlsText("");
     } catch (e: any) {
       setCommitErr(e?.message || "Error creando items/offers");
     } finally {
@@ -168,6 +240,9 @@ export default function ItemsPage() {
 
   const previewOkCount = previewRows.filter((r) => r.status === "OK" || r.status === "WARNING").length;
   const previewErrCount = previewRows.filter((r) => r.status === "ERROR").length;
+
+  const selectedProvider = proveedorId ? providerById.get(proveedorId) : null;
+  const effectiveMotorId = selectedProvider?.motor_id ?? motorId;
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", display: "grid", gap: 14 }}>
@@ -179,35 +254,55 @@ export default function ItemsPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por id / url / estado..."
+          placeholder="Buscar por id / url / proveedor / estado..."
           style={{ flex: 1, padding: "6px 10px" }}
         />
       </div>
 
-      {/* === NUEVO: Alta por URLs === */}
+      {/* === Alta por URLs (provider friendly) === */}
       <div style={{ border: "1px solid #333", padding: 12, borderRadius: 8, display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 700 }}>Agregar nuevas URLs (crea item + offers por presentación)</div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.85 }}>proveedor_id</span>
-            <input
-              type="number"
-              value={proveedorId}
-              onChange={(e) => setProveedorId(Number(e.target.value))}
-              style={{ padding: "6px 10px", width: 140 }}
-            />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <label style={{ display: "grid", gap: 4, minWidth: 260 }}>
+            <span style={{ fontSize: 12, opacity: 0.85 }}>Proveedor</span>
+            <select
+              value={proveedorId || ""}
+              onChange={(e) => {
+                const pid = Number(e.target.value);
+                setProveedorId(pid);
+                const m = providerById.get(pid)?.motor_id ?? 0;
+                if (m) setMotorId(m);
+              }}
+              style={{ padding: "6px 10px" }}
+            >
+              {providers.length === 0 ? (
+                <option value="">(No hay proveedores en la lista todavía)</option>
+              ) : (
+                providers.map((p) => (
+                  <option key={p.proveedor_id} value={p.proveedor_id}>
+                    {p.proveedor_nombre}
+                  </option>
+                ))
+              )}
+            </select>
           </label>
 
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.85 }}>motor_id</span>
+          <div style={{ display: "grid", gap: 4 }}>
+            <span style={{ fontSize: 12, opacity: 0.85 }}>motor_id (auto)</span>
             <input
-              type="number"
-              value={motorId}
-              onChange={(e) => setMotorId(Number(e.target.value))}
-              style={{ padding: "6px 10px", width: 140 }}
+              value={effectiveMotorId || ""}
+              readOnly
+              style={{
+                padding: "6px 10px",
+                width: 140,
+                opacity: 0.9,
+                background: "transparent",
+                border: "1px solid #333",
+                color: "inherit",
+              }}
             />
-          </label>
+          </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "end" }}>
             <button onClick={runPreview} disabled={previewLoading} style={{ padding: "6px 10px" }}>
@@ -262,9 +357,7 @@ export default function ItemsPage() {
                         {r.url}
                       </td>
                       <td style={{ borderBottom: "1px solid #222" }}>
-                        {(r.prices ?? [])
-                          .map((p) => `${p.presentacion}: $${p.priceArs}`)
-                          .join(" · ")}
+                        {(r.prices ?? []).map((p) => `${p.presentacion}: $${p.priceArs}`).join(" · ")}
                       </td>
                       <td style={{ borderBottom: "1px solid #222" }}>
                         {r.warnings?.length ? `W: ${r.warnings.join(" | ")}` : ""}
@@ -277,8 +370,15 @@ export default function ItemsPage() {
             </div>
 
             <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Nota: esto guarda *todas* las presentaciones que el motor encuentre (no elegís una).
+              Nota: el commit guarda *todas* las presentaciones que el motor encuentre (no elegís una).
             </div>
+          </div>
+        )}
+
+        {providers.length === 0 && (
+          <div style={{ fontSize: 12, opacity: 0.8 }}>
+            Importante: este selector arma la lista de proveedores a partir de los items ya existentes. Si querés cargar
+            un proveedor “nuevo” que todavía no aparece, necesitás un endpoint de “proveedores” para poblar el dropdown.
           </div>
         )}
       </div>
@@ -300,14 +400,14 @@ export default function ItemsPage() {
               <tr>
                 {[
                   "item_id",
-                  "proveedor_id",
+                  "proveedor",
                   "motor_id",
                   "estado",
                   "seleccionado",
                   "url_canonica",
                   "updated_at",
-                  "last_job_id",
-                  "last_job_estado",
+                  "último_job_id",
+                  "último_job_estado",
                 ].map((h) => (
                   <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
                     {h}
@@ -317,32 +417,40 @@ export default function ItemsPage() {
             </thead>
 
             <tbody>
-              {filtered.map((it) => (
-                <tr key={it.item_id}>
-                  <td style={{ borderBottom: "1px solid #222" }}>
-                    <Link
-                      href={`/items/${it.item_id}`}
-                      style={{ textDecoration: "underline", color: "inherit" }}
-                      title={`Ver detalle / histórico de item ${it.item_id}`}
-                    >
-                      {it.item_id}
-                    </Link>
-                  </td>
+              {filtered.map((it) => {
+                const ultimoJobId = it.ultimo_job_id ?? it.last_job_id ?? null;
+                const ultimoJobEstado = it.ultimo_job_estado ?? it.last_job_estado ?? null;
 
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.proveedor_id}</td>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.motor_id}</td>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.estado}</td>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.seleccionado ? "true" : "false"}</td>
+                return (
+                  <tr key={it.item_id}>
+                    <td style={{ borderBottom: "1px solid #222" }}>
+                      <Link
+                        href={`/items/${it.item_id}`}
+                        style={{ textDecoration: "underline", color: "inherit" }}
+                        title={`Ver detalle / histórico de item ${it.item_id}`}
+                      >
+                        {it.item_id}
+                      </Link>
+                    </td>
 
-                  <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-all" }}>
-                    {it.url_canonica}
-                  </td>
+                    <td style={{ borderBottom: "1px solid #222" }}>
+                      {it.proveedor_nombre ?? it.proveedor_codigo ?? it.proveedor_id}
+                    </td>
 
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.updated_at}</td>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.last_job_id ?? ""}</td>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.last_job_estado ?? ""}</td>
-                </tr>
-              ))}
+                    <td style={{ borderBottom: "1px solid #222" }}>{it.motor_id}</td>
+                    <td style={{ borderBottom: "1px solid #222" }}>{it.estado}</td>
+                    <td style={{ borderBottom: "1px solid #222" }}>{it.seleccionado ? "true" : "false"}</td>
+
+                    <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-all" }}>
+                      {it.url_canonica}
+                    </td>
+
+                    <td style={{ borderBottom: "1px solid #222" }}>{it.updated_at}</td>
+                    <td style={{ borderBottom: "1px solid #222" }}>{ultimoJobId ?? ""}</td>
+                    <td style={{ borderBottom: "1px solid #222" }}>{ultimoJobEstado ?? ""}</td>
+                  </tr>
+                );
+              })}
 
               {filtered.length === 0 && (
                 <tr>
