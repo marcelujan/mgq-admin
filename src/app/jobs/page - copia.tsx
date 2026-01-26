@@ -25,7 +25,6 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
-  const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -57,36 +56,6 @@ export default function JobsPage() {
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
-    }
-  }
-
-  async function approve(jobId: number) {
-    setApprovingJobId(jobId);
-    try {
-      const res = await fetch(`/api/jobs/${jobId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-
-      // puede ser JSON o texto; hacemos robusto
-      const text = await res.text();
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = null;
-      }
-
-      if (!res.ok || (parsed && !parsed?.ok)) {
-        throw new Error((parsed && (parsed.error || parsed.message)) || text || `HTTP ${res.status}`);
-      }
-
-      await load();
-    } catch (e: any) {
-      alert(e?.message || "Error aprobando job");
-    } finally {
-      setApprovingJobId(null);
     }
   }
 
@@ -126,9 +95,7 @@ export default function JobsPage() {
           <option value="FAILED">FAILED</option>
           <option value="CANCELLED">CANCELLED</option>
         </select>
-        <button onClick={load} style={{ padding: "6px 10px" }}>
-          Filtrar
-        </button>
+        <button onClick={load} style={{ padding: "6px 10px" }}>Filtrar</button>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -150,49 +117,33 @@ export default function JobsPage() {
           <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                {["job_id", "estado", "tipo", "item_id", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
-                  (h) => (
-                    <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
-                      {h}
-                    </th>
-                  )
-                )}
+                {["job_id", "estado", "tipo", "item_id", "prioridad", "next_run_at", "locked_until", "last_error"].map((h) => (
+                  <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((j) => {
-                const canApprove = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
-                const busy = approvingJobId === j.job_id;
-                return (
-                  <tr key={j.job_id}>
-                    <td style={{ borderBottom: "1px solid #222" }}>
-                      <Link href={`/jobs/${j.job_id}`}>{j.job_id}</Link>
-                    </td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.estado}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.item_id ?? ""}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.next_run_at}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.locked_until ?? ""}</td>
-                    <td style={{ borderBottom: "1px solid #222", maxWidth: 420, wordBreak: "break-word" }}>
-                      {j.last_error ?? ""}
-                    </td>
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      <button
-                        onClick={() => approve(j.job_id)}
-                        disabled={!canApprove || busy}
-                        style={{ padding: "6px 10px" }}
-                        title={canApprove ? "Aprobar y persistir ofertas" : "Solo disponible en WAITING_REVIEW o SUCCEEDED"}
-                      >
-                        {busy ? "Approving..." : "Approve"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {filtered.map((j) => (
+                <tr key={j.job_id}>
+                  <td style={{ borderBottom: "1px solid #222" }}>
+                    <Link href={`/jobs/${j.job_id}`}>{j.job_id}</Link>
+                  </td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.estado}</td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.item_id ?? ""}</td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.next_run_at}</td>
+                  <td style={{ borderBottom: "1px solid #222" }}>{j.locked_until ?? ""}</td>
+                  <td style={{ borderBottom: "1px solid #222", maxWidth: 420, wordBreak: "break-word" }}>
+                    {j.last_error ?? ""}
+                  </td>
+                </tr>
+              ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 12 }}>
+                  <td colSpan={8} style={{ padding: 12 }}>
                     Sin resultados
                   </td>
                 </tr>
