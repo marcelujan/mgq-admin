@@ -12,6 +12,9 @@ function decodeHtmlEntities(s: string): string {
     .replace(/&gt;/g, ">");
 }
 
+/**
+ * Parse num ARS robusto: "1.234,56" / "1,234.56" / "1234" / "$ 12.345"
+ */
 function parseArsNumber(raw: string): number | null {
   const s = String(raw ?? "").trim();
   if (!s) return null;
@@ -25,13 +28,16 @@ function parseArsNumber(raw: string): number | null {
   let normalized = cleaned;
 
   if (lastComma !== -1 && lastDot !== -1) {
+    // tomar el último separador como decimal
     const decPos = Math.max(lastComma, lastDot);
     const intPart = cleaned.slice(0, decPos).replace(/[.,]/g, "");
     const decPart = cleaned.slice(decPos + 1).replace(/[.,]/g, "");
     normalized = `${intPart}.${decPart}`;
   } else if (lastComma !== -1) {
+    // solo coma => coma decimal
     normalized = cleaned.replace(/\./g, "").replace(",", ".");
   } else {
+    // solo punto o ninguno
     normalized = cleaned.replace(/,/g, "");
   }
 
@@ -39,13 +45,47 @@ function parseArsNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Presentación robusta:
+ * - "0.5000" / "0,5000" => 0.5
+ * - Slug WC frecuente: "0-5000" o "0_5000" => 0.5000 => 0.5
+ * - "1.0000" => 1
+ */
+function parsePresentacion(raw: any): number | null {
+  if (raw === null || raw === undefined) return null;
+
+  let s = String(raw).trim();
+  if (!s) return null;
+
+  // coma decimal -> punto
+  s = s.replace(",", ".");
+
+  // Caso slug WooCommerce: "0-2500" / "0_2500"
+  // si matchea dígitos + separador + dígitos, convertimos separador a punto
+  const m = s.match(/^(\d+)[-_](\d+)$/);
+  if (m) {
+    s = `${m[1]}.${m[2]}`;
+  }
+
+  // limpiar a dígitos y punto (por si viene con texto)
+  s = s.replace(/[^\d.]/g, "");
+  if (!s) return null;
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Precio ARS por presentación (clave = valor numérico de "pa_presentacion", ej 1.0000, 5.0000).
+ * Fuente principal: WooCommerce product variations embebidas (data-product_variations o JS).
+ */
 function parsePrecioArsByPresentacionFromHtml(
   html: string
 ): Map<number, { precio_ars: number; source: string }> {
   const byPres = new Map<number, { precio_ars: number; source: string }>();
 
   const maybeAdd = (presRaw: any, priceRaw: any, source: string) => {
-    const presNum = presRaw === null || presRaw === undefined ? null : Number(presRaw);
+    const presNum = parsePresentacion(presRaw);
     if (presNum === null || !Number.isFinite(presNum)) return;
 
     const priceNum =
@@ -60,6 +100,7 @@ function parsePrecioArsByPresentacionFromHtml(
     byPres.set(presNum, { precio_ars: Number(priceNum), source });
   };
 
+  // 1) WooCommerce: data-product_variations="[...]"
   const attrRe = /data-product_variations\s*=\s*(?:"([^"]+)"|'([^']+)')/i;
   const mAttr = html.match(attrRe);
   if (mAttr) {
@@ -73,8 +114,6 @@ function parsePrecioArsByPresentacionFromHtml(
           const presKey =
             attrs?.attribute_pa_presentacion ?? attrs?.pa_presentacion ?? attrs?.presentacion ?? null;
 
-          const presVal = presKey === null || presKey === undefined ? null : parseFloat(String(presKey));
-
           const priceCandidate =
             v?.display_price ??
             v?.display_regular_price ??
@@ -82,7 +121,7 @@ function parsePrecioArsByPresentacionFromHtml(
             v?.variation_price ??
             null;
 
-          maybeAdd(presVal, priceCandidate, "wc:data-product_variations.display_price");
+          maybeAdd(presKey, priceCandidate, "wc:data-product_variations.display_price");
         }
       }
     } catch {
@@ -90,6 +129,7 @@ function parsePrecioArsByPresentacionFromHtml(
     }
   }
 
+  // 2) Fallback: JS inline "product_variations = [...]"
   if (byPres.size === 0) {
     const jsRe = /product_variations\s*=\s*(\[[\s\S]*?\])\s*;?/i;
     const mJs = html.match(jsRe);
@@ -102,8 +142,6 @@ function parsePrecioArsByPresentacionFromHtml(
             const presKey =
               attrs?.attribute_pa_presentacion ?? attrs?.pa_presentacion ?? attrs?.presentacion ?? null;
 
-            const presVal = presKey === null || presKey === undefined ? null : parseFloat(String(presKey));
-
             const priceCandidate =
               v?.display_price ??
               v?.display_regular_price ??
@@ -111,7 +149,7 @@ function parsePrecioArsByPresentacionFromHtml(
               v?.variation_price ??
               null;
 
-            maybeAdd(presVal, priceCandidate, "wc:js.product_variations.display_price");
+            maybeAdd(presKey, priceCandidate, "wc:js.product_variations.display_price");
           }
         }
       } catch {
