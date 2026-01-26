@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 
 function toInt(v: string | null): number | null {
@@ -7,9 +8,14 @@ function toInt(v: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(req: Request, { params }: { params: { item_id: string } }) {
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ item_id: string }> }
+) {
   const sql = db();
-  const itemId = toInt(params.item_id);
+
+  const { item_id } = await context.params;
+  const itemId = toInt(item_id);
   if (!itemId) return NextResponse.json({ error: "invalid_item_id" }, { status: 400 });
 
   const url = new URL(req.url);
