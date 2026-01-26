@@ -37,25 +37,13 @@ function backoffMs(attempt: number) {
 }
 
 /**
- * Motor para pricing-daily:
- * devuelve precios por presentación.
+ * Motor para pricing-daily: devuelve precios por presentación.
  */
-async function scrapeWithMotor(
-  motorId: number,
-  url: string
-): Promise<{ sourceUrl: string; prices: Array<{ presentacion: number; priceArs: number; source?: string }> }> {
-  // Reutiliza el motor real extraído de run-next
-  const r = await runMotorForPricesByPresentacion(BigInt(motorId), url);
-
-  // Normalizar nombres para el cron
-  return {
-    sourceUrl: r.sourceUrl,
-    prices: r.prices.map((p) => ({
-      presentacion: p.presentacion,
-      priceArs: p.priceArs,
-      source: p.source,
-    })),
-  };
+async function scrapeWithMotor(motorId: number, url: string): Promise<{
+  sourceUrl: string;
+  prices: Array<{ presentacion: number; priceArs: number; source: string }>;
+}> {
+  return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -107,6 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
 
       // 5) Tomar lote PENDING con lock (evita doble proceso concurrente)
+      // Nota: FOR UPDATE SKIP LOCKED requiere transacción.
       await client.query("begin;");
 
       const batch = await client.query<{
