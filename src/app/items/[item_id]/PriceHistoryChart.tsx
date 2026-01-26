@@ -1,69 +1,71 @@
 "use client";
 
-import React from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
 } from "recharts";
 
-type Row = { date: string; presentacion: number; price_ars: number };
+type Row = { as_of_date: string; presentacion: number; price_ars: number };
 
-function groupToSeries(rows: Row[]) {
-  // pivot: [{date, "pres_1": price, "pres_5": price, ...}]
-  const byDate = new Map<string, any>();
-  const presSet = new Set<number>();
+export default function PriceHistoryChart({ itemId }: { itemId: number }) {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [err, setErr] = useState<string | null>(null);
 
-  for (const r of rows) {
-    presSet.add(r.presentacion);
-    const key = r.date;
-    const obj = byDate.get(key) ?? { date: key };
-    obj[`pres_${r.presentacion}`] = r.price_ars;
-    byDate.set(key, obj);
-  }
-
-  const presentaciones = Array.from(presSet.values()).sort((a, b) => a - b);
-  const data = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-  return { data, presentaciones };
-}
-
-export default function PriceHistoryChart({ itemId, days = 30 }: { itemId: number; days?: number }) {
-  const [rows, setRows] = React.useState<Row[]>([]);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let ok = true;
+  useEffect(() => {
     (async () => {
-      setLoading(true);
-      const res = await fetch(`/api/items/${itemId}/price-history?days=${days}`, { cache: "no-store" });
-      const json = await res.json();
-      if (!ok) return;
-      setRows(json.rows ?? []);
-      setLoading(false);
+      setErr(null);
+      const res = await fetch(`/api/items/${itemId}/price-history`, { cache: "no-store" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setErr(j?.error ?? `http_${res.status}`);
+        return;
+      }
+      const j = await res.json();
+      setRows(Array.isArray(j?.rows) ? j.rows : []);
     })();
-    return () => { ok = false; };
-  }, [itemId, days]);
+  }, [itemId]);
 
-  if (loading) return <div>Cargando histórico…</div>;
-  if (!rows.length) return <div>Sin datos aún (esperá a que corra el cron).</div>;
+  const series = useMemo(() => {
+    // pivote: una línea por presentación
+    const byDate = new Map<string, any>();
+    for (const r of rows) {
+      const d = r.as_of_date;
+      if (!byDate.has(d)) byDate.set(d, { as_of_date: d });
+      byDate.get(d)[`p_${r.presentacion}`] = r.price_ars;
+    }
+    const data = Array.from(byDate.values()).sort((a, b) =>
+      String(a.as_of_date).localeCompare(String(b.as_of_date))
+    );
 
-  const { data, presentaciones } = groupToSeries(rows);
+    const pres = Array.from(new Set(rows.map((r) => r.presentacion))).sort((a, b) => a - b);
+    return { data, pres };
+  }, [rows]);
+
+  if (err) return <div>Error: {err}</div>;
+  if (rows.length === 0) return <div>Sin datos todavía.</div>;
 
   return (
-    <div style={{ width: "100%", height: 360 }}>
+    <div style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
-        <LineChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="date" />
+        <LineChart data={series.data}>
+          <XAxis dataKey="as_of_date" />
           <YAxis />
           <Tooltip />
           <Legend />
-          {presentaciones.map((p) => (
+          {series.pres.map((p) => (
             <Line
               key={p}
               type="monotone"
-              dataKey={`pres_${p}`}
+              dataKey={`p_${p}`}
               dot={false}
-              connectNulls={false}
-              name={`Pres ${p}`}
+              connectNulls
+              name={`Presentación ${p}`}
             />
           ))}
         </LineChart>
