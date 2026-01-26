@@ -1,36 +1,42 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { Pool } from "pg";
 
-function toInt(v: string | null): number | null {
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 1,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
 
 export async function GET(
-  req: NextRequest,
-  context: { params: Promise<{ item_id: string }> }
+  _req: Request,
+  { params }: { params: { item_id: string } }
 ) {
-  const sql = db();
+  const itemId = Number(params.item_id);
+  if (!Number.isFinite(itemId) || itemId <= 0) {
+    return NextResponse.json({ error: "invalid_item_id" }, { status: 400 });
+  }
 
-  const { item_id } = await context.params;
-  const itemId = toInt(item_id);
-  if (!itemId) return NextResponse.json({ error: "invalid_item_id" }, { status: 400 });
+  const client = await pool.connect();
+  try {
+    const q = await client.query(
+      `
+      select
+        as_of_date::text as as_of_date,
+        presentacion::float8 as presentacion,
+        price_ars::float8 as price_ars
+      from app.item_price_daily_pres
+      where item_id = $1
+      order by as_of_date asc, presentacion asc;
+      `,
+      [itemId]
+    );
 
-  const url = new URL(req.url);
-  const days = toInt(url.searchParams.get("days")) ?? 30;
-
-  const rows = (await sql`
-    select
-      as_of_date::text as date,
-      presentacion::float8 as presentacion,
-      price_ars::float8 as price_ars
-    from app.item_price_daily_pres
-    where item_id = ${itemId}
-      and as_of_date >= current_date - (${days}::int)
-    order by as_of_date asc, presentacion asc;
-  `) as any[];
-
-  return NextResponse.json({ item_id: itemId, days, rows }, { status: 200 });
+    return NextResponse.json({ item_id: itemId, rows: q.rows }, { status: 200 });
+  } finally {
+    client.release();
+  }
 }
