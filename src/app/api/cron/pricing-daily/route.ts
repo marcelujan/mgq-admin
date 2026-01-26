@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const d0 = await client.query(`select current_date::text as d;`);
     const asOfDate = String(d0.rows?.[0]?.d);
 
-    // 2) Crear/obtener run del día (IMPORTANTE: 'RUNNING' con comillas)
+    // 2) Crear/obtener run del día
     const runQ = await client.query(
       `
       insert into app.pricing_daily_runs (as_of_date, status)
@@ -89,14 +89,14 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
-    // 3) Seed items
+    // 3) Seed: desde app.offers (ofertas OK)
     await client.query(
       `
-      insert into app.pricing_daily_run_items (run_id, item_id, status)
-      select $1, s.item_id, 'PENDING'
-      from app.item_seguimiento s
-      where s.seleccionado = true
-      on conflict (run_id, item_id) do nothing;
+      insert into app.pricing_daily_run_items (run_id, offer_id, status)
+      select $1, o.offer_id, 'PENDING'
+      from app.offers o
+      where o.estado = 'OK'
+      on conflict (run_id, offer_id) do nothing;
       `,
       [runId]
     );
@@ -121,16 +121,18 @@ export async function POST(req: NextRequest) {
       `
       select
         i.id as run_item_id,
-        i.item_id,
+        i.offer_id,
         i.attempts,
-        s.motor_id,
-        coalesce(nullif(s.url_canonica,''), s.url_original) as url
+        o.item_id,
+        o.motor_id,
+        coalesce(nullif(o.url_canonica,''), o.url_original) as url,
+        o.presentacion
       from app.pricing_daily_run_items i
-      join app.item_seguimiento s on s.item_id = i.item_id
+      join app.offers o on o.offer_id = i.offer_id
       where i.run_id = $1
         and i.status = 'PENDING'
         and i.attempts < $2
-        and s.seleccionado = true
+        and o.estado = 'OK'
       order by i.updated_at asc, i.id asc
       limit $3
       for update skip locked;
@@ -153,6 +155,11 @@ export async function POST(req: NextRequest) {
       const motorId = row.motor_id === null ? null : Number(row.motor_id);
       const url = row.url ? String(row.url) : null;
 
+      // esta offer define qué presentación guardar
+      const presWantedRaw = row.presentacion;
+      const presWanted =
+        presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
+
       if (!motorId || !url) {
         await client.query(
           `
@@ -164,6 +171,22 @@ export async function POST(req: NextRequest) {
           where id=$1;
           `,
           [runItemId, `missing_motor_or_url(motor_id=${motorId},url=${url})`, MAX_ATTEMPTS]
+        );
+        fail++;
+        continue;
+      }
+
+      if (presWanted === null || !Number.isFinite(presWanted)) {
+        await client.query(
+          `
+          update app.pricing_daily_run_items
+          set status='FAIL',
+              last_error=$2,
+              updated_at=now(),
+              attempts = greatest(attempts, $3)
+          where id=$1;
+          `,
+          [runItemId, `offer_presentacion_missing(offer_id=${row.offer_id})`, MAX_ATTEMPTS]
         );
         fail++;
         continue;
@@ -185,30 +208,35 @@ export async function POST(req: NextRequest) {
             throw new Error("no_prices_by_presentacion");
           }
 
-          for (const p of prices) {
-            const pres = Number(p?.presentacion);
-            const price = Number(p?.priceArs);
+          const match = prices.find(
+            (p: any) => Number(p?.presentacion) === presWanted
+          );
 
-            if (!Number.isFinite(pres)) continue;
-            if (!Number.isFinite(price) || price <= 0) continue;
-
-            await client.query(
-              `
-              insert into app.item_price_daily_pres
-                (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
-              values
-                ($1, $2::date, $3, $4, $5, $6)
-              on conflict (item_id, as_of_date, presentacion)
-              do update set
-                price_ars = excluded.price_ars,
-                source_url = excluded.source_url,
-                scrape_run_id = excluded.scrape_run_id;
-              `,
-              [itemId, asOfDate, pres, price, String(sourceUrl ?? url), runId]
-            );
-
-            inserted_rows++;
+          if (!match) {
+            throw new Error(`no_price_for_presentacion:${presWanted}`);
           }
+
+          const price = Number(match?.priceArs);
+          if (!Number.isFinite(price) || price <= 0) {
+            throw new Error("invalid_price");
+          }
+
+          await client.query(
+            `
+            insert into app.item_price_daily_pres
+              (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
+            values
+              ($1, $2::date, $3, $4, $5, $6)
+            on conflict (item_id, as_of_date, presentacion)
+            do update set
+              price_ars = excluded.price_ars,
+              source_url = excluded.source_url,
+              scrape_run_id = excluded.scrape_run_id;
+            `,
+            [itemId, asOfDate, presWanted, price, String(sourceUrl ?? url), runId]
+          );
+
+          inserted_rows++;
 
           await client.query(
             `update app.pricing_daily_run_items set status='OK', last_error=null, updated_at=now() where id=$1;`,
@@ -256,10 +284,10 @@ export async function POST(req: NextRequest) {
       const counts = await client.query(`select fail_count from app.pricing_daily_runs where id=$1;`, [runId]);
       const failCount = Number(counts.rows?.[0]?.fail_count ?? 0);
       const finalStatus = failCount > 0 ? "PARTIAL" : "DONE";
-      await client.query(`update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`, [
-        runId,
-        finalStatus,
-      ]);
+      await client.query(
+        `update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`,
+        [runId, finalStatus]
+      );
     }
 
     return NextResponse.json(
@@ -279,7 +307,10 @@ export async function POST(req: NextRequest) {
     await safeRollback();
     console.error("pricing-daily error", e);
     const info = errJson(e);
-    return NextResponse.json({ error: info.message, pg: info }, { status: Number(e?.statusCode ?? 500) });
+    return NextResponse.json(
+      { error: info.message, pg: info },
+      { status: Number(e?.statusCode ?? 500) }
+    );
   } finally {
     try {
       client?.release();
