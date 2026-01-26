@@ -9,14 +9,12 @@ export default async function ItemPage({
   const itemId = Number(item_id);
 
   return (
-    <div style={{ padding: 16 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>
-        Item {itemId}
-      </h1>
+    <div style={{ padding: 16, display: "grid", gap: 12 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700 }}>Item {itemId}</h1>
 
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-        Histórico de precios
-      </h2>
+      <div style={{ fontSize: 14, opacity: 0.85 }}>
+        Histórico diario por presentación (tabla: <code>app.item_price_daily_pres</code>)
+      </div>
 
       <PriceHistoryChart itemId={itemId} />
     </div>

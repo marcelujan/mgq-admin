@@ -25,13 +25,19 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
       const j = await res.json();
       const r = Array.isArray(j?.rows) ? (j.rows as Row[]) : [];
       setRows(r);
-      const pres = Array.from(new Set(r.map((x) => Number(x.presentacion)))).sort((a, b) => a - b);
+
+      const pres = Array.from(new Set(r.map((x) => Number(x.presentacion))))
+        .filter((x) => Number.isFinite(x))
+        .sort((a, b) => a - b);
+
       setPresentacion(pres.length ? pres[0] : null);
     })();
   }, [itemId]);
 
   const presList = useMemo(() => {
-    return Array.from(new Set(rows.map((x) => Number(x.presentacion)))).sort((a, b) => a - b);
+    return Array.from(new Set(rows.map((x) => Number(x.presentacion))))
+      .filter((x) => Number.isFinite(x))
+      .sort((a, b) => a - b);
   }, [rows]);
 
   const series = useMemo(() => {
@@ -39,10 +45,10 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     return rows
       .filter((r) => Number(r.presentacion) === presentacion)
       .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
+      .filter((p) => Number.isFinite(p.y))
       .sort((a, b) => a.d.localeCompare(b.d));
   }, [rows, presentacion]);
 
-  // SVG chart (simple)
   const svg = useMemo(() => {
     const W = 760;
     const H = 260;
@@ -55,7 +61,6 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     let yMax = Math.max(...ys);
 
     if (yMin === yMax) {
-      // para 1 solo punto o valores iguales, abrimos un rango artificial
       yMin = yMin * 0.95;
       yMax = yMax * 1.05;
       if (yMin === yMax) {
@@ -80,22 +85,22 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     }));
 
     const path =
-      points.length === 1
+      points.length <= 1
         ? ""
         : "M " + points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
 
     return { W, H, path, points, yMin, yMax };
   }, [series]);
 
-  if (err) return <div className="text-sm text-red-600">Error: {err}</div>;
-  if (rows.length === 0) return <div className="text-sm">Sin datos todavía.</div>;
+  if (err) return <div style={{ color: "#f55", fontSize: 14 }}>Error: {err}</div>;
+  if (rows.length === 0) return <div style={{ fontSize: 14 }}>Sin datos todavía.</div>;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="text-sm font-medium">Presentación</div>
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>Presentación</div>
         <select
-          className="border rounded px-2 py-1 text-sm"
+          style={{ border: "1px solid #333", borderRadius: 6, padding: "4px 8px", background: "transparent", color: "inherit" }}
           value={presentacion ?? ""}
           onChange={(e) => setPresentacion(e.target.value ? Number(e.target.value) : null)}
         >
@@ -108,17 +113,15 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
       </div>
 
       {series.length < 2 ? (
-        <div className="text-sm">
-          Hay {series.length} punto(s) para esta presentación. El gráfico se ve mejor con 2+ días.
+        <div style={{ fontSize: 14, opacity: 0.8 }}>
+          Hay {series.length} punto(s) para esta presentación. Con 2+ días vas a ver una línea.
         </div>
       ) : null}
 
-      <div className="border rounded p-3">
+      <div style={{ border: "1px solid #222", borderRadius: 10, padding: 12 }}>
         <svg width="100%" viewBox={`0 0 ${svg.W} ${svg.H}`} preserveAspectRatio="none">
-          {/* marco */}
           <rect x="0" y="0" width={svg.W} height={svg.H} fill="transparent" />
 
-          {/* eje Y labels */}
           <text x="6" y="18" fontSize="12">
             {Math.round(svg.yMax).toLocaleString("es-AR")}
           </text>
@@ -126,12 +129,8 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
             {Math.round(svg.yMin).toLocaleString("es-AR")}
           </text>
 
-          {/* línea */}
-          {svg.path ? (
-            <path d={svg.path} fill="none" stroke="currentColor" strokeWidth="2" />
-          ) : null}
+          {svg.path ? <path d={svg.path} fill="none" stroke="currentColor" strokeWidth="2" /> : null}
 
-          {/* puntos */}
           {svg.points.map((p, idx) => (
             <g key={idx}>
               <circle cx={p.x} cy={p.y} r="3.5" />
@@ -141,7 +140,6 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
             </g>
           ))}
 
-          {/* eje X labels (1er y último) */}
           {svg.points.length >= 1 ? (
             <>
               <text x={svg.points[0].x} y={svg.H - 6} fontSize="12" textAnchor="middle">
