@@ -3,7 +3,6 @@
 // Requiere: npm i pg
 import type { NextApiRequest, NextApiResponse } from "next";
 import { Pool } from "pg";
-import { runMotorForPrice } from "@/lib/motores/runMotorForPrice";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL, // Neon/Vercel env
@@ -215,8 +214,23 @@ async function fetchHtml(url: string): Promise<string> {
  * Implementación de motor para pricing-daily.
  * Hoy, según tu run-next, el único motor real implementado es motor_id=1 (PuraQuímica / WooCommerce).
  */
-async function scrapeWithMotor(motorId: number, url: string): Promise<{ priceArs: number; sourceUrl: string }> {
-  return await runMotorForPrice(BigInt(motorId), url);
+async function scrapeWithMotor(
+  motorId: number,
+  url: string
+): Promise<{ priceArs: number; sourceUrl: string }> {
+  if (motorId !== 1) {
+    throw new Error(`motor_not_implemented:${motorId}`);
+  }
+
+  const html = await fetchHtml(url);
+  const byPres = parsePrecioArsByPresentacionFromHtml(html);
+  const priceArs = pickDailyPriceFromMap(byPres);
+
+  if (priceArs === null) {
+    throw new Error("price_not_found");
+  }
+
+  return { priceArs, sourceUrl: url };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
