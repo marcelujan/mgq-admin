@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type ItemRow = {
@@ -106,7 +107,17 @@ export default function ItemsPage() {
             <tbody>
               {filtered.map((it) => (
                 <tr key={it.item_id}>
-                  <td style={{ borderBottom: "1px solid #222" }}>{it.item_id}</td>
+                  {/* LINK: /items/{item_id} */}
+                  <td style={{ borderBottom: "1px solid #222" }}>
+                    <Link
+                      href={`/items/${it.item_id}`}
+                      style={{ textDecoration: "underline", color: "inherit" }}
+                      title={`Ver detalle / histórico de item ${it.item_id}`}
+                    >
+                      {it.item_id}
+                    </Link>
+                  </td>
+
                   <td style={{ borderBottom: "1px solid #222" }}>{it.proveedor_id}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.motor_id}</td>
                   <td style={{ borderBottom: "1px solid #222" }}>{it.estado}</td>
@@ -119,6 +130,7 @@ export default function ItemsPage() {
                   <td style={{ borderBottom: "1px solid #222" }}>{it.last_job_estado ?? ""}</td>
                 </tr>
               ))}
+
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} style={{ padding: 12 }}>
