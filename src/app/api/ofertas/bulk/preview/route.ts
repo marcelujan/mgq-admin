@@ -4,7 +4,7 @@ import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPrices
 
 function canonicalizeUrl(raw: string): string | null {
   try {
-    const u = new URL(raw.trim());
+    const u = new URL(String(raw).trim());
     u.hash = "";
     u.hostname = u.hostname.toLowerCase();
     if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
@@ -24,7 +24,6 @@ function normalizeQueryResult(res: any): any[] {
 async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
   let prov: any = null;
 
-  // intento A: proveedor.motor_id_default (si existe)
   try {
     const a: any = await sql.query(
       `
@@ -41,7 +40,6 @@ async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
     prov = null;
   }
 
-  // intento B: fallback desde motor_proveedor
   if (!prov || !prov.motor_id_default) {
     const b: any = await sql.query(
       `
@@ -70,21 +68,19 @@ async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
   };
 }
 
+// POST /api/ofertas/bulk/preview
+// body: { proveedor_codigo, url }
 export async function POST(req: NextRequest) {
   try {
     const sql = db();
     const body = await req.json().catch(() => ({} as any));
 
     const urlRaw = typeof body?.url === "string" ? body.url.trim() : "";
-    const proveedorCodigo =
-      typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim() : "";
+    const proveedorCodigo = typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim() : "";
 
     if (!urlRaw) return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
     if (!proveedorCodigo) {
-      return NextResponse.json(
-        { ok: false, error: "proveedor_codigo requerido (ej: TD)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "proveedor_codigo requerido (ej: TD)" }, { status: 400 });
     }
 
     const urlCanonica = canonicalizeUrl(urlRaw);
@@ -93,10 +89,7 @@ export async function POST(req: NextRequest) {
     const { proveedor_id, motor_id } = await resolveProveedorAndMotor(sql, proveedorCodigo);
 
     if (!proveedor_id) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor inválido: ${proveedorCodigo}` },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: `proveedor inválido: ${proveedorCodigo}` }, { status: 400 });
     }
     if (!motor_id) {
       return NextResponse.json(
@@ -106,8 +99,6 @@ export async function POST(req: NextRequest) {
     }
 
     const r = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
-
-    // esperado: { sourceUrl, prices:[{presentacion, priceArs}] }
     const prices = Array.isArray((r as any)?.prices) ? (r as any).prices : [];
 
     return NextResponse.json(
