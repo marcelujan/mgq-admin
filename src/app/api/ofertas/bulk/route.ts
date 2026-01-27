@@ -1,262 +1,292 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { Pool, type PoolClient } from "pg";
-import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 1,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 10_000,
-});
-
-type Price = { presentacion: number; priceArs: number };
-
-function isNonEmptyString(x: any): x is string {
-  return typeof x === "string" && x.trim().length > 0;
-}
-
-function normalizeUrl(raw: string): string {
-  // mínima normalización: trim + sin fragment (#...)
-  const u = raw.trim();
+// ===== util: canonicalizar URL =====
+function canonicalizeUrl(raw: string): string | null {
   try {
-    const url = new URL(u);
-    url.hash = "";
-    return url.toString();
+    const u = new URL(String(raw ?? "").trim());
+    u.hash = "";
+    u.hostname = u.hostname.toLowerCase();
+
+    // normalizar pathname (sin trailing slash salvo "/")
+    if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
+      u.pathname = u.pathname.slice(0, -1);
+    }
+
+    // opcional: limpiar params vacíos (no tocamos tracking agresivo por ahora)
+    return u.toString();
   } catch {
-    return u; // si no parsea, que el validador lo agarre
+    return null;
   }
 }
 
-function canonicalize(raw: string): string {
-  // canonicalización conservadora (podés sofisticarla después):
-  // - trim
-  // - quitar hash
-  // - quitar trailing slash (excepto root)
-  const n = normalizeUrl(raw);
+// Helper: agrega cláusulas con placeholders correctos ($1..$n)
+// Soporta 0, 1 o múltiples valores (reemplaza cada '?' en orden).
+function addWhere(where: string[], params: any[], clause: string, values?: any | any[]) {
+  if (values === undefined) {
+    where.push(clause);
+    return;
+  }
+  const vs = Array.isArray(values) ? values : [values];
+  for (const v of vs) params.push(v);
+
+  let i = params.length - vs.length + 1; // índice del 1er param recién agregado (1-based)
+  const replaced = clause.replace(/\?/g, () => `$${i++}`);
+  where.push(replaced);
+}
+
+function normalizeQueryResult(res: any): any[] {
+  // Neon/serverless puede devolver { rows: [...] } o directamente un array
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+}
+
+// ===== GET /api/items =====
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(n);
-    url.hash = "";
-    let s = url.toString();
-    if (s.endsWith("/") && url.pathname !== "/") s = s.slice(0, -1);
-    return s;
-  } catch {
-    // si no es URL válida, devolver raw (validación lo bloqueará)
-    return raw.trim();
+    const sql = db();
+    const { searchParams } = new URL(req.url);
+
+    const search = (searchParams.get("search") || "").trim();
+    const estado = (searchParams.get("estado") || "").trim();
+    const seleccionadoStr = (searchParams.get("seleccionado") || "").trim();
+
+    const limitRaw = Number(searchParams.get("limit") || 50);
+    const offsetRaw = Number(searchParams.get("offset") || 0);
+
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+
+    const where: string[] = [];
+    const params: any[] = [];
+
+    if (search) {
+      const like = `%${search}%`;
+      addWhere(
+        where,
+        params,
+        `(i.url_original ILIKE ? OR i.url_canonica ILIKE ? OR p.codigo ILIKE ? OR p.nombre ILIKE ?)`,
+        [like, like, like, like]
+      );
+    }
+
+    if (estado) addWhere(where, params, `i.estado::text = ?`, estado);
+
+    if (seleccionadoStr === "true") addWhere(where, params, `i.seleccionado = ?`, true);
+    if (seleccionadoStr === "false") addWhere(where, params, `i.seleccionado = ?`, false);
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    // Intento 1: con último job si existe app.job
+    try {
+      const q = `
+        SELECT
+          i.item_id,
+          i.proveedor_id,
+          p.codigo  AS proveedor_codigo,
+          p.nombre  AS proveedor_nombre,
+          i.motor_id,
+          i.url_original,
+          i.url_canonica,
+          i.seleccionado,
+          i.estado::text AS estado,
+          i.created_at,
+          i.updated_at,
+          j.job_id AS ultimo_job_id,
+          j.estado::text AS ultimo_job_estado
+        FROM app.item_seguimiento i
+        JOIN app.proveedor p ON p.proveedor_id = i.proveedor_id
+        LEFT JOIN LATERAL (
+          SELECT job_id, estado
+          FROM app.job
+          WHERE item_id = i.item_id
+          ORDER BY created_at DESC, job_id DESC
+          LIMIT 1
+        ) j ON true
+        ${whereSql}
+        ORDER BY i.updated_at DESC, i.item_id DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+
+      const res: any = await sql.query(q, [...params, limit, offset]);
+      const items = normalizeQueryResult(res);
+
+      return NextResponse.json({ ok: true, limit, offset, count: items.length, items });
+    } catch {
+      // Intento 2: sin app.job
+      const q = `
+        SELECT
+          i.item_id,
+          i.proveedor_id,
+          p.codigo  AS proveedor_codigo,
+          p.nombre  AS proveedor_nombre,
+          i.motor_id,
+          i.url_original,
+          i.url_canonica,
+          i.seleccionado,
+          i.estado::text AS estado,
+          i.created_at,
+          i.updated_at
+        FROM app.item_seguimiento i
+        JOIN app.proveedor p ON p.proveedor_id = i.proveedor_id
+        ${whereSql}
+        ORDER BY i.updated_at DESC, i.item_id DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `;
+
+      const res: any = await sql.query(q, [...params, limit, offset]);
+      const items = normalizeQueryResult(res);
+
+      return NextResponse.json({ ok: true, limit, offset, count: items.length, items });
+    }
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
 
-function errJson(e: any) {
-  return {
-    message: String(e?.message ?? e ?? "unknown_error"),
-    code: e?.code ? String(e.code) : null,
-    detail: e?.detail ? String(e.detail) : null,
-    hint: e?.hint ? String(e.hint) : null,
-    where: e?.where ? String(e.where) : null,
-  };
-}
-
-async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const c = await pool.connect();
-  try {
-    return await fn(c);
-  } finally {
-    c.release();
-  }
-}
-
+// ===== POST /api/items =====
+//
+// Acepta formatos:
+// - { url, proveedor_codigo, seleccionado }
+// - { urlOriginal, proveedorCodigo, seleccionado }
+// - { url_original, proveedor_id, motor_id, seleccionado }
+//
+// Importante:
+// - En tu DB, app.proveedor tiene motor_id_default.
+// - app.motor_proveedor NO tiene proveedor_id (según tu screenshot), así que no se usa como fallback.
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
+    const sql = db();
+    const body = await req.json().catch(() => ({} as any));
 
-    const proveedor_id = Number(body?.proveedor_id);
-    const motor_id = Number(body?.motor_id);
-    const urls: string[] = Array.isArray(body?.urls) ? body.urls : [];
+    const urlRaw =
+      typeof body?.url === "string"
+        ? body.url.trim()
+        : typeof body?.urlOriginal === "string"
+        ? body.urlOriginal.trim()
+        : typeof body?.url_original === "string"
+        ? body.url_original.trim()
+        : "";
 
-    if (!Number.isFinite(proveedor_id) || proveedor_id <= 0) {
-      return NextResponse.json({ ok: false, error: "proveedor_id inválido" }, { status: 400 });
+    const proveedorCodigo =
+      typeof body?.proveedor_codigo === "string"
+        ? body.proveedor_codigo.trim()
+        : typeof body?.proveedorCodigo === "string"
+        ? body.proveedorCodigo.trim()
+        : "";
+
+    const proveedorId =
+      body?.proveedor_id !== undefined && body?.proveedor_id !== null
+        ? Number(body.proveedor_id)
+        : null;
+
+    const motorIdOverride =
+      body?.motor_id !== undefined && body?.motor_id !== null ? Number(body.motor_id) : null;
+
+    const seleccionado = body?.seleccionado === true || body?.seleccionado === "true";
+
+    if (!urlRaw) return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
+
+    const urlCanonica = canonicalizeUrl(urlRaw);
+    if (!urlCanonica) {
+      return NextResponse.json({ ok: false, error: "URL inválida" }, { status: 400 });
     }
-    if (!Number.isFinite(motor_id) || motor_id <= 0) {
-      return NextResponse.json({ ok: false, error: "motor_id inválido" }, { status: 400 });
-    }
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return NextResponse.json({ ok: false, error: "urls requerido (array)" }, { status: 400 });
-    }
 
-    const cleanUrls = urls
-      .map((u) => (isNonEmptyString(u) ? u.trim() : ""))
-      .filter(Boolean)
-      .map((u) => normalizeUrl(u));
+    // 1) Resolver proveedor_id + motor_id_default desde app.proveedor
+    //    Permitimos que el cliente mande proveedor_id directamente (más simple para la UI).
+    let provRow: any = null;
 
-    if (cleanUrls.length === 0) {
-      return NextResponse.json({ ok: false, error: "Pegá al menos 1 URL válida" }, { status: 400 });
-    }
-
-    // Validar que proveedor exista y esté activo (opcional pero recomendado)
-    const provCheck = await withClient(async (client) => {
-      const r = await client.query(
-        `select proveedor_id, nombre, activo from app.proveedor where proveedor_id=$1 limit 1;`,
-        [proveedor_id]
+    if (Number.isFinite(proveedorId) && (proveedorId as number) > 0) {
+      const r: any = await sql.query(
+        `
+        SELECT proveedor_id, motor_id_default, codigo, nombre, activo
+        FROM app.proveedor
+        WHERE proveedor_id = $1
+        LIMIT 1
+        `,
+        [proveedorId]
       );
-      return r.rows?.[0] ?? null;
-    });
-
-    if (!provCheck) {
-      return NextResponse.json({ ok: false, error: `proveedor_id ${proveedor_id} no existe` }, { status: 400 });
-    }
-    if (provCheck.activo === false) {
-      return NextResponse.json({ ok: false, error: `proveedor_id ${proveedor_id} está inactivo` }, { status: 400 });
-    }
-
-    const results: any[] = [];
-
-    let items_created = 0;
-    let items_reused = 0;
-    let offers_created = 0;
-    let offers_upserted = 0;
-
-    await withClient(async (client) => {
-      // Transacción: si querés que una URL fallida no rompa las demás,
-      // NO metas todo en 1 TX. Acá hacemos TX por URL (más tolerante).
-      for (const url_original of cleanUrls) {
-        const url_canonica = canonicalize(url_original);
-
-        // validación URL
-        let parsedOk = true;
-        try {
-          new URL(url_canonica);
-        } catch {
-          parsedOk = false;
-        }
-        if (!parsedOk) {
-          results.push({
-            url: url_original,
-            status: "ERROR",
-            error: "url inválida",
-          });
-          continue;
-        }
-
-        try {
-          await client.query("begin;");
-
-          // 1) buscar item existente por url_canonica
-          const findItem = await client.query(
-            `
-            select item_id::bigint as item_id
-            from app.item_seguimiento
-            where url_canonica = $1
-            limit 1;
-            `,
-            [url_canonica]
-          );
-
-          let item_id: number | null = null;
-
-          if (findItem.rows?.[0]?.item_id) {
-            item_id = Number(findItem.rows[0].item_id);
-            items_reused++;
-          } else {
-            // 2) crear item
-            const insItem = await client.query(
-              `
-              insert into app.item_seguimiento
-                (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
-              values
-                ($1, $2, $3, $4, true, 'PENDING_SCRAPE')
-              returning item_id::bigint as item_id;
-              `,
-              [proveedor_id, motor_id, url_original, url_canonica]
-            );
-
-            item_id = Number(insItem.rows?.[0]?.item_id ?? 0);
-            if (!Number.isFinite(item_id) || item_id <= 0) {
-              throw new Error("no se pudo crear item (item_id vacío)");
-            }
-            items_created++;
-          }
-
-          // 3) correr motor y obtener presentaciones reales
-          const motorOut = await runMotorForPricesByPresentacion(BigInt(motor_id), url_original);
-
-          const prices: Price[] = Array.isArray(motorOut?.prices) ? motorOut.prices : [];
-          if (prices.length === 0) {
-            throw new Error("motor no devolvió presentaciones/precios");
-          }
-
-          // 4) upsert offers por presentación
-          //    - estado = 'OK' si se insertó correctamente
-          //    - url_canonica se guarda para dedupe
-          for (const p of prices) {
-            const pres = Number(p.presentacion);
-            if (!Number.isFinite(pres)) continue;
-
-            // OJO: en app.offers no guardamos price. Solo definimos la oferta (url + presentación)
-            // El precio diario lo guarda el cron en app.item_price_daily_pres.
-            const up = await client.query(
-              `
-              insert into app.offers
-                (item_id, motor_id, url_original, url_canonica, presentacion, estado)
-              values
-                ($1, $2, $3, $4, $5, 'OK')
-              on conflict (item_id, url_canonica, presentacion)
-              do update set
-                motor_id = excluded.motor_id,
-                url_original = excluded.url_original,
-                estado = 'OK',
-                updated_at = now()
-              returning offer_id::bigint as offer_id, (xmax = 0) as inserted;
-              `,
-              [item_id, motor_id, url_original, url_canonica, pres]
-            );
-
-            const inserted = Boolean(up.rows?.[0]?.inserted);
-            if (inserted) offers_created++;
-            else offers_upserted++;
-          }
-
-          await client.query("commit;");
-
-          results.push({
-            url: url_original,
-            status: "OK",
-            item_id,
-            presentaciones: prices.map((x) => x.presentacion).sort((a, b) => a - b),
-          });
-        } catch (e: any) {
-          try {
-            await client.query("rollback;");
-          } catch {
-            // ignore
-          }
-          results.push({
-            url: url_original,
-            status: "ERROR",
-            error: String(e?.message ?? e),
-            pg: e?.code ? errJson(e) : undefined,
-          });
-        }
+      provRow = normalizeQueryResult(r)[0] ?? null;
+    } else {
+      if (!proveedorCodigo) {
+        return NextResponse.json(
+          { ok: false, error: "proveedor_id o proveedor_codigo requerido" },
+          { status: 400 }
+        );
       }
-    });
 
-    return NextResponse.json(
-      {
-        ok: true,
-        proveedor_id,
-        motor_id,
-        items_created,
-        items_reused,
-        offers_created,
-        offers_upserted,
-        results,
-      },
-      { status: 200 }
+      const r: any = await sql.query(
+        `
+        SELECT proveedor_id, motor_id_default, codigo, nombre, activo
+        FROM app.proveedor
+        WHERE codigo = $1
+        LIMIT 1
+        `,
+        [proveedorCodigo]
+      );
+      provRow = normalizeQueryResult(r)[0] ?? null;
+    }
+
+    if (!provRow?.proveedor_id) {
+      return NextResponse.json({ ok: false, error: "proveedor no encontrado" }, { status: 400 });
+    }
+    if (provRow.activo === false) {
+      return NextResponse.json({ ok: false, error: "proveedor inactivo" }, { status: 400 });
+    }
+
+    const proveedor_id = Number(provRow.proveedor_id);
+
+    // motor_id: viene de override o del proveedor.motor_id_default
+    const motor_id =
+      Number.isFinite(motorIdOverride as any) && (motorIdOverride as number) > 0
+        ? Number(motorIdOverride)
+        : provRow.motor_id_default !== null && provRow.motor_id_default !== undefined
+        ? Number(provRow.motor_id_default)
+        : NaN;
+
+    if (!Number.isFinite(motor_id) || motor_id <= 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "motor_id no disponible. Seteá motor_id_default en app.proveedor o mandá motor_id.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2) Insert idempotente: si ya existe la canónica, devolvemos el item existente.
+    //    Si no existe, insertamos y devolvemos el nuevo.
+    const ins: any = await sql.query(
+      `
+      INSERT INTO app.item_seguimiento
+        (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
+      VALUES
+        ($1, $2, $3, $4, $5, 'PENDING_SCRAPE')
+      ON CONFLICT (url_canonica)
+      DO UPDATE SET
+        proveedor_id = EXCLUDED.proveedor_id,
+        motor_id     = EXCLUDED.motor_id,
+        url_original = EXCLUDED.url_original,
+        seleccionado = EXCLUDED.seleccionado,
+        updated_at   = now()
+      RETURNING item_id, proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado::text as estado;
+      `,
+      [proveedor_id, motor_id, urlRaw, urlCanonica, seleccionado]
     );
+
+    const row = normalizeQueryResult(ins)[0] ?? null;
+
+    if (!row?.item_id) {
+      return NextResponse.json(
+        { ok: false, error: "no se pudo crear/actualizar el item" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, item: row });
   } catch (e: any) {
-    const info = errJson(e);
-    return NextResponse.json({ ok: false, error: info.message, pg: info }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
