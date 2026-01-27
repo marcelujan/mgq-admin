@@ -1,265 +1,262 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { Pool, type PoolClient } from "pg";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
 
-function canonicalizeUrl(raw: string): string | null {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 1,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
+
+type Price = { presentacion: number; priceArs: number };
+
+function isNonEmptyString(x: any): x is string {
+  return typeof x === "string" && x.trim().length > 0;
+}
+
+function normalizeUrl(raw: string): string {
+  // mínima normalización: trim + sin fragment (#...)
+  const u = raw.trim();
   try {
-    const u = new URL(String(raw).trim());
-    u.hash = "";
-    u.hostname = u.hostname.toLowerCase();
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
-    return u.toString();
+    const url = new URL(u);
+    url.hash = "";
+    return url.toString();
   } catch {
-    return null;
+    return u; // si no parsea, que el validador lo agarre
   }
 }
 
-function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
-  if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
-  return [];
+function canonicalize(raw: string): string {
+  // canonicalización conservadora (podés sofisticarla después):
+  // - trim
+  // - quitar hash
+  // - quitar trailing slash (excepto root)
+  const n = normalizeUrl(raw);
+  try {
+    const url = new URL(n);
+    url.hash = "";
+    let s = url.toString();
+    if (s.endsWith("/") && url.pathname !== "/") s = s.slice(0, -1);
+    return s;
+  } catch {
+    // si no es URL válida, devolver raw (validación lo bloqueará)
+    return raw.trim();
+  }
 }
 
-async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
-  let prov: any = null;
-
-  try {
-    const a: any = await sql.query(
-      `
-      SELECT proveedor_id, motor_id_default
-      FROM app.proveedor
-      WHERE codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
-    const rowsA = normalizeQueryResult(a);
-    prov = rowsA[0] ?? null;
-  } catch {
-    prov = null;
-  }
-
-  if (!prov || !prov.motor_id_default) {
-    const b: any = await sql.query(
-      `
-      SELECT p.proveedor_id,
-             mp.motor_id AS motor_id_default
-      FROM app.proveedor p
-      LEFT JOIN LATERAL (
-        SELECT motor_id
-        FROM app.motor_proveedor
-        WHERE proveedor_id = p.proveedor_id
-        ORDER BY motor_id ASC
-        LIMIT 1
-      ) mp ON true
-      WHERE p.codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
-    const rowsB = normalizeQueryResult(b);
-    prov = rowsB[0] ?? prov;
-  }
-
+function errJson(e: any) {
   return {
-    proveedor_id: prov?.proveedor_id ?? null,
-    motor_id: prov?.motor_id_default ?? null,
+    message: String(e?.message ?? e ?? "unknown_error"),
+    code: e?.code ? String(e.code) : null,
+    detail: e?.detail ? String(e.detail) : null,
+    hint: e?.hint ? String(e.hint) : null,
+    where: e?.where ? String(e.where) : null,
   };
 }
 
-async function upsertOffer(sql: any, args: {
-  item_id: number;
-  proveedor_id: number | string;
-  motor_id: number | string;
-  url_original: string;
-  url_canonica: string;
-  presentacion: number;
-}) {
-  const dup: any = await sql.query(
-    `
-    SELECT offer_id
-    FROM app.offers
-    WHERE item_id = $1 AND url_canonica = $2 AND presentacion = $3
-    LIMIT 1
-    `,
-    [args.item_id, args.url_canonica, args.presentacion]
-  );
-  const dupRows = normalizeQueryResult(dup);
-  const existing = dupRows?.[0]?.offer_id;
-
-  if (existing) {
-    await sql.query(
-      `
-      UPDATE app.offers
-      SET
-        url_original = $2,
-        proveedor_id = $3,
-        motor_id = $4,
-        estado = 'OK',
-        updated_at = now()
-      WHERE offer_id = $1
-      `,
-      [existing, args.url_original, args.proveedor_id, args.motor_id]
-    );
-    return { offer_id: existing, created: false };
+async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const c = await pool.connect();
+  try {
+    return await fn(c);
+  } finally {
+    c.release();
   }
-
-  const ins: any = await sql.query(
-    `
-    INSERT INTO app.offers
-      (item_id, proveedor_id, motor_id, url_original, url_canonica, presentacion, estado)
-    VALUES
-      ($1, $2, $3, $4, $5, $6, 'OK')
-    RETURNING offer_id
-    `,
-    [
-      args.item_id,
-      args.proveedor_id,
-      args.motor_id,
-      args.url_original,
-      args.url_canonica,
-      args.presentacion,
-    ]
-  );
-  const insRows = normalizeQueryResult(ins);
-  return { offer_id: insRows?.[0]?.offer_id ?? null, created: true };
 }
 
-// POST /api/ofertas/bulk
-// body: { item_id, proveedor_codigo, urls: string[] }
-// Inserta TODAS las presentaciones reales por cada URL.
 export async function POST(req: NextRequest) {
   try {
-    const sql = db();
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => null);
 
-    const item_id = Number(body?.item_id);
-    const proveedorCodigo = typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim() : "";
+    const proveedor_id = Number(body?.proveedor_id);
+    const motor_id = Number(body?.motor_id);
     const urls: string[] = Array.isArray(body?.urls) ? body.urls : [];
 
-    if (!Number.isFinite(item_id) || item_id <= 0) {
-      return NextResponse.json({ ok: false, error: "item_id inválido" }, { status: 400 });
+    if (!Number.isFinite(proveedor_id) || proveedor_id <= 0) {
+      return NextResponse.json({ ok: false, error: "proveedor_id inválido" }, { status: 400 });
     }
-    if (!proveedorCodigo) {
-      return NextResponse.json({ ok: false, error: "proveedor_codigo requerido" }, { status: 400 });
+    if (!Number.isFinite(motor_id) || motor_id <= 0) {
+      return NextResponse.json({ ok: false, error: "motor_id inválido" }, { status: 400 });
     }
-    if (!urls.length) {
-      return NextResponse.json({ ok: false, error: "urls[] requerido" }, { status: 400 });
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return NextResponse.json({ ok: false, error: "urls requerido (array)" }, { status: 400 });
     }
 
-    const { proveedor_id, motor_id } = await resolveProveedorAndMotor(sql, proveedorCodigo);
-    if (!proveedor_id) {
-      return NextResponse.json({ ok: false, error: `proveedor inválido: ${proveedorCodigo}` }, { status: 400 });
+    const cleanUrls = urls
+      .map((u) => (isNonEmptyString(u) ? u.trim() : ""))
+      .filter(Boolean)
+      .map((u) => normalizeUrl(u));
+
+    if (cleanUrls.length === 0) {
+      return NextResponse.json({ ok: false, error: "Pegá al menos 1 URL válida" }, { status: 400 });
     }
-    if (!motor_id) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor asociado` },
-        { status: 400 }
+
+    // Validar que proveedor exista y esté activo (opcional pero recomendado)
+    const provCheck = await withClient(async (client) => {
+      const r = await client.query(
+        `select proveedor_id, nombre, activo from app.proveedor where proveedor_id=$1 limit 1;`,
+        [proveedor_id]
       );
+      return r.rows?.[0] ?? null;
+    });
+
+    if (!provCheck) {
+      return NextResponse.json({ ok: false, error: `proveedor_id ${proveedor_id} no existe` }, { status: 400 });
+    }
+    if (provCheck.activo === false) {
+      return NextResponse.json({ ok: false, error: `proveedor_id ${proveedor_id} está inactivo` }, { status: 400 });
     }
 
     const results: any[] = [];
-    let total_created = 0;
-    let total_updated = 0;
-    let total_urls_ok = 0;
-    let total_urls_fail = 0;
 
-    for (const raw of urls) {
-      const urlRaw = typeof raw === "string" ? raw.trim() : "";
-      const urlCanonica = urlRaw ? canonicalizeUrl(urlRaw) : null;
+    let items_created = 0;
+    let items_reused = 0;
+    let offers_created = 0;
+    let offers_upserted = 0;
 
-      if (!urlCanonica) {
-        total_urls_fail++;
-        results.push({ ok: false, url: raw, error: "URL inválida" });
-        continue;
-      }
+    await withClient(async (client) => {
+      // Transacción: si querés que una URL fallida no rompa las demás,
+      // NO metas todo en 1 TX. Acá hacemos TX por URL (más tolerante).
+      for (const url_original of cleanUrls) {
+        const url_canonica = canonicalize(url_original);
 
-      try {
-        const r = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
-        const sourceUrl = String((r as any)?.sourceUrl ?? urlCanonica);
-        const prices = Array.isArray((r as any)?.prices) ? (r as any).prices : [];
-
-        if (!prices.length) {
-          total_urls_fail++;
-          results.push({ ok: false, url: urlCanonica, sourceUrl, error: "no_prices_by_presentacion" });
-          continue;
+        // validación URL
+        let parsedOk = true;
+        try {
+          new URL(url_canonica);
+        } catch {
+          parsedOk = false;
         }
-
-        let created = 0;
-        let updated = 0;
-        let valid_presentaciones = 0;
-
-        for (const p of prices) {
-          const pres = Number(p?.presentacion);
-          const priceArs = Number(p?.priceArs);
-
-          if (!Number.isFinite(pres) || pres <= 0) continue;
-          if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
-
-          valid_presentaciones++;
-
-          const u = await upsertOffer(sql, {
-            item_id,
-            proveedor_id,
-            motor_id,
-            url_original: urlRaw,
-            url_canonica: urlCanonica,
-            presentacion: pres,
-          });
-
-          if (u.created) created++;
-          else updated++;
-        }
-
-        if (created + updated === 0) {
-          total_urls_fail++;
+        if (!parsedOk) {
           results.push({
-            ok: false,
-            url: urlCanonica,
-            sourceUrl,
-            error: "no_valid_presentaciones_to_insert",
-            prices_len: prices.length,
+            url: url_original,
+            status: "ERROR",
+            error: "url inválida",
           });
           continue;
         }
 
-        total_urls_ok++;
-        total_created += created;
-        total_updated += updated;
+        try {
+          await client.query("begin;");
 
-        results.push({
-          ok: true,
-          url: urlCanonica,
-          sourceUrl,
-          created,
-          updated,
-          valid_presentaciones,
-          prices_len: prices.length,
-        });
-      } catch (e: any) {
-        total_urls_fail++;
-        results.push({ ok: false, url: urlCanonica, error: String(e?.message ?? e) });
+          // 1) buscar item existente por url_canonica
+          const findItem = await client.query(
+            `
+            select item_id::bigint as item_id
+            from app.item_seguimiento
+            where url_canonica = $1
+            limit 1;
+            `,
+            [url_canonica]
+          );
+
+          let item_id: number | null = null;
+
+          if (findItem.rows?.[0]?.item_id) {
+            item_id = Number(findItem.rows[0].item_id);
+            items_reused++;
+          } else {
+            // 2) crear item
+            const insItem = await client.query(
+              `
+              insert into app.item_seguimiento
+                (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
+              values
+                ($1, $2, $3, $4, true, 'PENDING_SCRAPE')
+              returning item_id::bigint as item_id;
+              `,
+              [proveedor_id, motor_id, url_original, url_canonica]
+            );
+
+            item_id = Number(insItem.rows?.[0]?.item_id ?? 0);
+            if (!Number.isFinite(item_id) || item_id <= 0) {
+              throw new Error("no se pudo crear item (item_id vacío)");
+            }
+            items_created++;
+          }
+
+          // 3) correr motor y obtener presentaciones reales
+          const motorOut = await runMotorForPricesByPresentacion(BigInt(motor_id), url_original);
+
+          const prices: Price[] = Array.isArray(motorOut?.prices) ? motorOut.prices : [];
+          if (prices.length === 0) {
+            throw new Error("motor no devolvió presentaciones/precios");
+          }
+
+          // 4) upsert offers por presentación
+          //    - estado = 'OK' si se insertó correctamente
+          //    - url_canonica se guarda para dedupe
+          for (const p of prices) {
+            const pres = Number(p.presentacion);
+            if (!Number.isFinite(pres)) continue;
+
+            // OJO: en app.offers no guardamos price. Solo definimos la oferta (url + presentación)
+            // El precio diario lo guarda el cron en app.item_price_daily_pres.
+            const up = await client.query(
+              `
+              insert into app.offers
+                (item_id, motor_id, url_original, url_canonica, presentacion, estado)
+              values
+                ($1, $2, $3, $4, $5, 'OK')
+              on conflict (item_id, url_canonica, presentacion)
+              do update set
+                motor_id = excluded.motor_id,
+                url_original = excluded.url_original,
+                estado = 'OK',
+                updated_at = now()
+              returning offer_id::bigint as offer_id, (xmax = 0) as inserted;
+              `,
+              [item_id, motor_id, url_original, url_canonica, pres]
+            );
+
+            const inserted = Boolean(up.rows?.[0]?.inserted);
+            if (inserted) offers_created++;
+            else offers_upserted++;
+          }
+
+          await client.query("commit;");
+
+          results.push({
+            url: url_original,
+            status: "OK",
+            item_id,
+            presentaciones: prices.map((x) => x.presentacion).sort((a, b) => a - b),
+          });
+        } catch (e: any) {
+          try {
+            await client.query("rollback;");
+          } catch {
+            // ignore
+          }
+          results.push({
+            url: url_original,
+            status: "ERROR",
+            error: String(e?.message ?? e),
+            pg: e?.code ? errJson(e) : undefined,
+          });
+        }
       }
-    }
+    });
 
     return NextResponse.json(
       {
         ok: true,
-        item_id,
-        proveedor_codigo: proveedorCodigo,
-        proveedor_id: String(proveedor_id),
-        motor_id: String(motor_id),
-        urls_in: urls.length,
-        urls_ok: total_urls_ok,
-        urls_fail: total_urls_fail,
-        inserted_created: total_created,
-        inserted_updated: total_updated,
+        proveedor_id,
+        motor_id,
+        items_created,
+        items_reused,
+        offers_created,
+        offers_upserted,
         results,
       },
       { status: 200 }
     );
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    const info = errJson(e);
+    return NextResponse.json({ ok: false, error: info.message, pg: info }, { status: 500 });
   }
 }
