@@ -1,98 +1,130 @@
 // mgq-admin/src/app/api/ofertas/bulk/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { Pool, type PoolClient } from "pg";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
-
-type BulkBody = {
-  proveedor_id?: number | string;
-  motor_id?: number | string; // lo manda el front (auto)
-  urls?: unknown; // array o string (por compat)
-};
-
-function toInt(v: unknown): number | null {
-  if (v === null || v === undefined) return null;
-  const n = typeof v === "number" ? v : Number(String(v).trim());
-  return Number.isFinite(n) ? n : null;
-}
-
-function canonicalizeUrl(raw: string): string | null {
-  try {
-    const u = new URL(String(raw).trim());
-    u.hash = "";
-    u.hostname = u.hostname.toLowerCase();
-    // normalizar trailing slash (pero dejando "/" raíz)
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
-function splitAndCleanUrls(input: unknown): string[] {
-  if (Array.isArray(input)) {
-    return input.map((x) => String(x ?? "").trim()).filter(Boolean);
-  }
-  if (typeof input === "string") {
-    return input
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function dedupeKeepOrder(urls: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const u of urls) {
-    if (seen.has(u)) continue;
-    seen.add(u);
-    out.push(u);
-  }
-  return out;
-}
-
-function normalizeMotorPrices(prices: any): Array<{ presentacion: number; priceArs: number }> {
-  if (!Array.isArray(prices)) return [];
-  return prices
-    .map((p) => ({
-      presentacion: Number(p?.presentacion),
-      priceArs: Number(p?.priceArs),
-    }))
-    .filter((p) => Number.isFinite(p.presentacion) && Number.isFinite(p.priceArs) && p.priceArs > 0)
-    .sort((a, b) => a.presentacion - b.presentacion);
-}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
-  try {
-    const sql: any = db();
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 1,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
 
-    const body = (await req.json().catch(() => ({} as any))) as BulkBody;
+type BulkBody = {
+  proveedor_id?: number;
+  motor_id?: number; // opcional: si no viene, usamos proveedor.motor_id_default
+  urls?: string[] | string;
+};
+
+function isNonEmptyString(x: unknown): x is string {
+  return typeof x === "string" && x.trim().length > 0;
+}
+
+function toInt(x: unknown): number | null {
+  if (x === null || x === undefined) return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function normalizeUrl(u: string): string {
+  const s = u.trim();
+  if (!s) return s;
+  // si el usuario pega sin esquema
+  if (!/^https?:\/\//i.test(s)) return `https://${s}`;
+  return s;
+}
+
+function splitAndCleanUrls(urls: BulkBody["urls"]): string[] {
+  if (Array.isArray(urls)) {
+    return urls
+      .map((u) => (isNonEmptyString(u) ? u.trim() : ""))
+      .filter(Boolean)
+      .map(normalizeUrl);
+  }
+
+  if (isNonEmptyString(urls)) {
+    return urls
+      .split(/\r?\n/)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map(normalizeUrl);
+  }
+
+  return [];
+}
+
+async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    return await fn(client);
+  } finally {
+    client.release();
+  }
+}
+
+async function dbDebugInfo(client: PoolClient) {
+  // ayuda a detectar “estoy pegándole a otra DB/branch”
+  const r = await client.query<{
+    db: string;
+    schema: string;
+    now: string;
+    proveedores: number;
+  }>(
+    `
+    select
+      current_database()::text as db,
+      current_schema()::text as schema,
+      now()::text as now,
+      (select count(*)::int from app.proveedor) as proveedores;
+    `
+  );
+  return r.rows?.[0] ?? null;
+}
+
+/**
+ * Crea:
+ *  - 1 fila en app.item_seguimiento por URL (si no existe)
+ *  - N filas en app.offers (una por presentación encontrada por el motor)
+ *
+ * Importante:
+ *  - app.offers NO TIENE proveedor_id: se deriva del item (item_seguimiento)
+ *  - No se elige presentación a mano: se guardan todas las que devuelve el motor
+ */
+export async function POST(req: NextRequest) {
+  let client: PoolClient | null = null;
+
+  try {
+    const body = (await req.json()) as BulkBody;
 
     const proveedor_id = toInt(body?.proveedor_id);
-    const motor_id = toInt(body?.motor_id);
-
-    // IMPORTANTE: el front manda "urls" (array). Si acá esperás "url" vas a ver "url requerida".
-    const urlsRaw = splitAndCleanUrls(body?.urls);
-    const urls = dedupeKeepOrder(urlsRaw);
+    const motor_id_input = toInt(body?.motor_id);
+    const urls = splitAndCleanUrls(body?.urls);
 
     if (!proveedor_id) {
       return NextResponse.json({ ok: false, error: "proveedor_id requerido" }, { status: 400 });
     }
-    if (!motor_id) {
-      return NextResponse.json({ ok: false, error: "motor_id requerido" }, { status: 400 });
-    }
     if (urls.length === 0) {
-      return NextResponse.json({ ok: false, error: "urls requerida (mínimo 1)" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Pegá al menos 1 URL válida" }, { status: 400 });
     }
 
-    // 1) Validar proveedor
-    const prov = await sql.query(
+    client = await pool.connect();
+
+    // 0) Debug de DB para detectar desalineación de branch/env
+    const dbg = await dbDebugInfo(client);
+
+    // 1) Validar proveedor (existe + activo) y obtener motor default
+    const provR = await client.query<{
+      proveedor_id: number;
+      nombre: string;
+      activo: boolean;
+      motor_id_default: number | null;
+    }>(
       `
-      select proveedor_id, nombre, motor_id_default, activo
+      select proveedor_id, nombre, activo, motor_id_default
       from app.proveedor
       where proveedor_id = $1
       limit 1;
@@ -100,163 +132,206 @@ export async function POST(req: NextRequest) {
       [proveedor_id]
     );
 
-    const provRow = prov?.rows?.[0];
-    if (!provRow) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor_id inexistente: ${proveedor_id}` },
-        { status: 400 }
-      );
-    }
-    if (provRow.activo === false) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor_id inactivo: ${proveedor_id}` },
-        { status: 400 }
-      );
-    }
-
-    // 2) Si proveedor y motor “van juntos”, forzamos consistencia (evita cargar con motor equivocado)
-    const motorDefault = provRow.motor_id_default ? Number(provRow.motor_id_default) : null;
-    if (motorDefault && motorDefault !== motor_id) {
+    const prov = provR.rows?.[0] ?? null;
+    if (!prov) {
       return NextResponse.json(
         {
           ok: false,
-          error: `motor_id (${motor_id}) no coincide con motor_id_default del proveedor (${motorDefault})`,
+          error: `proveedor_id inexistente: ${proveedor_id}`,
+          debug: dbg,
+        },
+        { status: 400 }
+      );
+    }
+    if (prov.activo === false) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `proveedor_id inactivo: ${proveedor_id}`,
+          debug: dbg,
         },
         { status: 400 }
       );
     }
 
-    // 3) Procesar URLs: crear item (si no existe) + crear offers por presentación
+    const motor_id = motor_id_input ?? (prov.motor_id_default ? Number(prov.motor_id_default) : null);
+    if (!motor_id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `motor_id requerido (y proveedor ${proveedor_id} no tiene motor_id_default)`,
+          debug: dbg,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 2) Transacción: o entra todo lo que pueda, o se revierte (si preferís “parcial”, lo cambiamos)
+    await client.query("begin;");
+
     let items_created = 0;
     let offers_created = 0;
 
     const results: Array<{
       url: string;
-      url_canonica: string | null;
       status: "OK" | "ERROR";
       item_id?: number;
       offers_inserted?: number;
+      presentaciones?: Array<{ presentacion: number; priceArs: number }>;
       error?: string;
     }> = [];
 
-    for (const urlRaw of urls) {
-      const urlCanonica = canonicalizeUrl(urlRaw);
-      if (!urlCanonica) {
+    for (const url of urls) {
+      // A) Motor: extraer presentaciones reales
+      let motor;
+      try {
+        motor = await runMotorForPricesByPresentacion(BigInt(motor_id), url);
+      } catch (e: any) {
         results.push({
-          url: urlRaw,
-          url_canonica: null,
+          url,
           status: "ERROR",
-          error: "URL inválida",
+          error: String(e?.message ?? e ?? "motor_error"),
         });
         continue;
       }
 
-      try {
-        // 3.1) Motor: extraer presentaciones/precios
-        const motorRes: any = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
-        const prices = normalizeMotorPrices(motorRes?.prices);
+      const sourceUrl = normalizeUrl(String(motor?.sourceUrl ?? url));
+      const prices = Array.isArray(motor?.prices) ? motor.prices : [];
 
-        if (prices.length === 0) {
-          results.push({
-            url: urlRaw,
-            url_canonica: urlCanonica,
-            status: "ERROR",
-            error: "motor_no_devolvio_precios",
-          });
-          continue;
-        }
+      if (prices.length === 0) {
+        results.push({ url, status: "ERROR", error: "no_prices_returned_by_motor" });
+        continue;
+      }
 
-        // 3.2) Buscar si ya existe item por url_canonica (o url_original)
-        // Nota: si no tenés índice/unique, esto igual funciona.
-        const existing = await sql.query(
+      // B) Crear/obtener item por url_canonica
+      //    (si tu esquema no tiene unicidad por url_canonica, esto igual funciona por SELECT+INSERT)
+      const existing = await client.query<{ item_id: number }>(
+        `
+        select item_id
+        from app.item_seguimiento
+        where url_canonica = $1
+        limit 1;
+        `,
+        [sourceUrl]
+      );
+
+      let item_id: number;
+
+      if ((existing.rows?.length ?? 0) > 0) {
+        item_id = Number(existing.rows[0].item_id);
+
+        // opcional: mantener proveedor/motor coherentes si ya existía
+        await client.query(
           `
-          select item_id
-          from app.item_seguimiento
-          where url_canonica = $1
-             or url_original = $2
-          order by item_id asc
-          limit 1;
+          update app.item_seguimiento
+          set
+            proveedor_id = $2,
+            motor_id = $3,
+            url_original = $4,
+            updated_at = now()
+          where item_id = $1;
           `,
-          [urlCanonica, urlRaw]
+          [item_id, proveedor_id, motor_id, url, sourceUrl]
+        );
+      } else {
+        const insItem = await client.query<{ item_id: number }>(
+          `
+          insert into app.item_seguimiento
+            (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado, created_at, updated_at)
+          values
+            ($1, $2, $3, $4, true, 'OK', now(), now())
+          returning item_id;
+          `,
+          [proveedor_id, motor_id, url, sourceUrl]
         );
 
-        let item_id: number;
-
-        if (existing?.rows?.length) {
-          item_id = Number(existing.rows[0].item_id);
-        } else {
-          // 3.3) Crear item
-          const insItem = await sql.query(
-            `
-            insert into app.item_seguimiento
-              (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
-            values
-              ($1, $2, $3, $4, true, 'OK')
-            returning item_id;
-            `,
-            [proveedor_id, motor_id, urlRaw, urlCanonica]
-          );
-
-          item_id = Number(insItem?.rows?.[0]?.item_id);
-          if (!Number.isFinite(item_id)) {
-            throw new Error("item_id_invalido");
-          }
-          items_created++;
+        item_id = Number(insItem.rows?.[0]?.item_id);
+        if (!Number.isFinite(item_id) || item_id <= 0) {
+          results.push({ url, status: "ERROR", error: "item_insert_failed_no_item_id" });
+          continue;
         }
-
-        // 3.4) Crear offers (una por presentación real)
-        // - estado OK
-        // - url_original/url_canonica copiados
-        // - presentacion NUMERIC en tabla (admite 0.25, 0.5, 1, 5, etc.)
-        //
-        // Si querés evitar duplicados, necesitás una constraint unique (por ej: (item_id, presentacion, url_canonica)).
-        let insertedForThisUrl = 0;
-        for (const p of prices) {
-          await sql.query(
-            `
-            insert into app.offers
-              (item_id, motor_id, url_original, url_canonica, presentacion, estado)
-            values
-              ($1, $2, $3, $4, $5, 'OK');
-            `,
-            [item_id, motor_id, urlRaw, urlCanonica, p.presentacion]
-          );
-          insertedForThisUrl++;
-          offers_created++;
-        }
-
-        results.push({
-          url: urlRaw,
-          url_canonica: urlCanonica,
-          status: "OK",
-          item_id,
-          offers_inserted: insertedForThisUrl,
-        });
-      } catch (e: any) {
-        results.push({
-          url: urlRaw,
-          url_canonica: urlCanonica,
-          status: "ERROR",
-          error: String(e?.message ?? e ?? "error"),
-        });
+        items_created += 1;
       }
+
+      // C) Insertar offers: 1 por presentación encontrada
+      let insertedForThisUrl = 0;
+
+      for (const p of prices) {
+        const presentacion = Number((p as any)?.presentacion);
+        const priceArs = Number((p as any)?.priceArs);
+
+        if (!Number.isFinite(presentacion)) continue;
+        if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
+
+        // app.offers NO tiene proveedor_id.
+        // Guardamos motor_id + urls + presentacion.
+        const insOffer = await client.query(
+          `
+          insert into app.offers
+            (item_id, motor_id, url_original, url_canonica, presentacion, estado, created_at, updated_at)
+          values
+            ($1, $2, $3, $4, $5, 'OK', now(), now())
+          on conflict do nothing;
+          `,
+          [item_id, motor_id, url, sourceUrl, presentacion]
+        );
+
+        insertedForThisUrl += insOffer.rowCount ?? 0;
+      }
+
+      offers_created += insertedForThisUrl;
+
+      results.push({
+        url,
+        status: "OK",
+        item_id,
+        offers_inserted: insertedForThisUrl,
+        presentaciones: prices.map((x) => ({
+          presentacion: Number((x as any).presentacion),
+          priceArs: Number((x as any).priceArs),
+        })),
+      });
+    }
+
+    await client.query("commit;");
+
+    return NextResponse.json({
+      ok: true,
+      proveedor_id,
+      proveedor_nombre: prov.nombre,
+      motor_id,
+      items_created,
+      offers_created,
+      results,
+      debug: dbg,
+    });
+  } catch (e: any) {
+    try {
+      if (client) await client.query("rollback;");
+    } catch {
+      // ignore
     }
 
     return NextResponse.json(
       {
-        ok: true,
-        proveedor_id,
-        motor_id,
-        items_created,
-        offers_created,
-        results,
+        ok: false,
+        error: String(e?.message ?? e ?? "unknown_error"),
+        pg: e?.code
+          ? {
+              code: String(e.code),
+              detail: e?.detail ?? null,
+              hint: e?.hint ?? null,
+              where: e?.where ?? null,
+            }
+          : null,
       },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: String(e?.message ?? e ?? "error") },
       { status: 500 }
     );
+  } finally {
+    try {
+      client?.release();
+    } catch {
+      // ignore
+    }
   }
 }
