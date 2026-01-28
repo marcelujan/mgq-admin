@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL_UNPOOLED!, // conexión directa
   max: 1,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000,
@@ -33,7 +33,6 @@ function toInt(x: unknown): number | null {
 function normalizeUrl(u: string): string {
   const s = u.trim();
   if (!s) return s;
-  // si el usuario pega sin esquema
   if (!/^https?:\/\//i.test(s)) return `https://${s}`;
   return s;
 }
@@ -57,31 +56,17 @@ function splitAndCleanUrls(urls: BulkBody["urls"]): string[] {
   return [];
 }
 
-async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    return await fn(client);
-  } finally {
-    client.release();
-  }
-}
-
 async function dbDebugInfo(client: PoolClient) {
-  // ayuda a detectar “estoy pegándole a otra DB/branch”
-  const r = await client.query<{
-    db: string;
-    schema: string;
-    now: string;
-    proveedores: number;
-  }>(
-    `
-    select
-      current_database()::text as db,
-      current_schema()::text as schema,
-      now()::text as now,
-      (select count(*)::int from app.proveedor) as proveedores;
-    `
-  );
+  const r = await (client as any).query({
+    text: `
+      select
+        current_database()::text as db,
+        current_schema()::text as schema,
+        now()::text as now,
+        (select count(*)::int from app.proveedor) as proveedores;
+    `,
+    queryMode: "simple",
+  });
   return r.rows?.[0] ?? null;
 }
 
@@ -89,10 +74,6 @@ async function dbDebugInfo(client: PoolClient) {
  * Crea:
  *  - 1 fila en app.item_seguimiento por URL (si no existe)
  *  - N filas en app.offers (una por presentación encontrada por el motor)
- *
- * Importante:
- *  - app.offers NO TIENE proveedor_id: se deriva del item (item_seguimiento)
- *  - No se elige presentación a mano: se guardan todas las que devuelve el motor
  */
 export async function POST(req: NextRequest) {
   let client: PoolClient | null = null;
@@ -113,11 +94,21 @@ export async function POST(req: NextRequest) {
 
     client = await pool.connect();
 
-    // 0) Debug de DB para detectar desalineación de branch/env
+    // Helper: SIEMPRE simple protocol (evita prepared statements / PgBouncer issues)
+    const q = async <T = any>(text: string, values?: any[]) => {
+      return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{
+        rows: T[];
+        rowCount: number;
+      }>;
+    };
+
+    // Opcional para debug (no imprime password):
+    // console.log("DB_UNPOOLED host:", new URL(process.env.DATABASE_URL_UNPOOLED!).host);
+
     const dbg = await dbDebugInfo(client);
 
-    // 1) Validar proveedor (existe + activo) y obtener motor default
-    const provR = await client.query<{
+    // 1) Validar proveedor y obtener motor default
+    const provR = await q<{
       proveedor_id: number;
       nombre: string;
       activo: boolean;
@@ -135,21 +126,13 @@ export async function POST(req: NextRequest) {
     const prov = provR.rows?.[0] ?? null;
     if (!prov) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: `proveedor_id inexistente: ${proveedor_id}`,
-          debug: dbg,
-        },
+        { ok: false, error: `proveedor_id inexistente: ${proveedor_id}`, debug: dbg },
         { status: 400 }
       );
     }
     if (prov.activo === false) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: `proveedor_id inactivo: ${proveedor_id}`,
-          debug: dbg,
-        },
+        { ok: false, error: `proveedor_id inactivo: ${proveedor_id}`, debug: dbg },
         { status: 400 }
       );
     }
@@ -166,8 +149,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Transacción: o entra todo lo que pueda, o se revierte (si preferís “parcial”, lo cambiamos)
-    await client.query("begin;");
+    await q("begin;");
 
     let items_created = 0;
     let offers_created = 0;
@@ -187,16 +169,12 @@ export async function POST(req: NextRequest) {
       try {
         motor = await runMotorForPricesByPresentacion(BigInt(motor_id), url);
       } catch (e: any) {
-        results.push({
-          url,
-          status: "ERROR",
-          error: String(e?.message ?? e ?? "motor_error"),
-        });
+        results.push({ url, status: "ERROR", error: String(e?.message ?? e ?? "motor_error") });
         continue;
       }
 
-      const sourceUrl = normalizeUrl(String(motor?.sourceUrl ?? url));
-      const prices = Array.isArray(motor?.prices) ? motor.prices : [];
+      const sourceUrl = normalizeUrl(String((motor as any)?.sourceUrl ?? url));
+      const prices = Array.isArray((motor as any)?.prices) ? (motor as any).prices : [];
 
       if (prices.length === 0) {
         results.push({ url, status: "ERROR", error: "no_prices_returned_by_motor" });
@@ -204,8 +182,7 @@ export async function POST(req: NextRequest) {
       }
 
       // B) Crear/obtener item por url_canonica
-      //    (si tu esquema no tiene unicidad por url_canonica, esto igual funciona por SELECT+INSERT)
-      const existing = await client.query<{ item_id: number }>(
+      const existing = await q<{ item_id: number }>(
         `
         select item_id
         from app.item_seguimiento
@@ -220,21 +197,22 @@ export async function POST(req: NextRequest) {
       if ((existing.rows?.length ?? 0) > 0) {
         item_id = Number(existing.rows[0].item_id);
 
-        // opcional: mantener proveedor/motor coherentes si ya existía
-        await client.query(
+        // Mantener coherencia si ya existía
+        await q(
           `
           update app.item_seguimiento
           set
             proveedor_id = $2,
             motor_id = $3,
             url_original = $4,
+            url_canonica = $5,
             updated_at = now()
           where item_id = $1;
           `,
           [item_id, proveedor_id, motor_id, url, sourceUrl]
         );
       } else {
-        const insItem = await client.query<{ item_id: number }>(
+        const insItem = await q<{ item_id: number }>(
           `
           insert into app.item_seguimiento
             (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado, created_at, updated_at)
@@ -253,7 +231,7 @@ export async function POST(req: NextRequest) {
         items_created += 1;
       }
 
-      // C) Insertar offers: 1 por presentación encontrada
+      // C) Insertar offers
       let insertedForThisUrl = 0;
 
       for (const p of prices) {
@@ -263,9 +241,7 @@ export async function POST(req: NextRequest) {
         if (!Number.isFinite(presentacion)) continue;
         if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
 
-        // app.offers NO tiene proveedor_id.
-        // Guardamos motor_id + urls + presentacion.
-        const insOffer = await client.query(
+        const insOffer = await q(
           `
           insert into app.offers
             (item_id, motor_id, url_original, url_canonica, presentacion, estado, created_at, updated_at)
@@ -286,14 +262,14 @@ export async function POST(req: NextRequest) {
         status: "OK",
         item_id,
         offers_inserted: insertedForThisUrl,
-        presentaciones: prices.map((x) => ({
-          presentacion: Number((x as any).presentacion),
-          priceArs: Number((x as any).priceArs),
+        presentaciones: prices.map((x: any) => ({
+          presentacion: Number(x.presentacion),
+          priceArs: Number(x.priceArs),
         })),
       });
     }
 
-    await client.query("commit;");
+    await q("commit;");
 
     return NextResponse.json({
       ok: true,
@@ -307,7 +283,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e: any) {
     try {
-      if (client) await client.query("rollback;");
+      if (client) await (client as any).query({ text: "rollback;", queryMode: "simple" });
     } catch {
       // ignore
     }
@@ -317,12 +293,7 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: String(e?.message ?? e ?? "unknown_error"),
         pg: e?.code
-          ? {
-              code: String(e.code),
-              detail: e?.detail ?? null,
-              hint: e?.hint ?? null,
-              where: e?.where ?? null,
-            }
+          ? { code: String(e.code), detail: e?.detail ?? null, hint: e?.hint ?? null, where: e?.where ?? null }
           : null,
       },
       { status: 500 }

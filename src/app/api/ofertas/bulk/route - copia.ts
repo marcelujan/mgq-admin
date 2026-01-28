@@ -1,265 +1,337 @@
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+// mgq-admin/src/app/api/ofertas/bulk/route.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { Pool, type PoolClient } from "pg";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
 
-function canonicalizeUrl(raw: string): string | null {
-  try {
-    const u = new URL(String(raw).trim());
-    u.hash = "";
-    u.hostname = u.hostname.toLowerCase();
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) u.pathname = u.pathname.slice(0, -1);
-    return u.toString();
-  } catch {
-    return null;
-  }
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL_UNPOOLED!,
+  max: 1,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+});
+
+type BulkBody = {
+  proveedor_id?: number;
+  motor_id?: number; // opcional: si no viene, usamos proveedor.motor_id_default
+  urls?: string[] | string;
+};
+
+function isNonEmptyString(x: unknown): x is string {
+  return typeof x === "string" && x.trim().length > 0;
 }
 
-function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
-  if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
+function toInt(x: unknown): number | null {
+  if (x === null || x === undefined) return null;
+  const n = Number(x);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function normalizeUrl(u: string): string {
+  const s = u.trim();
+  if (!s) return s;
+  // si el usuario pega sin esquema
+  if (!/^https?:\/\//i.test(s)) return `https://${s}`;
+  return s;
+}
+
+function splitAndCleanUrls(urls: BulkBody["urls"]): string[] {
+  if (Array.isArray(urls)) {
+    return urls
+      .map((u) => (isNonEmptyString(u) ? u.trim() : ""))
+      .filter(Boolean)
+      .map(normalizeUrl);
+  }
+
+  if (isNonEmptyString(urls)) {
+    return urls
+      .split(/\r?\n/)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .map(normalizeUrl);
+  }
+
   return [];
 }
 
-async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
-  let prov: any = null;
-
+async function withClient<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
   try {
-    const a: any = await sql.query(
-      `
-      SELECT proveedor_id, motor_id_default
-      FROM app.proveedor
-      WHERE codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
-    const rowsA = normalizeQueryResult(a);
-    prov = rowsA[0] ?? null;
-  } catch {
-    prov = null;
+    return await fn(client);
+  } finally {
+    client.release();
   }
-
-  if (!prov || !prov.motor_id_default) {
-    const b: any = await sql.query(
-      `
-      SELECT p.proveedor_id,
-             mp.motor_id AS motor_id_default
-      FROM app.proveedor p
-      LEFT JOIN LATERAL (
-        SELECT motor_id
-        FROM app.motor_proveedor
-        WHERE proveedor_id = p.proveedor_id
-        ORDER BY motor_id ASC
-        LIMIT 1
-      ) mp ON true
-      WHERE p.codigo = $1
-      LIMIT 1
-      `,
-      [proveedorCodigo]
-    );
-    const rowsB = normalizeQueryResult(b);
-    prov = rowsB[0] ?? prov;
-  }
-
-  return {
-    proveedor_id: prov?.proveedor_id ?? null,
-    motor_id: prov?.motor_id_default ?? null,
-  };
 }
 
-async function upsertOffer(sql: any, args: {
-  item_id: number;
-  proveedor_id: number | string;
-  motor_id: number | string;
-  url_original: string;
-  url_canonica: string;
-  presentacion: number;
-}) {
-  const dup: any = await sql.query(
+async function dbDebugInfo(client: PoolClient) {
+  // ayuda a detectar “estoy pegándole a otra DB/branch”
+  const r = await client.query<{
+    db: string;
+    schema: string;
+    now: string;
+    proveedores: number;
+  }>(
     `
-    SELECT offer_id
-    FROM app.offers
-    WHERE item_id = $1 AND url_canonica = $2 AND presentacion = $3
-    LIMIT 1
-    `,
-    [args.item_id, args.url_canonica, args.presentacion]
-  );
-  const dupRows = normalizeQueryResult(dup);
-  const existing = dupRows?.[0]?.offer_id;
-
-  if (existing) {
-    await sql.query(
-      `
-      UPDATE app.offers
-      SET
-        url_original = $2,
-        proveedor_id = $3,
-        motor_id = $4,
-        estado = 'OK',
-        updated_at = now()
-      WHERE offer_id = $1
-      `,
-      [existing, args.url_original, args.proveedor_id, args.motor_id]
-    );
-    return { offer_id: existing, created: false };
-  }
-
-  const ins: any = await sql.query(
+    select
+      current_database()::text as db,
+      current_schema()::text as schema,
+      now()::text as now,
+      (select count(*)::int from app.proveedor) as proveedores;
     `
-    INSERT INTO app.offers
-      (item_id, proveedor_id, motor_id, url_original, url_canonica, presentacion, estado)
-    VALUES
-      ($1, $2, $3, $4, $5, $6, 'OK')
-    RETURNING offer_id
-    `,
-    [
-      args.item_id,
-      args.proveedor_id,
-      args.motor_id,
-      args.url_original,
-      args.url_canonica,
-      args.presentacion,
-    ]
   );
-  const insRows = normalizeQueryResult(ins);
-  return { offer_id: insRows?.[0]?.offer_id ?? null, created: true };
+  return r.rows?.[0] ?? null;
 }
 
-// POST /api/ofertas/bulk
-// body: { item_id, proveedor_codigo, urls: string[] }
-// Inserta TODAS las presentaciones reales por cada URL.
+/**
+ * Crea:
+ *  - 1 fila en app.item_seguimiento por URL (si no existe)
+ *  - N filas en app.offers (una por presentación encontrada por el motor)
+ *
+ * Importante:
+ *  - app.offers NO TIENE proveedor_id: se deriva del item (item_seguimiento)
+ *  - No se elige presentación a mano: se guardan todas las que devuelve el motor
+ */
 export async function POST(req: NextRequest) {
+  let client: PoolClient | null = null;
+
   try {
-    const sql = db();
-    const body = await req.json().catch(() => ({} as any));
+    const body = (await req.json()) as BulkBody;
 
-    const item_id = Number(body?.item_id);
-    const proveedorCodigo = typeof body?.proveedor_codigo === "string" ? body.proveedor_codigo.trim() : "";
-    const urls: string[] = Array.isArray(body?.urls) ? body.urls : [];
+    const proveedor_id = toInt(body?.proveedor_id);
+    const motor_id_input = toInt(body?.motor_id);
+    const urls = splitAndCleanUrls(body?.urls);
 
-    if (!Number.isFinite(item_id) || item_id <= 0) {
-      return NextResponse.json({ ok: false, error: "item_id inválido" }, { status: 400 });
-    }
-    if (!proveedorCodigo) {
-      return NextResponse.json({ ok: false, error: "proveedor_codigo requerido" }, { status: 400 });
-    }
-    if (!urls.length) {
-      return NextResponse.json({ ok: false, error: "urls[] requerido" }, { status: 400 });
-    }
-
-    const { proveedor_id, motor_id } = await resolveProveedorAndMotor(sql, proveedorCodigo);
     if (!proveedor_id) {
-      return NextResponse.json({ ok: false, error: `proveedor inválido: ${proveedorCodigo}` }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "proveedor_id requerido" }, { status: 400 });
     }
-    if (!motor_id) {
+    if (urls.length === 0) {
+      return NextResponse.json({ ok: false, error: "Pegá al menos 1 URL válida" }, { status: 400 });
+    }
+
+    client = await pool.connect();
+
+    // 0) Debug de DB para detectar desalineación de branch/env
+    const dbg = await dbDebugInfo(client);
+
+    // 1) Validar proveedor (existe + activo) y obtener motor default
+    const provR = await client.query<{
+      proveedor_id: number;
+      nombre: string;
+      activo: boolean;
+      motor_id_default: number | null;
+    }>(
+      `
+      select proveedor_id, nombre, activo, motor_id_default
+      from app.proveedor
+      where proveedor_id = $1
+      limit 1;
+      `,
+      [proveedor_id]
+    );
+
+    const prov = provR.rows?.[0] ?? null;
+    if (!prov) {
       return NextResponse.json(
-        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor asociado` },
+        {
+          ok: false,
+          error: `proveedor_id inexistente: ${proveedor_id}`,
+          debug: dbg,
+        },
+        { status: 400 }
+      );
+    }
+    if (prov.activo === false) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `proveedor_id inactivo: ${proveedor_id}`,
+          debug: dbg,
+        },
         { status: 400 }
       );
     }
 
-    const results: any[] = [];
-    let total_created = 0;
-    let total_updated = 0;
-    let total_urls_ok = 0;
-    let total_urls_fail = 0;
+    const motor_id = motor_id_input ?? (prov.motor_id_default ? Number(prov.motor_id_default) : null);
+    if (!motor_id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `motor_id requerido (y proveedor ${proveedor_id} no tiene motor_id_default)`,
+          debug: dbg,
+        },
+        { status: 400 }
+      );
+    }
 
-    for (const raw of urls) {
-      const urlRaw = typeof raw === "string" ? raw.trim() : "";
-      const urlCanonica = urlRaw ? canonicalizeUrl(urlRaw) : null;
+    // 2) Transacción: o entra todo lo que pueda, o se revierte (si preferís “parcial”, lo cambiamos)
+    await client.query("begin;");
 
-      if (!urlCanonica) {
-        total_urls_fail++;
-        results.push({ ok: false, url: raw, error: "URL inválida" });
+    let items_created = 0;
+    let offers_created = 0;
+
+    const results: Array<{
+      url: string;
+      status: "OK" | "ERROR";
+      item_id?: number;
+      offers_inserted?: number;
+      presentaciones?: Array<{ presentacion: number; priceArs: number }>;
+      error?: string;
+    }> = [];
+
+    for (const url of urls) {
+      // A) Motor: extraer presentaciones reales
+      let motor;
+      try {
+        motor = await runMotorForPricesByPresentacion(BigInt(motor_id), url);
+      } catch (e: any) {
+        results.push({
+          url,
+          status: "ERROR",
+          error: String(e?.message ?? e ?? "motor_error"),
+        });
         continue;
       }
 
-      try {
-        const r = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
-        const sourceUrl = String((r as any)?.sourceUrl ?? urlCanonica);
-        const prices = Array.isArray((r as any)?.prices) ? (r as any).prices : [];
+      const sourceUrl = normalizeUrl(String(motor?.sourceUrl ?? url));
+      const prices = Array.isArray(motor?.prices) ? motor.prices : [];
 
-        if (!prices.length) {
-          total_urls_fail++;
-          results.push({ ok: false, url: urlCanonica, sourceUrl, error: "no_prices_by_presentacion" });
-          continue;
-        }
-
-        let created = 0;
-        let updated = 0;
-        let valid_presentaciones = 0;
-
-        for (const p of prices) {
-          const pres = Number(p?.presentacion);
-          const priceArs = Number(p?.priceArs);
-
-          if (!Number.isFinite(pres) || pres <= 0) continue;
-          if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
-
-          valid_presentaciones++;
-
-          const u = await upsertOffer(sql, {
-            item_id,
-            proveedor_id,
-            motor_id,
-            url_original: urlRaw,
-            url_canonica: urlCanonica,
-            presentacion: pres,
-          });
-
-          if (u.created) created++;
-          else updated++;
-        }
-
-        if (created + updated === 0) {
-          total_urls_fail++;
-          results.push({
-            ok: false,
-            url: urlCanonica,
-            sourceUrl,
-            error: "no_valid_presentaciones_to_insert",
-            prices_len: prices.length,
-          });
-          continue;
-        }
-
-        total_urls_ok++;
-        total_created += created;
-        total_updated += updated;
-
-        results.push({
-          ok: true,
-          url: urlCanonica,
-          sourceUrl,
-          created,
-          updated,
-          valid_presentaciones,
-          prices_len: prices.length,
-        });
-      } catch (e: any) {
-        total_urls_fail++;
-        results.push({ ok: false, url: urlCanonica, error: String(e?.message ?? e) });
+      if (prices.length === 0) {
+        results.push({ url, status: "ERROR", error: "no_prices_returned_by_motor" });
+        continue;
       }
+
+      // B) Crear/obtener item por url_canonica
+      //    (si tu esquema no tiene unicidad por url_canonica, esto igual funciona por SELECT+INSERT)
+      const existing = await client.query<{ item_id: number }>(
+        `
+        select item_id
+        from app.item_seguimiento
+        where url_canonica = $1
+        limit 1;
+        `,
+        [sourceUrl]
+      );
+
+      let item_id: number;
+
+      if ((existing.rows?.length ?? 0) > 0) {
+        item_id = Number(existing.rows[0].item_id);
+
+        // opcional: mantener proveedor/motor coherentes si ya existía
+        await client.query(
+          `
+          update app.item_seguimiento
+          set
+            proveedor_id = $2,
+            motor_id = $3,
+            url_original = $4,
+            updated_at = now()
+          where item_id = $1;
+          `,
+          [item_id, proveedor_id, motor_id, url, sourceUrl]
+        );
+      } else {
+        const insItem = await client.query<{ item_id: number }>(
+          `
+          insert into app.item_seguimiento
+            (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado, created_at, updated_at)
+          values
+            ($1, $2, $3, $4, true, 'OK', now(), now())
+          returning item_id;
+          `,
+          [proveedor_id, motor_id, url, sourceUrl]
+        );
+
+        item_id = Number(insItem.rows?.[0]?.item_id);
+        if (!Number.isFinite(item_id) || item_id <= 0) {
+          results.push({ url, status: "ERROR", error: "item_insert_failed_no_item_id" });
+          continue;
+        }
+        items_created += 1;
+      }
+
+      // C) Insertar offers: 1 por presentación encontrada
+      let insertedForThisUrl = 0;
+
+      for (const p of prices) {
+        const presentacion = Number((p as any)?.presentacion);
+        const priceArs = Number((p as any)?.priceArs);
+
+        if (!Number.isFinite(presentacion)) continue;
+        if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
+
+        // app.offers NO tiene proveedor_id.
+        // Guardamos motor_id + urls + presentacion.
+        const insOffer = await client.query(
+          `
+          insert into app.offers
+            (item_id, motor_id, url_original, url_canonica, presentacion, estado, created_at, updated_at)
+          values
+            ($1, $2, $3, $4, $5, 'OK', now(), now())
+          on conflict do nothing;
+          `,
+          [item_id, motor_id, url, sourceUrl, presentacion]
+        );
+
+        insertedForThisUrl += insOffer.rowCount ?? 0;
+      }
+
+      offers_created += insertedForThisUrl;
+
+      results.push({
+        url,
+        status: "OK",
+        item_id,
+        offers_inserted: insertedForThisUrl,
+        presentaciones: prices.map((x) => ({
+          presentacion: Number((x as any).presentacion),
+          priceArs: Number((x as any).priceArs),
+        })),
+      });
+    }
+
+    await client.query("commit;");
+
+    return NextResponse.json({
+      ok: true,
+      proveedor_id,
+      proveedor_nombre: prov.nombre,
+      motor_id,
+      items_created,
+      offers_created,
+      results,
+      debug: dbg,
+    });
+  } catch (e: any) {
+    try {
+      if (client) await client.query("rollback;");
+    } catch {
+      // ignore
     }
 
     return NextResponse.json(
       {
-        ok: true,
-        item_id,
-        proveedor_codigo: proveedorCodigo,
-        proveedor_id: String(proveedor_id),
-        motor_id: String(motor_id),
-        urls_in: urls.length,
-        urls_ok: total_urls_ok,
-        urls_fail: total_urls_fail,
-        inserted_created: total_created,
-        inserted_updated: total_updated,
-        results,
+        ok: false,
+        error: String(e?.message ?? e ?? "unknown_error"),
+        pg: e?.code
+          ? {
+              code: String(e.code),
+              detail: e?.detail ?? null,
+              hint: e?.hint ?? null,
+              where: e?.where ?? null,
+            }
+          : null,
       },
-      { status: 200 }
+      { status: 500 }
     );
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+  } finally {
+    try {
+      client?.release();
+    } catch {
+      // ignore
+    }
   }
 }
