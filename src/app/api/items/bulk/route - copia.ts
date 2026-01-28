@@ -13,22 +13,25 @@ const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
-function assertAdminAuth(req: NextRequest) {
+function assertCronAuth(req: NextRequest) {
+  // Reusamos CRON_SECRET como “admin secret” simple.
+  // Si querés, lo renombramos después a ADMIN_SECRET.
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization") || "";
   if (!secret || auth !== `Bearer ${secret}`) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    const err: any = new Error("Unauthorized");
+    err.statusCode = 401;
+    throw err;
   }
-  return null;
 }
 
-function normalizeUrl(u: unknown): string | null {
+function normalizeUrl(u: string): string | null {
   const s = String(u ?? "").trim();
   if (!/^https?:\/\//i.test(s)) return null;
   return s;
 }
 
-function normalizeUrlsFromText(raw: unknown): string[] {
+function normalizeUrlsFromText(raw: string): string[] {
   return String(raw ?? "")
     .split(/\r?\n/)
     .map((s) => s.trim())
@@ -38,15 +41,11 @@ function normalizeUrlsFromText(raw: unknown): string[] {
 async function safeRollback(client: PoolClient, txOpen: boolean) {
   if (!txOpen) return;
   try {
-    // simple protocol para evitar prepared statements
-    await (client as any).query({ text: "rollback;", queryMode: "simple" });
+    await client.query("rollback;");
   } catch {
     // ignore
   }
 }
-
-type MotorPrice = { presentacion: number; price: number };
-type MotorResult = { sourceUrl?: string; prices?: MotorPrice[] };
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
@@ -54,17 +53,19 @@ export async function POST(req: NextRequest) {
   let txOpen = false;
 
   try {
-    const authResp = assertAdminAuth(req);
-    if (authResp) return authResp;
+    assertCronAuth(req);
 
-    const body = await req.json().catch(() => ({} as any));
+    const body = await req.json().catch(() => ({}));
 
+    // Soportamos ambos formatos:
+    // A) { proveedor_id, motor_id, urls: string[] }
+    // B) { proveedor_id, motor_id, urls_text: string } (1 por línea)
     const proveedorId = Number(body?.proveedor_id);
     const motorId = Number(body?.motor_id ?? 1);
 
     const urls: string[] = Array.isArray(body?.urls)
       ? body.urls.map((u: any) => String(u))
-      : normalizeUrlsFromText(body?.urls_text);
+      : normalizeUrlsFromText(String(body?.urls_text ?? ""));
 
     if (!Number.isFinite(proveedorId) || proveedorId <= 0) {
       return NextResponse.json({ ok: false, error: "proveedor_id inválido" }, { status: 400 });
@@ -77,16 +78,7 @@ export async function POST(req: NextRequest) {
     }
 
     client = await pool.connect();
-
-    // Helper de queries en simple protocol (evita prepared statements con pooler)
-    const q = async <T = any>(text: string, values?: any[]) => {
-      return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{
-        rows: T[];
-        rowCount: number;
-      }>;
-    };
-
-    await q("begin;");
+    await client.query("begin;");
     txOpen = true;
 
     let created_items = 0;
@@ -100,14 +92,17 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 1) Crear item
-      const itemIns = await q<{ item_id: string }>(
+      // 1) Crear item (una URL = un item)
+      // OJO: usás app.item_seguimiento como “tabla de items”.
+      const itemIns = await client.query<{
+        item_id: string;
+      }>(
         `
         insert into app.item_seguimiento
           (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado, created_at, updated_at)
         values
           ($1, $2, $3, $3, true, 'OK', now(), now())
-        returning item_id::text as item_id;
+        returning item_id::text;
         `,
         [proveedorId, motorId, url]
       );
@@ -116,27 +111,22 @@ export async function POST(req: NextRequest) {
       created_items++;
 
       // 2) Scrape presentaciones y precios
-      const motorRes = (await runMotorForPricesByPresentacion(
-        BigInt(motorId),
-        url
-      )) as unknown as MotorResult;
-
+      const motorRes = await runMotorForPricesByPresentacion(BigInt(motorId), url);
       const sourceUrl = String(motorRes?.sourceUrl ?? url);
       const prices = Array.isArray(motorRes?.prices) ? motorRes.prices : [];
 
       if (!prices.length) {
+        // Creamos el item igual, pero sin offers (queda para debug)
         results.push({ url, item_id: itemId, ok: false, error: "no_prices_by_presentacion" });
         continue;
       }
 
-      // 3) Insertar offers
-      let offersForUrl = 0;
-
+      // 3) Insertar offers (una por presentación)
       for (const p of prices) {
-        const pres = Number((p as any)?.presentacion);
+        const pres = Number(p?.presentacion);
         if (!Number.isFinite(pres)) continue;
 
-        await q(
+        await client.query(
           `
           insert into app.offers
             (item_id, motor_id, url_original, url_canonica, presentacion, estado, created_at, updated_at)
@@ -148,13 +138,12 @@ export async function POST(req: NextRequest) {
         );
 
         created_offers++;
-        offersForUrl++;
       }
 
-      results.push({ url, item_id: itemId, ok: true, offers: offersForUrl });
+      results.push({ url, item_id: itemId, ok: true, offers: prices.length });
     }
 
-    await q("commit;");
+    await client.query("commit;");
     txOpen = false;
 
     return NextResponse.json(
