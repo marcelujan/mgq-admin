@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL_UNPOOLED!,
   max: 1,
   idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 10_000,
