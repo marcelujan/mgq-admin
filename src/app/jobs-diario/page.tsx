@@ -31,8 +31,6 @@ type Row = {
   url_canonica: string;
 
   proveedor_id: number | null;
-  proveedor_codigo: string | null;
-  proveedor_nombre: string | null;
 
   actualizado: boolean;
 };
@@ -109,7 +107,7 @@ export default function JobsDiarioPage() {
       if (status && String(r.cron_status).toLowerCase() !== status.toLowerCase()) return false;
       if (!qq) return true;
       const prod = productTitleFromUrl(r.url_canonica || r.url_original).toLowerCase();
-      const prov = (r.proveedor_nombre || r.proveedor_codigo || "").toLowerCase();
+      const prov = (r.proveedor_id != null ? `#${r.proveedor_id}` : "").toLowerCase();
       return (
         prod.includes(qq) ||
         prov.includes(qq) ||
@@ -168,8 +166,7 @@ export default function JobsDiarioPage() {
 
         {run ? (
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {run.started_at ? fmtIso(run.started_at) : ""}{" "}
-            {run.finished_at ? `→ ${fmtIso(run.finished_at)}` : ""}
+            {run.started_at ? fmtIso(run.started_at) : ""} {run.finished_at ? `→ ${fmtIso(run.finished_at)}` : ""}
             {typeof run.total_items === "number"
               ? ` · total ${run.total_items} · ok ${run.ok_count ?? 0} · fail ${run.fail_count ?? 0}`
               : ""}
@@ -181,7 +178,7 @@ export default function JobsDiarioPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar (producto, proveedor, item_id, offer_id)"
+          placeholder="Buscar (producto, proveedor_id, item_id, offer_id)"
           style={{
             minWidth: 280,
             border: "1px solid rgba(255,255,255,0.14)",
@@ -245,23 +242,24 @@ export default function JobsDiarioPage() {
               {filtered.map((r) => {
                 const url = r.url_canonica || r.url_original;
                 const prod = productTitleFromUrl(url);
-                const prov = r.proveedor_codigo || r.proveedor_nombre || (r.proveedor_id ? `#${r.proveedor_id}` : "");
+                const prov = r.proveedor_id != null ? `#${r.proveedor_id}` : "";
                 const showWarn = !!r.last_error;
 
                 return (
                   <tr key={`${r.run_id}_${r.offer_id}`} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: "10px 10px", opacity: 0.85, whiteSpace: "nowrap" }}>
-                      {fmtIso(r.processed_at)}
-                    </td>
+                    <td style={{ padding: "10px 10px", opacity: 0.85, whiteSpace: "nowrap" }}>{fmtIso(r.processed_at)}</td>
                     <td style={{ padding: "10px 10px", maxWidth: 520 }}>
-                      <div title={prod} style={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        title={prod}
+                        style={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      >
                         {prod}
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.65 }}>
                         item {r.item_id} · offer {r.offer_id}
                       </div>
                     </td>
-                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{prov}</td>
+                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{prov || "—"}</td>
                     <td style={{ padding: "10px 10px", opacity: 0.9 }}>{r.motor_id ?? "-"}</td>
                     <td style={{ padding: "10px 10px", opacity: 0.9 }}>{r.presentacion ?? "-"}</td>
                     <td style={{ padding: "10px 10px" }}>
