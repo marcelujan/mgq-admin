@@ -65,7 +65,6 @@ export async function GET(req: Request) {
         o.url_original,
 
         iseg.proveedor_id,
-        p.proveedor_nombre,
         p.proveedor_codigo,
 
         EXISTS (
