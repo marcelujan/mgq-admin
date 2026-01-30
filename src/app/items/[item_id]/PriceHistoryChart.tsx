@@ -36,6 +36,20 @@ function SparkLineChart({
   const [hover, setHover] = useState<{ s: number; i: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
+  const palette = useMemo(
+    () => [
+      "#60a5fa", // blue
+      "#34d399", // green
+      "#f59e0b", // amber
+      "#f472b6", // pink
+      "#a78bfa", // violet
+      "#22d3ee", // cyan
+      "#fb7185", // rose
+      "#eab308", // yellow
+    ],
+    []
+  );
+
   const svg = useMemo(() => {
     const W = 920;
     const H = 280;
@@ -91,7 +105,6 @@ function SparkLineChart({
         .slice()
         .sort((a, b) => a.d.localeCompare(b.d))
         .map((p) => ({ x: xScale(p.d), y: yScale(p.y), d: p.d, v: p.y }));
-
       const path =
         pts.length <= 1 ? "" : "M " + pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
       return { name, path, pts };
@@ -114,7 +127,7 @@ function SparkLineChart({
     const ratio = svg.W / rect.width;
     const xv = x * ratio;
 
-    // FIX: tipado simple (evita el error de TS con best/dist)
+    // FIX tipado: guardamos best sin dist en el objeto
     let best: { s: number; i: number } | null = null;
     let bestDist = Infinity;
 
@@ -133,8 +146,10 @@ function SparkLineChart({
 
   const hoverPoint =
     hover && svg.lines[hover.s] && svg.lines[hover.s].pts[hover.i]
-      ? { line: svg.lines[hover.s].name, p: svg.lines[hover.s].pts[hover.i] }
+      ? { line: svg.lines[hover.s].name, p: svg.lines[hover.s].pts[hover.i], s: hover.s }
       : null;
+
+  const isMulti = series.length > 1;
 
   return (
     <div
@@ -148,7 +163,27 @@ function SparkLineChart({
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
         <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.95 }}>{title}</div>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>{series.map((s) => s.name).join(" · ")}</div>
+
+        {isMulti ? (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {series.map((s, idx) => (
+              <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: palette[idx % palette.length],
+                    display: "inline-block",
+                  }}
+                />
+                <span>{s.name}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{series.map((s) => s.name).join(" · ")}</div>
+        )}
       </div>
 
       <div ref={wrapRef} style={{ position: "relative", marginTop: 10 }}>
@@ -172,7 +207,7 @@ function SparkLineChart({
             );
           })}
 
-          {svg.dates && svg.dates.length >= 1 ? (
+          {svg.dates.length >= 1 ? (
             <>
               <text x={svg.PL} y={svg.H - 10} fontSize="12" textAnchor="start" fill="currentColor" opacity={0.75}>
                 {fmtX(svg.dates[0])}
@@ -192,32 +227,30 @@ function SparkLineChart({
             </>
           ) : null}
 
-          {svg.lines.map((l, idx) => (
-            <g key={l.name}>
-              {l.path ? (
-                <path
-                  d={l.path}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeOpacity={series.length === 1 ? 0.95 : 0.35 + (0.55 * idx) / Math.max(1, series.length - 1)}
-                  strokeWidth={series.length === 1 ? 2.6 : 2.2}
-                />
-              ) : null}
-              {l.pts.map((p, pIdx) => {
-                const isHover = hover?.s === idx && hover?.i === pIdx;
-                return (
-                  <circle
-                    key={`${idx}_${pIdx}`}
-                    cx={p.x}
-                    cy={p.y}
-                    r={isHover ? 5 : 3.5}
-                    fill="currentColor"
-                    opacity={series.length === 1 ? 0.95 : 0.40 + (0.55 * idx) / Math.max(1, series.length - 1)}
-                  />
-                );
-              })}
-            </g>
-          ))}
+          {svg.lines.map((l, idx) => {
+            const stroke = isMulti ? palette[idx % palette.length] : "currentColor";
+            const strokeOpacity = isMulti ? 0.95 : 0.95;
+            const pointOpacity = isMulti ? 0.95 : 0.95;
+
+            return (
+              <g key={l.name}>
+                {l.path ? <path d={l.path} fill="none" stroke={stroke} strokeOpacity={strokeOpacity} strokeWidth={2.4} /> : null}
+                {l.pts.map((p, pIdx) => {
+                  const isHover = hover?.s === idx && hover?.i === pIdx;
+                  return (
+                    <circle
+                      key={`${idx}_${pIdx}`}
+                      cx={p.x}
+                      cy={p.y}
+                      r={isHover ? 5 : 3.5}
+                      fill={stroke}
+                      opacity={pointOpacity}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
 
           {hoverPoint ? (
             <line
@@ -246,13 +279,26 @@ function SparkLineChart({
               backdropFilter: "blur(6px)",
               fontSize: 12,
               lineHeight: 1.25,
-              minWidth: 160,
+              minWidth: 170,
               color: "rgba(255,255,255,0.92)",
             }}
           >
             <div style={{ opacity: 0.75 }}>{fmtX(hoverPoint.p.d)}</div>
             <div style={{ fontWeight: 700 }}>{fmtY(hoverPoint.p.v)}</div>
-            {series.length > 1 ? <div style={{ opacity: 0.75 }}>{hoverPoint.line}</div> : null}
+            {isMulti ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.85, marginTop: 2 }}>
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: palette[hoverPoint.s % palette.length],
+                    display: "inline-block",
+                  }}
+                />
+                <span>{hoverPoint.line}</span>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -263,7 +309,7 @@ function SparkLineChart({
 export default function PriceHistoryChart({ itemId }: { itemId: number }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>("100");
+  const [range, setRange] = useState<RangeKey>("30"); // DEFAULT: 30
 
   useEffect(() => {
     (async () => {
@@ -352,9 +398,21 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {/* CSS para que el dropdown NO sea blanco con texto blanco */}
+      <style jsx global>{`
+        .ph_range {
+          color-scheme: dark;
+        }
+        .ph_range option {
+          background: #0b0b0b;
+          color: #ffffff;
+        }
+      `}</style>
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>Intervalo</div>
         <select
+          className="ph_range"
           value={range}
           onChange={(e) => setRange(e.target.value as RangeKey)}
           style={{
@@ -364,6 +422,7 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
             background: "rgba(255,255,255,0.03)",
             color: "rgba(255,255,255,0.92)",
             outline: "none",
+            colorScheme: "dark",
           }}
         >
           <option value="30">Últimos 30 días</option>
