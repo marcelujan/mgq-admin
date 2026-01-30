@@ -92,6 +92,7 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
         yMin: 0,
         yMax: 0,
         ticksY: [] as number[],
+        yScale: (_v: number) => 0,
       };
     }
 
