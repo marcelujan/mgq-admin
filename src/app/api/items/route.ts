@@ -90,6 +90,7 @@ export async function GET(req: NextRequest) {
           i.url_canonica,
           i.seleccionado,
           i.estado::text AS estado,
+          i.mensaje_error,
           i.created_at,
           i.updated_at,
           j.job_id AS ultimo_job_id,
@@ -131,6 +132,7 @@ export async function GET(req: NextRequest) {
           i.url_canonica,
           i.seleccionado,
           i.estado::text AS estado,
+          i.mensaje_error,
           i.created_at,
           i.updated_at
         FROM app.item_seguimiento i

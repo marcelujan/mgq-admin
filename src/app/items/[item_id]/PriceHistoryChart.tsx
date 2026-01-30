@@ -1,7 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Row = { as_of_date: string; presentacion: number; price_ars: number };
 
@@ -9,307 +8,10 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function daysAgoIso(maxIso: string, days: number): string | null {
-  const d = new Date(maxIso);
-  if (!Number.isFinite(d.getTime())) return null;
-  d.setDate(d.getDate() - days);
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-type RangeKey = "30" | "60" | "100" | "180" | "365" | "all";
-type Point = { x: number; y: number; d: string; v: number };
-
-function SparkLineChart({
-  title,
-  series,
-  fmtY,
-  fmtX,
-}: {
-  title: string;
-  series: Array<{ name: string; points: Array<{ d: string; y: number }> }>;
-  fmtY: (v: number) => string;
-  fmtX: (iso: string) => string;
-}) {
-  const [hover, setHover] = useState<{ s: number; i: number } | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-
-  const palette = useMemo(
-    () => [
-      "#60a5fa", // blue
-      "#34d399", // green
-      "#f59e0b", // amber
-      "#f472b6", // pink
-      "#a78bfa", // violet
-      "#22d3ee", // cyan
-      "#fb7185", // rose
-      "#eab308", // yellow
-    ],
-    []
-  );
-
-  const svg = useMemo(() => {
-    const W = 920;
-    const H = 280;
-    const PL = 64;
-    const PR = 18;
-    const PT = 18;
-    const PB = 38;
-
-    const all = series.flatMap((s) => s.points.map((p) => p.y));
-    if (all.length === 0) {
-      return {
-        W,
-        H,
-        PL,
-        PR,
-        PT,
-        PB,
-        lines: [] as Array<{ name: string; path: string; pts: Point[] }>,
-        ticksY: [] as number[],
-        yScale: (_v: number) => 0,
-        dates: [] as string[],
-      };
-    }
-
-    let yMin = Math.min(...all);
-    let yMax = Math.max(...all);
-    if (yMin === yMax) {
-      yMin = yMin * 0.95;
-      yMax = yMax * 1.05;
-      if (yMin === yMax) {
-        yMin = yMin - 1;
-        yMax = yMax + 1;
-      }
-    }
-
-    const dates = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.d)))).sort((a, b) =>
-      a.localeCompare(b)
-    );
-
-    const xScale = (iso: string) => {
-      const i = dates.indexOf(iso);
-      if (dates.length <= 1) return (PL + (W - PR)) / 2;
-      return PL + (i * (W - PL - PR)) / (dates.length - 1);
-    };
-
-    const yScale = (v: number) => {
-      const t = (v - yMin) / (yMax - yMin);
-      return PT + (1 - clamp(t, 0, 1)) * (H - PT - PB);
-    };
-
-    const mkLine = (name: string, ptsRaw: Array<{ d: string; y: number }>) => {
-      const pts: Point[] = ptsRaw
-        .slice()
-        .sort((a, b) => a.d.localeCompare(b.d))
-        .map((p) => ({ x: xScale(p.d), y: yScale(p.y), d: p.d, v: p.y }));
-      const path =
-        pts.length <= 1 ? "" : "M " + pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
-      return { name, path, pts };
-    };
-
-    const lines = series.map((s) => mkLine(s.name, s.points));
-
-    const steps = 4;
-    const ticksY = Array.from({ length: steps + 1 }, (_, i) => yMin + (i * (yMax - yMin)) / steps);
-
-    return { W, H, PL, PR, PT, PB, lines, ticksY, yScale, dates };
-  }, [series]);
-
-  function onMove(e: MouseEvent<SVGSVGElement>) {
-    if (!wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    if (rect.width <= 0) return;
-
-    const x = e.clientX - rect.left;
-    const ratio = svg.W / rect.width;
-    const xv = x * ratio;
-
-    // FIX tipado: guardamos best sin dist en el objeto
-    let best: { s: number; i: number } | null = null;
-    let bestDist = Infinity;
-
-    svg.lines.forEach((line, sIdx) => {
-      line.pts.forEach((p, iIdx) => {
-        const d = Math.abs(p.x - xv);
-        if (d < bestDist) {
-          bestDist = d;
-          best = { s: sIdx, i: iIdx };
-        }
-      });
-    });
-
-    setHover(best);
-  }
-
-  const hoverPoint =
-    hover && svg.lines[hover.s] && svg.lines[hover.s].pts[hover.i]
-      ? { line: svg.lines[hover.s].name, p: svg.lines[hover.s].pts[hover.i], s: hover.s }
-      : null;
-
-  const isMulti = series.length > 1;
-
-  return (
-    <div
-      style={{
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 14,
-        padding: 12,
-        background: "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
-        color: "rgba(255,255,255,0.88)",
-      }}
-    >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.95 }}>{title}</div>
-
-        {isMulti ? (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {series.map((s, idx) => (
-              <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: palette[idx % palette.length],
-                    display: "inline-block",
-                  }}
-                />
-                <span>{s.name}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>{series.map((s) => s.name).join(" · ")}</div>
-        )}
-      </div>
-
-      <div ref={wrapRef} style={{ position: "relative", marginTop: 10 }}>
-        <svg
-          width="100%"
-          viewBox={`0 0 ${svg.W} ${svg.H}`}
-          preserveAspectRatio="xMidYMid meet"
-          onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
-          style={{ display: "block" }}
-        >
-          {svg.ticksY.map((t, i) => {
-            const y = svg.yScale(t);
-            return (
-              <g key={i}>
-                <line x1={svg.PL} x2={svg.W - svg.PR} y1={y} y2={y} stroke="currentColor" strokeOpacity={0.12} />
-                <text x={svg.PL - 8} y={y + 4} fontSize="12" textAnchor="end" fill="currentColor" opacity={0.75}>
-                  {fmtY(t)}
-                </text>
-              </g>
-            );
-          })}
-
-          {svg.dates.length >= 1 ? (
-            <>
-              <text x={svg.PL} y={svg.H - 10} fontSize="12" textAnchor="start" fill="currentColor" opacity={0.75}>
-                {fmtX(svg.dates[0])}
-              </text>
-              {svg.dates.length > 1 ? (
-                <text
-                  x={svg.W - svg.PR}
-                  y={svg.H - 10}
-                  fontSize="12"
-                  textAnchor="end"
-                  fill="currentColor"
-                  opacity={0.75}
-                >
-                  {fmtX(svg.dates[svg.dates.length - 1])}
-                </text>
-              ) : null}
-            </>
-          ) : null}
-
-          {svg.lines.map((l, idx) => {
-            const stroke = isMulti ? palette[idx % palette.length] : "currentColor";
-            const strokeOpacity = isMulti ? 0.95 : 0.95;
-            const pointOpacity = isMulti ? 0.95 : 0.95;
-
-            return (
-              <g key={l.name}>
-                {l.path ? <path d={l.path} fill="none" stroke={stroke} strokeOpacity={strokeOpacity} strokeWidth={2.4} /> : null}
-                {l.pts.map((p, pIdx) => {
-                  const isHover = hover?.s === idx && hover?.i === pIdx;
-                  return (
-                    <circle
-                      key={`${idx}_${pIdx}`}
-                      cx={p.x}
-                      cy={p.y}
-                      r={isHover ? 5 : 3.5}
-                      fill={stroke}
-                      opacity={pointOpacity}
-                    />
-                  );
-                })}
-              </g>
-            );
-          })}
-
-          {hoverPoint ? (
-            <line
-              x1={hoverPoint.p.x}
-              x2={hoverPoint.p.x}
-              y1={svg.PT}
-              y2={svg.H - svg.PB}
-              stroke="currentColor"
-              strokeOpacity={0.20}
-            />
-          ) : null}
-        </svg>
-
-        {hoverPoint ? (
-          <div
-            style={{
-              position: "absolute",
-              left: `calc(${(hoverPoint.p.x / svg.W) * 100}% + 10px)`,
-              top: 8,
-              transform: "translateX(-10px)",
-              pointerEvents: "none",
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: "8px 10px",
-              background: "rgba(10,10,10,0.85)",
-              backdropFilter: "blur(6px)",
-              fontSize: 12,
-              lineHeight: 1.25,
-              minWidth: 170,
-              color: "rgba(255,255,255,0.92)",
-            }}
-          >
-            <div style={{ opacity: 0.75 }}>{fmtX(hoverPoint.p.d)}</div>
-            <div style={{ fontWeight: 700 }}>{fmtY(hoverPoint.p.v)}</div>
-            {isMulti ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.85, marginTop: 2 }}>
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: palette[hoverPoint.s % palette.length],
-                    display: "inline-block",
-                  }}
-                />
-                <span>{hoverPoint.line}</span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 export default function PriceHistoryChart({ itemId }: { itemId: number }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>("30"); // DEFAULT: 30
+  const [presentacion, setPresentacion] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -323,140 +25,134 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
       const j = await res.json();
       const r = Array.isArray(j?.rows) ? (j.rows as Row[]) : [];
       setRows(r);
+
+      const pres = Array.from(new Set(r.map((x) => Number(x.presentacion))))
+        .filter((x) => Number.isFinite(x))
+        .sort((a, b) => a - b);
+
+      setPresentacion(pres.length ? pres[0] : null);
     })();
   }, [itemId]);
 
-  const fmtArs = useMemo(() => {
-    return new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: "ARS",
-      maximumFractionDigits: 0,
-    });
-  }, []);
-
-  const fmtDate = useMemo(() => {
-    const f = new Intl.DateTimeFormat("es-AR", { year: "2-digit", month: "2-digit", day: "2-digit" });
-    return (iso: string) => {
-      const d = new Date(iso);
-      return Number.isFinite(d.getTime()) ? f.format(d) : iso;
-    };
-  }, []);
-
   const presList = useMemo(() => {
     return Array.from(new Set(rows.map((x) => Number(x.presentacion))))
-      .filter((x) => Number.isFinite(x) && x > 0)
+      .filter((x) => Number.isFinite(x))
       .sort((a, b) => a - b);
   }, [rows]);
 
-  const maxDate = useMemo(() => {
-    const d = rows.map((r) => r.as_of_date).filter(Boolean).sort((a, b) => a.localeCompare(b));
-    return d.length ? d[d.length - 1] : null;
-  }, [rows]);
+  const series = useMemo(() => {
+    if (presentacion === null) return [];
+    return rows
+      .filter((r) => Number(r.presentacion) === presentacion)
+      .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
+      .filter((p) => Number.isFinite(p.y))
+      .sort((a, b) => a.d.localeCompare(b.d));
+  }, [rows, presentacion]);
 
-  const cutoffIso = useMemo(() => {
-    if (!maxDate) return null;
-    if (range === "all") return null;
-    const days = Number(range);
-    if (!Number.isFinite(days)) return null;
-    return daysAgoIso(maxDate, Math.max(0, days - 1));
-  }, [maxDate, range]);
+  const svg = useMemo(() => {
+    const W = 760;
+    const H = 260;
+    const P = 28;
 
-  const filteredRows = useMemo(() => {
-    if (!cutoffIso) return rows;
-    return rows.filter((r) => r.as_of_date >= cutoffIso);
-  }, [rows, cutoffIso]);
+    if (series.length === 0) return { W, H, path: "", points: [] as any[], yMin: 0, yMax: 0 };
 
-  const unitSeries = useMemo(() => {
-    const byPres = new Map<number, Array<{ d: string; y: number }>>();
-    for (const r of filteredRows) {
-      const pres = Number(r.presentacion);
-      const price = Number(r.price_ars);
-      if (!Number.isFinite(pres) || pres <= 0) continue;
-      if (!Number.isFinite(price)) continue;
-      const y = price / pres;
-      if (!Number.isFinite(y)) continue;
-      if (!byPres.has(pres)) byPres.set(pres, []);
-      byPres.get(pres)!.push({ d: r.as_of_date, y });
+    const ys = series.map((s) => s.y);
+    let yMin = Math.min(...ys);
+    let yMax = Math.max(...ys);
+
+    if (yMin === yMax) {
+      yMin = yMin * 0.95;
+      yMax = yMax * 1.05;
+      if (yMin === yMax) {
+        yMin = yMin - 1;
+        yMax = yMax + 1;
+      }
     }
-    return Array.from(byPres.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([pres, points]) => ({ name: `${pres} u`, points }));
-  }, [filteredRows]);
 
-  const chartsByPres = useMemo(() => {
-    return presList.map((pres) => {
-      const points = filteredRows
-        .filter((r) => Number(r.presentacion) === pres)
-        .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
-        .filter((p) => Number.isFinite(p.y));
-      return { pres, points };
-    });
-  }, [filteredRows, presList]);
+    const xScale = (i: number) =>
+      series.length === 1 ? W / 2 : P + (i * (W - 2 * P)) / (series.length - 1);
 
-  if (err) return <div style={{ color: "#ff6b6b", fontSize: 14 }}>Error: {err}</div>;
-  if (rows.length === 0) return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
+    const yScale = (v: number) => {
+      const t = (v - yMin) / (yMax - yMin);
+      return P + (1 - clamp(t, 0, 1)) * (H - 2 * P);
+    };
+
+    const points = series.map((s, i) => ({
+      x: xScale(i),
+      y: yScale(s.y),
+      d: s.d,
+      v: s.y,
+    }));
+
+    const path =
+      points.length <= 1
+        ? ""
+        : "M " + points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
+
+    return { W, H, path, points, yMin, yMax };
+  }, [series]);
+
+  if (err) return <div style={{ color: "#f55", fontSize: 14 }}>Error: {err}</div>;
+  if (rows.length === 0) return <div style={{ fontSize: 14 }}>Sin datos todavía.</div>;
 
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      {/* CSS para que el dropdown NO sea blanco con texto blanco */}
-      <style jsx global>{`
-        .ph_range {
-          color-scheme: dark;
-        }
-        .ph_range option {
-          background: #0b0b0b;
-          color: #ffffff;
-        }
-      `}</style>
-
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>Intervalo</div>
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>Presentación</div>
         <select
-          className="ph_range"
-          value={range}
-          onChange={(e) => setRange(e.target.value as RangeKey)}
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            color: "rgba(255,255,255,0.92)",
-            outline: "none",
-            colorScheme: "dark",
-          }}
+          style={{ border: "1px solid #333", borderRadius: 6, padding: "4px 8px", background: "transparent", color: "inherit" }}
+          value={presentacion ?? ""}
+          onChange={(e) => setPresentacion(e.target.value ? Number(e.target.value) : null)}
         >
-          <option value="30">Últimos 30 días</option>
-          <option value="60">Últimos 60 días</option>
-          <option value="100">Últimos 100 días</option>
-          <option value="180">Últimos 180 días</option>
-          <option value="365">Último año</option>
-          <option value="all">Todo</option>
+          {presList.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
         </select>
-
-        {cutoffIso && maxDate ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {fmtDate(cutoffIso)} → {fmtDate(maxDate)}
-          </div>
-        ) : null}
       </div>
 
-      <SparkLineChart
-        title="Precio por unidad (todas las presentaciones)"
-        series={unitSeries}
-        fmtY={(v) => fmtArs.format(Math.round(v))}
-        fmtX={fmtDate}
-      />
+      {series.length < 2 ? (
+        <div style={{ fontSize: 14, opacity: 0.8 }}>
+          Hay {series.length} punto(s) para esta presentación. Con 2+ días vas a ver una línea.
+        </div>
+      ) : null}
 
-      <div style={{ display: "grid", gap: 12 }}>
-        {chartsByPres.map((c) => (
-          <SparkLineChart
-            key={c.pres}
-            title={`Precio total · Presentación ${c.pres}`}
-            series={[{ name: `${c.pres}`, points: c.points }]}
-            fmtY={(v) => fmtArs.format(Math.round(v))}
-            fmtX={fmtDate}
-          />
-        ))}
+      <div style={{ border: "1px solid #222", borderRadius: 10, padding: 12 }}>
+        <svg width="100%" viewBox={`0 0 ${svg.W} ${svg.H}`} preserveAspectRatio="none">
+          <rect x="0" y="0" width={svg.W} height={svg.H} fill="transparent" />
+
+          <text x="6" y="18" fontSize="12">
+            {Math.round(svg.yMax).toLocaleString("es-AR")}
+          </text>
+          <text x="6" y={svg.H - 8} fontSize="12">
+            {Math.round(svg.yMin).toLocaleString("es-AR")}
+          </text>
+
+          {svg.path ? <path d={svg.path} fill="none" stroke="currentColor" strokeWidth="2" /> : null}
+
+          {svg.points.map((p, idx) => (
+            <g key={idx}>
+              <circle cx={p.x} cy={p.y} r="3.5" />
+              <text x={p.x + 6} y={p.y - 6} fontSize="12">
+                {Math.round(p.v).toLocaleString("es-AR")}
+              </text>
+            </g>
+          ))}
+
+          {svg.points.length >= 1 ? (
+            <>
+              <text x={svg.points[0].x} y={svg.H - 6} fontSize="12" textAnchor="middle">
+                {svg.points[0].d}
+              </text>
+              {svg.points.length > 1 ? (
+                <text x={svg.points[svg.points.length - 1].x} y={svg.H - 6} fontSize="12" textAnchor="middle">
+                  {svg.points[svg.points.length - 1].d}
+                </text>
+              ) : null}
+            </>
+          ) : null}
+        </svg>
       </div>
     </div>
   );
