@@ -3,6 +3,37 @@ import { db } from "../../../lib/db";
 
 type ItemParams = { item_id?: string };
 
+function normalizeQueryResult(res: any): any[] {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+}
+
+function titleFromUrl(urlStr: string): string | null {
+  try {
+    const u = new URL(urlStr);
+    const last = (u.pathname.split("/").filter(Boolean).pop() || "").trim();
+    if (!last) return null;
+
+    const decoded = decodeURIComponent(last);
+    const cleaned = decoded
+      .replace(/\.(html|htm|php)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleaned) return null;
+
+    return cleaned
+      .split(" ")
+      .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
+  } catch {
+    return null;
+  }
+}
+
 export default async function ItemPage({
   params,
 }: {
@@ -24,40 +55,27 @@ export default async function ItemPage({
     );
   }
 
-  let productTitle: string = `Item ${itemId}`;
+  let productTitle = `Item ${itemId}`;
   let itemUrl: string | null = null;
 
   try {
     const sql = db();
-    const r: any = await sql.query(
-      `select url_original, url_canonica from app.item_seguimiento where item_id = $1 limit 1;`,
+    const res: any = await sql.query(
+      `select url_original, url_canonica
+       from app.item_seguimiento
+       where item_id = $1
+       limit 1;`,
       [itemId]
     );
-    const row = Array.isArray(r?.rows) ? r.rows[0] : Array.isArray(r) ? r[0] : null;
-
+    const row = normalizeQueryResult(res)[0] ?? null;
     itemUrl = (row?.url_original || row?.url_canonica || null) as string | null;
 
     if (itemUrl) {
-      const u = new URL(itemUrl);
-      const last = (u.pathname.split("/").filter(Boolean).pop() || "").trim();
-      if (last) {
-        const decoded = decodeURIComponent(last);
-        const cleaned = decoded
-          .replace(/\.(html|htm|php)$/i, "")
-          .replace(/[-_]+/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-        if (cleaned) {
-          productTitle = cleaned
-            .split(" ")
-            .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
-            .join(" ");
-        }
-      }
+      const t = titleFromUrl(itemUrl);
+      if (t) productTitle = t;
     }
   } catch {
-    // ignore
+    // si falla la DB, queda el fallback "Item {id}"
   }
 
   return (
