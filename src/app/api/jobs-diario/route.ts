@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db } from "../../../lib/db";
 
-export const dynamic = "force-dynamic";
+function normalizeRows<T = any>(res: any): T[] {
+  if (!res) return [];
+  if (Array.isArray(res)) return res as T[];
+  if (Array.isArray(res.rows)) return res.rows as T[];
+  return [];
+}
 
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const runIdParam = searchParams.get("run_id");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "500", 10) || 500, 2000);
-
     const sql = db();
+    const url = new URL(req.url);
+    const runIdParam = url.searchParams.get("run_id");
 
-    // List recent runs for a selector (latest first)
-    const runs = await sql`
+    // 1) últimos runs
+    const runsRes = await sql.query(`
       SELECT
         r.id,
         r.as_of_date,
@@ -27,18 +30,26 @@ export async function GET(req: Request) {
       FROM app.pricing_daily_runs r
       ORDER BY r.started_at DESC
       LIMIT 50
-    `;
+    `);
+
+    const runs = normalizeRows<any>(runsRes);
 
     const selectedRunId =
-      runIdParam ? Number(runIdParam) : (runs?.[0]?.id ? Number(runs[0].id) : null);
+      runIdParam !== null && runIdParam !== ""
+        ? Number(runIdParam)
+        : runs.length > 0 && runs[0]?.id != null
+          ? Number(runs[0].id)
+          : null;
 
     if (!selectedRunId || !Number.isFinite(selectedRunId)) {
-      return NextResponse.json({ ok: true, runs: runs ?? [], run: null, rows: [] });
+      return NextResponse.json({ ok: true, runs, run: null, rows: [] });
     }
 
-    const run = runs.find((x: any) => Number(x.id) === Number(selectedRunId)) ?? null;
+    const run = runs.find((x: any) => Number(x?.id) === Number(selectedRunId)) ?? null;
 
-    const rows = await sql`
+    // 2) filas por offer del run
+    const rowsRes = await sql.query(
+      `
       SELECT
         ri.run_id,
         ri.offer_id,
@@ -50,12 +61,12 @@ export async function GET(req: Request) {
         o.item_id,
         o.motor_id,
         o.presentacion,
-        o.url_original,
         o.url_canonica,
+        o.url_original,
 
         iseg.proveedor_id,
-        p.proveedor_codigo,
         p.proveedor_nombre,
+        p.proveedor_codigo,
 
         EXISTS (
           SELECT 1
@@ -70,15 +81,18 @@ export async function GET(req: Request) {
         ON iseg.item_id = o.item_id
       LEFT JOIN app.proveedor p
         ON p.proveedor_id = iseg.proveedor_id
-      WHERE ri.run_id = ${selectedRunId}
-      ORDER BY ri.updated_at DESC
-      LIMIT ${limit}
-    `;
+      WHERE ri.run_id = $1
+      ORDER BY ri.updated_at DESC, ri.offer_id DESC
+      `,
+      [selectedRunId]
+    );
+
+    const rows = normalizeRows<any>(rowsRes);
 
     return NextResponse.json({ ok: true, runs, run, rows });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "unknown_error" },
+      { ok: false, error: e?.message ?? "jobs_diario_error" },
       { status: 500 }
     );
   }
