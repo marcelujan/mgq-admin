@@ -110,7 +110,7 @@ export default function JobsPage() {
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>Jobs</h1>
+        <h1 style={{ margin: 0 }}>Jobs manual</h1>
         <button onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
           {loading ? "Cargando..." : "Refrescar"}
         </button>

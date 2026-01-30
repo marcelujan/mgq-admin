@@ -9,7 +9,10 @@ export default function Home() {
           <Link href="/items">Items</Link>
         </li>
         <li>
-          <Link href="/jobs">Jobs</Link>
+          <Link href="/jobs">Jobs manual</Link>
+        </li>
+        <li>
+          <Link href="/jobs-diario">Jobs diario</Link>
         </li>
         <li>
           <Link href="/api/db-health" target="_blank">DB health</Link>
