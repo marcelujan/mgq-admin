@@ -727,7 +727,6 @@ export async function POST(_req: Request) {
         SELECT job_id
         FROM app.job
         WHERE estado = 'PENDING'::app.job_estado
-          AND next_run_at <= now()
           AND (locked_until IS NULL OR locked_until < now())
         ORDER BY prioridad DESC NULLS LAST, next_run_at ASC, job_id ASC
         LIMIT 1
