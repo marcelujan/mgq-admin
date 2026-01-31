@@ -32,3 +32,44 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || "Error listando jobs" }, { status: 500 });
   }
 }
+
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const itemIdsRaw = Array.isArray(body?.item_ids) ? body.item_ids : [];
+    const prioridad = Number.isFinite(Number(body?.prioridad)) ? Number(body.prioridad) : 100;
+
+    const itemIds = Array.from(
+      new Set(
+        itemIdsRaw
+          .map((x: any) => Number(x))
+          .filter((n: number) => Number.isFinite(n) && n > 0)
+      )
+    );
+
+    if (itemIds.length === 0) {
+      return NextResponse.json({ ok: false, error: "item_ids vacío" }, { status: 400 });
+    }
+
+    const sql = db();
+
+    const created: number[] = [];
+    for (const itemId of itemIds) {
+      const payload = JSON.stringify({ source: "manual_ui", item_id: itemId });
+      const rows = (await sql`
+        INSERT INTO app.job (tipo, estado, prioridad, item_id, payload)
+        VALUES ('SCRAPE_URL'::app.job_tipo, 'PENDING'::app.job_estado, ${prioridad}, ${itemId}, ${payload}::jsonb)
+        RETURNING job_id
+      `) as any[];
+
+      const jid = rows?.[0]?.job_id;
+      if (jid !== null && jid !== undefined) created.push(Number(jid));
+    }
+
+    return NextResponse.json({ ok: true, created_job_ids: created }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Error creando jobs" }, { status: 500 });
+  }
+}
+

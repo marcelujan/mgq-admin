@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+type ItemRow = {
+  item_id: number;
+  proveedor_id: number | null;
+  motor_id: number | null;
+  estado: string;
+  seleccionado: boolean;
+  url_canonica: string;
+  updated_at: string;
+};
+
 type JobRow = {
   job_id: number;
   tipo: string;
@@ -24,6 +34,12 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [items, setItems] = useState<ItemRow[]>([]);
+  const [itemsQ, setItemsQ] = useState("");
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  const [creating, setCreating] = useState(false);
+
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
   const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
@@ -46,7 +62,48 @@ export default function JobsPage() {
     }
   }
 
-  async function runNext() {
+  
+  async function loadItems() {
+    setItemsLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("limit", "50");
+      if (itemsQ.trim()) qs.set("search", itemsQ.trim());
+      const res = await fetch(`/api/items?${qs.toString()}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setItems(data.items ?? []);
+    } catch (e: any) {
+      alert(e?.message || "Error cargando items");
+    } finally {
+      setItemsLoading(false);
+    }
+  }
+
+  async function createJobsForSelected() {
+    const ids = selectedItemIds.slice();
+    if (ids.length === 0) {
+      alert("Seleccioná al menos un item");
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await fetch(`/api/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_ids: ids, prioridad: 100 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setSelectedItemIds([]);
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Error creando jobs");
+    } finally {
+      setCreating(false);
+    }
+  }
+async function runNext() {
     try {
       const res = await fetch(`/api/jobs/run-next`, {
         method: "POST",
@@ -92,6 +149,7 @@ export default function JobsPage() {
 
   useEffect(() => {
     load();
+    loadItems();
   }, []);
 
   const filtered = useMemo(() => {
@@ -135,7 +193,84 @@ export default function JobsPage() {
           placeholder="Buscar por id / tipo / estado / item_id"
           style={{ flex: 1, padding: "6px 10px" }}
         />
+      
+
+      <div style={{ marginBottom: 14, padding: 12, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>Crear job manual (por item_id)</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            value={itemsQ}
+            onChange={(e) => setItemsQ(e.target.value)}
+            placeholder="Buscar items (url / proveedor / id)"
+            style={{ flex: "1 1 320px", padding: "6px 10px" }}
+          />
+          <button onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
+            {itemsLoading ? "Buscando..." : "Buscar"}
+          </button>
+          <button
+            onClick={() => {
+              // seleccionar todos los visibles
+              const ids = items.map((x) => x.item_id);
+              setSelectedItemIds(Array.from(new Set([...selectedItemIds, ...ids])));
+            }}
+            style={{ padding: "6px 10px" }}
+            disabled={items.length === 0}
+          >
+            Seleccionar visibles
+          </button>
+          <button onClick={() => setSelectedItemIds([])} style={{ padding: "6px 10px" }} disabled={selectedItemIds.length === 0}>
+            Limpiar selección
+          </button>
+          <button onClick={createJobsForSelected} disabled={creating || selectedItemIds.length === 0} style={{ padding: "6px 10px" }}>
+            {creating ? "Creando..." : `Crear jobs (${selectedItemIds.length})`}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, maxHeight: 260, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10 }}>
+          <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 48 }}></th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 80 }}>item_id</th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>url</th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 120 }}>estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => {
+                const checked = selectedItemIds.includes(it.item_id);
+                return (
+                  <tr key={it.item_id}>
+                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedItemIds((prev) => Array.from(new Set([...prev, it.item_id])));
+                          else setSelectedItemIds((prev) => prev.filter((x) => x !== it.item_id));
+                        }}
+                      />
+                    </td>
+                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{it.item_id}</td>
+                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", maxWidth: 520, wordBreak: "break-word" }}>
+                      {it.url_canonica}
+                    </td>
+                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{it.estado}</td>
+                  </tr>
+                );
+              })}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ padding: 12, opacity: 0.8 }}>
+                    {itemsLoading ? "Cargando..." : "Sin items (usá Buscar)"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+</div>
 
       {err && (
         <div style={{ marginBottom: 12, padding: 10, border: "1px solid #c00" }}>
