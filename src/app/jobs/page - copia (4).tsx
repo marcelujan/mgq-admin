@@ -39,8 +39,6 @@ export default function JobsPage() {
   const [estado, setEstado] = useState("");
   const [latestOnly, setLatestOnly] = useState(false);
   const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
-  const [runningAll, setRunningAll] = useState(false);
-  const [ranAllCount, setRanAllCount] = useState(0);
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -86,41 +84,6 @@ export default function JobsPage() {
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
-    }
-  }
-
-  async function runAllPending() {
-    // Ejecuta /api/jobs/run-next en loop hasta que no haya más jobs reclamables.
-    // Límite de seguridad para evitar loops infinitos.
-    const MAX = 100;
-
-    setRunningAll(true);
-    setRanAllCount(0);
-
-    try {
-      let n = 0;
-      for (; n < MAX; n++) {
-        const res = await fetch(`/api/jobs/run-next`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ttl_seconds: 300 }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-
-        if (!data?.claimed) break; // no hay más jobs
-        setRanAllCount((prev) => prev + 1);
-      }
-
-      if (n >= MAX) {
-        alert(`Corte de seguridad: se ejecutaron ${MAX} jobs. Reintentar si faltan más.`);
-      }
-
-      await load();
-    } catch (e: any) {
-      alert(e?.message || "Error ejecutando jobs");
-    } finally {
-      setRunningAll(false);
     }
   }
 
@@ -227,12 +190,8 @@ export default function JobsPage() {
           {loading ? "Cargando..." : "Refrescar"}
         </button>
 
-        <button onClick={runNext} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button onClick={runNext} style={{ padding: "6px 10px" }}>
           Run next job
-        </button>
-
-        <button onClick={runAllPending} style={{ padding: "6px 10px" }} disabled={runningAll}>
-          {runningAll ? `Run all pending… (${ranAllCount})` : "Run all pending"}
         </button>
 
         <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.95 }}>
@@ -423,7 +382,10 @@ export default function JobsPage() {
             </thead>
             <tbody>
               {filtered.map((j) => {
-                const offers = Number(j.ofertas_count ?? 0);                const busy = approvingJobId === j.job_id;
+                const offers = Number(j.ofertas_count ?? 0);
+                const canApproveByStatus = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
+                const canApprove = canApproveByStatus && offers === 0;
+                const busy = approvingJobId === j.job_id;
 
                 return (
                   <tr key={j.job_id}>
@@ -440,22 +402,20 @@ export default function JobsPage() {
                       {j.last_error ?? ""}
                     </td>
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {j.estado === "WAITING_REVIEW" ? (
-                        <Link href={`/jobs/${j.job_id}`}>
-                          <button style={{ padding: "6px 10px" }}>Revisar</button>
-                        </Link>
-                      ) : j.estado === "SUCCEEDED" && offers === 0 ? (
-                        <button
-                          onClick={() => approve(j.job_id)}
-                          disabled={busy}
-                          style={{ padding: "6px 10px" }}
-                          title="Repara jobs viejos: crea ofertas faltantes (backfill)"
-                        >
-                          {busy ? "Backfilling..." : "Backfill"}
-                        </button>
-                      ) : (
-                        <span style={{ opacity: 0.5 }}>—</span>
-                      )}
+                      <button
+                        onClick={() => approve(j.job_id)}
+                        disabled={!canApprove || busy}
+                        style={{ padding: "6px 10px" }}
+                        title={
+                          !canApproveByStatus
+                            ? "Solo disponible en WAITING_REVIEW o SUCCEEDED"
+                            : offers > 0
+                              ? `Ya existen ofertas (${offers})`
+                              : "Aprobar y persistir ofertas"
+                        }
+                      >
+                        {busy ? "Approving..." : "Approve"}
+                      </button>
                     </td>
                   </tr>
                 );
