@@ -3,6 +3,19 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+
+function prettyNameFromUrl(url?: string) {
+  if (!url) return "";
+  try {
+    const clean = url.split("?")[0].split("#")[0];
+    const parts = clean.split("/").filter(Boolean);
+    const slug = parts[parts.length - 1] ?? "";
+    return slug.replace(/-/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
 type JobRow = {
   job_id: number;
   tipo: string;
@@ -41,6 +54,14 @@ export default function JobsPage() {
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
+
+const itemUrlById = useMemo(() => {
+  const m = new Map<number, string>();
+  for (const it of items) m.set(it.item_id, it.url_canonica);
+  return m;
+}, [items]);
+
+
   const [itemsQ, setItemsQ] = useState("");
   const [itemsLoading, setItemsLoading] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
@@ -343,7 +364,7 @@ export default function JobsPage() {
           <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                {["job_id", "estado", "tipo", "item_id", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
+                {["job_id", "estado", "tipo", "artículo", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
                   (h) => (
                     <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
                       {h}
@@ -355,6 +376,8 @@ export default function JobsPage() {
             <tbody>
               {filtered.map((j) => {
                 const offers = Number(j.ofertas_count ?? 0);
+                const canReview = j.estado === "WAITING_REVIEW";
+                const canBackfill = j.estado === "SUCCEEDED" && offers === 0;
                 const busy = approvingJobId === j.job_id;
 
                 return (
@@ -364,7 +387,16 @@ export default function JobsPage() {
                     </td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.estado}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.item_id ?? ""}</td>
+                    <td style={{ borderBottom: "1px solid #222", maxWidth: 380 }}>
+                  <div title={j.item_id != null ? itemUrlById.get(j.item_id) ?? "" : ""} style={{ fontWeight: 600 }}>
+                    {(() => {
+                      const u = j.item_id != null ? itemUrlById.get(j.item_id) : undefined;
+                      const name = prettyNameFromUrl(u);
+                      return name || "";
+                    })()}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>item_id: {j.item_id ?? ""}</div>
+                </td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.next_run_at}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.locked_until ?? ""}</td>
@@ -372,33 +404,21 @@ export default function JobsPage() {
                       {j.last_error ?? ""}
                     </td>
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {j.estado === "WAITING_REVIEW" ? (
-                        <Link
-                          href={`/jobs/${j.job_id}`}
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 10px",
-                            border: "1px solid #444",
-                            borderRadius: 6,
-                            textDecoration: "none",
-                          }}
-                          title="Abrir detalle para revisar"
-                        >
+                      {canReview ? (
+                        <Link href={`/jobs/${j.job_id}`} style={{ padding: "6px 10px", display: "inline-block", border: "1px solid #333", borderRadius: 6 }}>
                           Revisar
                         </Link>
-                      ) : j.estado === "SUCCEEDED" && offers === 0 ? (
+                      ) : canBackfill ? (
                         <button
                           onClick={() => approve(j.job_id)}
                           disabled={busy}
                           style={{ padding: "6px 10px" }}
-                          title="Crear ofertas faltantes (caso legado)"
+                          title="Crea ofertas faltantes si el job quedó SUCCEEDED sin persistirlas (caso legado)"
                         >
-                          {busy ? "Procesando..." : "Backfill"}
+                          Backfill
                         </button>
                       ) : (
-                        <button disabled style={{ padding: "6px 10px", opacity: 0.5 }} title="Sin acciones">
-                          —
-                        </button>
+                        <span style={{ opacity: 0.5 }}>—</span>
                       )}
                     </td>
                   </tr>
