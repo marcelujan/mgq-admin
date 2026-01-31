@@ -230,15 +230,15 @@ export default function JobsPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <h1 style={{ margin: 0 }}>Jobs manual</h1>
 
-        <button onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
+        <button type="button" onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
           {loading ? "Cargando..." : "Refrescar"}
         </button>
 
-        <button onClick={runNext} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button type="button" onClick={runNext} style={{ padding: "6px 10px" }} disabled={runningAll}>
           Run next job
         </button>
 
-        <button onClick={runAllPending} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button type="button" onClick={runAllPending} style={{ padding: "6px 10px" }} disabled={runningAll}>
           {runningAll ? `Run all… (${runAllCount})` : "Run all pending"}
         </button>
 
@@ -267,7 +267,7 @@ export default function JobsPage() {
           <option value="CANCELLED">CANCELLED</option>
         </select>
 
-        <button onClick={load} style={{ padding: "6px 10px" }} disabled={loading}>
+        <button type="button" onClick={load} style={{ padding: "6px 10px" }} disabled={loading}>
           Filtrar
         </button>
 
@@ -299,11 +299,11 @@ export default function JobsPage() {
             style={{ flex: "1 1 420px", padding: "6px 10px" }}
           />
 
-          <button onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
+          <button type="button" onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
             {itemsLoading ? "Buscando..." : "Buscar"}
           </button>
 
-          <button
+          <button type="button"
             onClick={() => {
               const ids = items.map((x) => x.item_id);
               setSelectedItemIds((prev) => Array.from(new Set([...prev, ...ids])));
@@ -314,7 +314,7 @@ export default function JobsPage() {
             Seleccionar visibles
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setSelectedItemIds([])}
             style={{ padding: "6px 10px" }}
             disabled={selectedItemIds.length === 0}
@@ -322,7 +322,7 @@ export default function JobsPage() {
             Limpiar selección
           </button>
 
-          <button
+          <button type="button"
             onClick={createJobsForSelected}
             disabled={creating || selectedItemIds.length === 0}
             style={{ padding: "6px 10px" }}
@@ -457,10 +457,10 @@ export default function JobsPage() {
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
                       {showReview ? (
                         <Link href={`/jobs/${j.job_id}`}>
-                          <button style={{ padding: "6px 10px" }}>Revisar</button>
+                          <button type="button" style={{ padding: "6px 10px" }}>Revisar</button>
                         </Link>
                       ) : showBackfill ? (
-                        <button
+                        <button type="button"
                           onClick={() => backfill(j.job_id)}
                           disabled={busy}
                           style={{ padding: "6px 10px" }}
