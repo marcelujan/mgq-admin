@@ -83,11 +83,7 @@ export default function JobsPage() {
 
   async function runNext() {
     try {
-      const res = await fetch(`/api/jobs/run-next`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ttl_seconds: 300 }),
-      });
+      const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
       const text = await res.text();
       const data = (() => {
         try {
@@ -115,11 +111,7 @@ export default function JobsPage() {
 
     try {
       for (let i = 0; i < MAX; i++) {
-        const res = await fetch(`/api/jobs/run-next`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ttl_seconds: 300 }),
-        });
+        const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
         const text = await res.text();
         const data = (() => {
           try {
