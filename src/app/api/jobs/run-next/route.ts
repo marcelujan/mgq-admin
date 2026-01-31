@@ -47,10 +47,10 @@ function providerConfigFromUrl(url: string) {
 
   // PuraQuimica: el SKU no viene en la URL, no debe generar WARNING
   if (host.endsWith("puraquimica.com.ar")) {
-    return { allowMissingSku: true };
+    return { allowMissingSku: true, ignoreMissingPricesByPresentation: true };
   }
 
-  return { allowMissingSku: false };
+  return { allowMissingSku: false, ignoreMissingPricesByPresentation: false };
 }
 
 /**
@@ -514,12 +514,22 @@ async function motorPuraQuimica(
   }
 
   // warnings sobre precios por presentación
+  // Nota: algunos proveedores (ej. PuraQuimica) muestran múltiples presentaciones pero sólo exponen el precio
+  // de la variante seleccionada en el HTML. En esos casos, "faltan precios por presentación" NO es señal de riesgo.
   if (pres.length > 0) {
     if (precioByPres.size === 0) {
-      warnings.push("No se pudieron extraer precios ARS por presentación desde el HTML");
+      if (!cfg.ignoreMissingPricesByPresentation) {
+        warnings.push(
+          "No se pudieron extraer precios ARS por presentación desde el HTML"
+        );
+      }
     } else if (precioByPres.size < pres.length) {
       const missing = pres.filter((p) => !precioByPres.has(p)).length;
-      warnings.push(`Faltan precios ARS para ${missing}/${pres.length} presentaciones`);
+      if (!cfg.ignoreMissingPricesByPresentation) {
+        warnings.push(
+          `Faltan precios ARS para ${missing}/${pres.length} presentaciones`
+        );
+      }
     }
   }
 
@@ -672,6 +682,7 @@ export async function POST(_req: Request) {
         SELECT job_id
         FROM app.job
         WHERE estado = 'PENDING'::app.job_estado
+          AND next_run_at <= now()
           AND (locked_until IS NULL OR locked_until < now())
         ORDER BY prioridad DESC NULLS LAST, next_run_at ASC, job_id ASC
         LIMIT 1
@@ -814,135 +825,7 @@ export async function POST(_req: Request) {
     }
 
     if (status === "OK") {
-      // OK -> auto-aprobación (sin WAITING_REVIEW) solo si los candidatos son consistentes.
-      if (!itemId) {
-        const msg = "Job OK pero sin item_id: no se pueden crear ofertas";
-        await sql`
-          UPDATE app.job
-          SET
-            estado = 'FAILED'::app.job_estado,
-            finished_at = COALESCE(finished_at, now()),
-            locked_by = NULL,
-            locked_until = NULL,
-            last_error = ${msg},
-            updated_at = now()
-          WHERE job_id = ${jobId}
-        `;
-        return NextResponse.json(
-          { ok: false, claimed: true, job_id: String(jobId), status, error: msg },
-          { status: 500 }
-        );
-      }
-
-      const valid = (candidatos ?? []).filter((c: any) => {
-        const uom = String(c?.uom ?? "").toUpperCase();
-        const pres = Number(c?.presentacion);
-        const ars = Number(c?.precio_ars_observado);
-        const usd = Number(c?.costo_base_usd);
-        if (!["GR", "ML", "UN"].includes(uom)) return false;
-        if (!Number.isFinite(pres) || pres <= 0) return false;
-        if (!Number.isFinite(ars) || ars <= 0) return false;
-        if (!Number.isFinite(usd) || usd <= 0) return false;
-        return true;
-      });
-
-      if (valid.length === 0) {
-        const msg = "OK sin candidatos válidos (uom/presentacion/precio/costo_base_usd)";
-        await sql`
-          UPDATE app.job
-          SET
-            estado = 'WAITING_REVIEW'::app.job_estado,
-            locked_by = NULL,
-            locked_until = NULL,
-            last_error = ${msg},
-            updated_at = now()
-          WHERE job_id = ${jobId}
-        `;
-        return NextResponse.json(
-          {
-            ok: true,
-            claimed: true,
-            job: {
-              job_id: String(jobId),
-              item_id: String(itemId),
-              motor_id: String(motorId),
-              tipo: job.tipo,
-            },
-            result: { status: "WARNING", candidatos_len: candidatos.length, warnings: [msg], errors: [] },
-          },
-          { status: 200 }
-        );
-      }
-
-      // Insertar ofertas (dedupe por (uom,presentacion))
-      const existing = (await sql`
-        SELECT oferta_id, uom::text AS uom, presentacion
-        FROM app.oferta_proveedor
-        WHERE item_id = ${itemId}
-        ORDER BY oferta_id ASC
-      `) as any[];
-
-      const existingKey = new Set<string>();
-      const existingIds = existing.map((r: any) => String(r.oferta_id)).filter(Boolean);
-
-      for (const r of existing) {
-        const key = `${String(r.uom ?? "")}|${String(r.presentacion ?? "")}`;
-        existingKey.add(key);
-      }
-
-      const insertedIds: string[] = [];
-      let skippedExisting = 0;
-
-      for (const c of valid) {
-        const uom = String(c?.uom ?? "UN").toUpperCase();
-        const presentacion = c?.presentacion ?? null;
-        const key = `${uom}|${String(presentacion)}`;
-
-        if (existingKey.has(key)) {
-          skippedExisting++;
-          continue;
-        }
-
-        const ins = (await sql`
-          INSERT INTO app.oferta_proveedor
-            (item_id, articulo_prov, presentacion, uom,
-             costo_base_usd, fx_usado_en_alta, fecha_scrape_base,
-             densidad, descripcion, habilitada, created_at, updated_at)
-          VALUES
-            (${itemId}, ${c?.articulo_prov ?? null}, ${presentacion}, ${uom}::app.uom,
-             ${c?.costo_base_usd ?? null}, ${c?.fx_usado_en_alta ?? null}, ${c?.fecha_scrape_base ?? null},
-             ${c?.densidad ?? null}, ${c?.descripcion ?? null}, true, now(), now())
-          RETURNING oferta_id
-        `) as any[];
-
-        const ofertaId = ins?.[0]?.oferta_id;
-        if (ofertaId) {
-          insertedIds.push(String(ofertaId));
-          existingKey.add(key);
-        }
-      }
-
-      const allOfertaIds = [...existingIds, ...insertedIds];
-
-      if (allOfertaIds.length === 0) {
-        const msg = "No se insertaron ofertas y no existían ofertas previas para el item";
-        await sql`
-          UPDATE app.job
-          SET
-            estado = 'WAITING_REVIEW'::app.job_estado,
-            locked_by = NULL,
-            locked_until = NULL,
-            last_error = ${msg},
-            updated_at = now()
-          WHERE job_id = ${jobId}
-        `;
-        return NextResponse.json(
-          { ok: true, claimed: true, job_id: String(jobId), status: "WARNING", error: msg },
-          { status: 200 }
-        );
-      }
-
-      // Marcar job + item como OK/SUCCEEDED
+      // OK -> SUCCEEDED (no requiere revisión humana)
       await sql`
         UPDATE app.job
         SET
@@ -954,29 +837,16 @@ export async function POST(_req: Request) {
         WHERE job_id = ${jobId}
       `;
 
-      await sql`
-        UPDATE app.item_seguimiento
-        SET
-          estado = 'OK'::app.item_estado,
-          mensaje_error = NULL,
-          updated_at = now()
-        WHERE item_id = ${itemId}
-      `;
-
       return NextResponse.json(
         {
           ok: true,
           claimed: true,
           job: {
             job_id: String(jobId),
-            item_id: String(itemId),
+            item_id: itemId ? String(itemId) : null,
             motor_id: String(motorId),
             tipo: job.tipo,
           },
-          auto_approved: true,
-          oferta_ids: allOfertaIds,
-          inserted_count: insertedIds.length,
-          skipped_existing: skippedExisting,
           result: { status, candidatos_len: candidatos.length, warnings, errors },
         },
         { status: 200 }

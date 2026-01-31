@@ -662,61 +662,6 @@ async function motorPuraQuimica(
   };
 }
 
-// ------------------------------------------------------------
-// WAITING_REVIEW policy (mgq-admin v2)
-//
-// Decision (2026-01):
-// - "Primera vez" NO fuerza WAITING_REVIEW.
-// - Un SCRAPE_URL puede cerrar SUCCEEDED si pasa controles de seguridad
-//   y el resultado es consistente.
-// - Warnings cosméticos NO bloquean auto-aprobación; solo "señales de riesgo".
-// - UOM válidas: GR / ML / UN.
-// ------------------------------------------------------------
-
-function isRiskWarning(w: string): boolean {
-  const s = (w || "").toLowerCase();
-
-  // Señales de riesgo explícitas (códigos)
-  if (s.startsWith("suspect_fx_as_price")) return true;
-  if (s.startsWith("unit_price_missing")) return true;
-  if (s.startsWith("scale_min_missing")) return true;
-
-  // FX faltante bloquea porque impide costo_base_usd
-  if (s.includes("fx") && s.includes("no disponible")) return true;
-
-  // Precios por presentación faltantes / incompletos
-  if (s.includes("no se pudieron extraer precios") && s.includes("presentación")) return true;
-  if (s.includes("faltan precios") && s.includes("presentaciones")) return true;
-
-  // Por defecto: no riesgo
-  return false;
-}
-
-function isValidUom(uom: any): uom is "GR" | "ML" | "UN" {
-  return uom === "GR" || uom === "ML" || uom === "UN";
-}
-
-function isValidCandidateForAutoApprove(c: any): boolean {
-  if (!c) return false;
-  if (!isValidUom(c.uom)) return false;
-
-  const presentacion = Number(c.presentacion);
-  if (!Number.isFinite(presentacion) || presentacion <= 0) return false;
-
-  const precioArs = c.precio_ars_observado;
-  if (precioArs === null || precioArs === undefined) return false;
-  const precioArsNum = Number(precioArs);
-  if (!Number.isFinite(precioArsNum) || precioArsNum <= 0) return false;
-
-  // Si no hay costo_base_usd, no auto-aprobar (dependemos de FX).
-  const baseUsd = c.costo_base_usd;
-  if (baseUsd === null || baseUsd === undefined) return false;
-  const baseUsdNum = Number(baseUsd);
-  if (!Number.isFinite(baseUsdNum) || baseUsdNum <= 0) return false;
-
-  return true;
-}
-
 export async function POST(_req: Request) {
   const sql = db();
 
@@ -868,16 +813,136 @@ export async function POST(_req: Request) {
       );
     }
 
-    // Política WAITING_REVIEW vs SUCCEEDED:
-    // - Solo warnings de riesgo bloquean auto-aprobación.
-    // - Debe existir al menos 1 candidato válido (uom/presentacion/precio/costo_base_usd).
-    const riskWarnings = (warnings ?? []).filter((w) => isRiskWarning(String(w)));
-    const infoWarnings = (warnings ?? []).filter((w) => !isRiskWarning(String(w)));
+    if (status === "OK") {
+      // OK -> auto-aprobación (sin WAITING_REVIEW) solo si los candidatos son consistentes.
+      if (!itemId) {
+        const msg = "Job OK pero sin item_id: no se pueden crear ofertas";
+        await sql`
+          UPDATE app.job
+          SET
+            estado = 'FAILED'::app.job_estado,
+            finished_at = COALESCE(finished_at, now()),
+            locked_by = NULL,
+            locked_until = NULL,
+            last_error = ${msg},
+            updated_at = now()
+          WHERE job_id = ${jobId}
+        `;
+        return NextResponse.json(
+          { ok: false, claimed: true, job_id: String(jobId), status, error: msg },
+          { status: 500 }
+        );
+      }
 
-    const validCandidates = (candidatos ?? []).filter((c) => isValidCandidateForAutoApprove(c));
-    const canAutoApprove = riskWarnings.length === 0 && validCandidates.length > 0;
+      const valid = (candidatos ?? []).filter((c: any) => {
+        const uom = String(c?.uom ?? "").toUpperCase();
+        const pres = Number(c?.presentacion);
+        const ars = Number(c?.precio_ars_observado);
+        const usd = Number(c?.costo_base_usd);
+        if (!["GR", "ML", "UN"].includes(uom)) return false;
+        if (!Number.isFinite(pres) || pres <= 0) return false;
+        if (!Number.isFinite(ars) || ars <= 0) return false;
+        if (!Number.isFinite(usd) || usd <= 0) return false;
+        return true;
+      });
 
-    if (canAutoApprove) {
+      if (valid.length === 0) {
+        const msg = "OK sin candidatos válidos (uom/presentacion/precio/costo_base_usd)";
+        await sql`
+          UPDATE app.job
+          SET
+            estado = 'WAITING_REVIEW'::app.job_estado,
+            locked_by = NULL,
+            locked_until = NULL,
+            last_error = ${msg},
+            updated_at = now()
+          WHERE job_id = ${jobId}
+        `;
+        return NextResponse.json(
+          {
+            ok: true,
+            claimed: true,
+            job: {
+              job_id: String(jobId),
+              item_id: String(itemId),
+              motor_id: String(motorId),
+              tipo: job.tipo,
+            },
+            result: { status: "WARNING", candidatos_len: candidatos.length, warnings: [msg], errors: [] },
+          },
+          { status: 200 }
+        );
+      }
+
+      // Insertar ofertas (dedupe por (uom,presentacion))
+      const existing = (await sql`
+        SELECT oferta_id, uom::text AS uom, presentacion
+        FROM app.oferta_proveedor
+        WHERE item_id = ${itemId}
+        ORDER BY oferta_id ASC
+      `) as any[];
+
+      const existingKey = new Set<string>();
+      const existingIds = existing.map((r: any) => String(r.oferta_id)).filter(Boolean);
+
+      for (const r of existing) {
+        const key = `${String(r.uom ?? "")}|${String(r.presentacion ?? "")}`;
+        existingKey.add(key);
+      }
+
+      const insertedIds: string[] = [];
+      let skippedExisting = 0;
+
+      for (const c of valid) {
+        const uom = String(c?.uom ?? "UN").toUpperCase();
+        const presentacion = c?.presentacion ?? null;
+        const key = `${uom}|${String(presentacion)}`;
+
+        if (existingKey.has(key)) {
+          skippedExisting++;
+          continue;
+        }
+
+        const ins = (await sql`
+          INSERT INTO app.oferta_proveedor
+            (item_id, articulo_prov, presentacion, uom,
+             costo_base_usd, fx_usado_en_alta, fecha_scrape_base,
+             densidad, descripcion, habilitada, created_at, updated_at)
+          VALUES
+            (${itemId}, ${c?.articulo_prov ?? null}, ${presentacion}, ${uom}::app.uom,
+             ${c?.costo_base_usd ?? null}, ${c?.fx_usado_en_alta ?? null}, ${c?.fecha_scrape_base ?? null},
+             ${c?.densidad ?? null}, ${c?.descripcion ?? null}, true, now(), now())
+          RETURNING oferta_id
+        `) as any[];
+
+        const ofertaId = ins?.[0]?.oferta_id;
+        if (ofertaId) {
+          insertedIds.push(String(ofertaId));
+          existingKey.add(key);
+        }
+      }
+
+      const allOfertaIds = [...existingIds, ...insertedIds];
+
+      if (allOfertaIds.length === 0) {
+        const msg = "No se insertaron ofertas y no existían ofertas previas para el item";
+        await sql`
+          UPDATE app.job
+          SET
+            estado = 'WAITING_REVIEW'::app.job_estado,
+            locked_by = NULL,
+            locked_until = NULL,
+            last_error = ${msg},
+            updated_at = now()
+          WHERE job_id = ${jobId}
+        `;
+        return NextResponse.json(
+          { ok: true, claimed: true, job_id: String(jobId), status: "WARNING", error: msg },
+          { status: 200 }
+        );
+      }
+
+      // Marcar job + item como OK/SUCCEEDED
       await sql`
         UPDATE app.job
         SET
@@ -889,32 +954,36 @@ export async function POST(_req: Request) {
         WHERE job_id = ${jobId}
       `;
 
+      await sql`
+        UPDATE app.item_seguimiento
+        SET
+          estado = 'OK'::app.item_estado,
+          mensaje_error = NULL,
+          updated_at = now()
+        WHERE item_id = ${itemId}
+      `;
+
       return NextResponse.json(
         {
           ok: true,
           claimed: true,
           job: {
             job_id: String(jobId),
-            item_id: itemId ? String(itemId) : null,
+            item_id: String(itemId),
             motor_id: String(motorId),
             tipo: job.tipo,
           },
-          result: {
-            status,
-            candidatos_len: candidatos.length,
-            valid_candidates_len: validCandidates.length,
-            warnings,
-            risk_warnings: riskWarnings,
-            info_warnings: infoWarnings,
-            errors,
-          },
+          auto_approved: true,
+          oferta_ids: allOfertaIds,
+          inserted_count: insertedIds.length,
+          skipped_existing: skippedExisting,
+          result: { status, candidatos_len: candidatos.length, warnings, errors },
         },
         { status: 200 }
       );
     }
 
-    // Si el motor reportó OK pero no hay candidatos válidos, o hay warnings de riesgo,
-    // se requiere revisión humana.
+    // WARNING -> WAITING_REVIEW
     await sql`
       UPDATE app.job
       SET
@@ -935,15 +1004,7 @@ export async function POST(_req: Request) {
           motor_id: String(motorId),
           tipo: job.tipo,
         },
-        result: {
-          status,
-          candidatos_len: candidatos.length,
-          valid_candidates_len: validCandidates.length,
-          warnings,
-          risk_warnings: riskWarnings,
-          info_warnings: infoWarnings,
-          errors,
-        },
+        result: { status, candidatos_len: candidatos.length, warnings, errors },
       },
       { status: 200 }
     );
