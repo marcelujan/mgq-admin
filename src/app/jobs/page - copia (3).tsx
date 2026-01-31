@@ -37,8 +37,9 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
-  const [latestOnly, setLatestOnly] = useState(false);
   const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
+  const [runningAll, setRunningAll] = useState(false);
+  const [runAllCount, setRunAllCount] = useState(0);
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -53,11 +54,7 @@ export default function JobsPage() {
     try {
       const qs = new URLSearchParams();
       qs.set("limit", "200");
-      if (latestOnly) {
-        qs.set("latest_succeeded", "1");
-      } else {
-        if (estado) qs.set("estado", estado);
-      }
+      if (estado) qs.set("estado", estado);
 
       const res = await fetch(`/api/jobs?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
@@ -84,6 +81,40 @@ export default function JobsPage() {
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
+    }
+  }
+
+  async function runAllPending() {
+    if (runningAll) return;
+    setRunningAll(true);
+    setRunAllCount(0);
+    try {
+      // Seguridad: evitar loops infinitos y evitar que el usuario bloquee la UI.
+      // Ajustá si querés (p.ej. 200), pero 50 es un buen default para serverless.
+      const MAX = 50;
+      let n = 0;
+      while (n < MAX) {
+        const res = await fetch(`/api/jobs/run-next`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ttl_seconds: 300 }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        if (!data?.claimed) break;
+        n += 1;
+        setRunAllCount(n);
+        // Pequeña pausa para dejar respirar el event loop y re-render.
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await load();
+      if (n >= MAX) {
+        alert(`Se ejecutaron ${n} jobs. Quedó el tope MAX=${MAX}. Si faltan, apretá de nuevo.`);
+      }
+    } catch (e: any) {
+      alert(e?.message || "Error ejecutando jobs");
+    } finally {
+      setRunningAll(false);
     }
   }
 
@@ -194,30 +225,11 @@ export default function JobsPage() {
           Run next job
         </button>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.95 }}>
-          <input
-            type="checkbox"
-            checked={latestOnly}
-            onChange={async (e) => {
-              const v = e.target.checked;
-              setLatestOnly(v);
-              if (v) setEstado("");
-              // recargar con el nuevo modo
-              setTimeout(() => {
-                load();
-              }, 0);
-            }}
-          />
-          Solo últimos SUCCEEDED
-        </label>
+        <button onClick={runAllPending} disabled={runningAll} style={{ padding: "6px 10px" }}>
+          {runningAll ? `Running… (${runAllCount})` : "Run all pending"}
+        </button>
 
-        <select
-          value={estado}
-          onChange={(e) => setEstado(e.target.value)}
-          style={{ padding: "6px 10px" }}
-          disabled={latestOnly}
-          title={latestOnly ? "Desactivá 'Solo últimos SUCCEEDED' para filtrar por estado" : ""}
-        >
+        <select value={estado} onChange={(e) => setEstado(e.target.value)} style={{ padding: "6px 10px" }}>
           <option value="">(todos)</option>
           <option value="PENDING">PENDING</option>
           <option value="RUNNING">RUNNING</option>
@@ -383,8 +395,6 @@ export default function JobsPage() {
             <tbody>
               {filtered.map((j) => {
                 const offers = Number(j.ofertas_count ?? 0);
-                const canApproveByStatus = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
-                const canApprove = canApproveByStatus && offers === 0;
                 const busy = approvingJobId === j.job_id;
 
                 return (
@@ -402,20 +412,34 @@ export default function JobsPage() {
                       {j.last_error ?? ""}
                     </td>
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      <button
-                        onClick={() => approve(j.job_id)}
-                        disabled={!canApprove || busy}
-                        style={{ padding: "6px 10px" }}
-                        title={
-                          !canApproveByStatus
-                            ? "Solo disponible en WAITING_REVIEW o SUCCEEDED"
-                            : offers > 0
-                              ? `Ya existen ofertas (${offers})`
-                              : "Aprobar y persistir ofertas"
-                        }
-                      >
-                        {busy ? "Approving..." : "Approve"}
-                      </button>
+                      {j.estado === "WAITING_REVIEW" ? (
+                        <Link
+                          href={`/jobs/${j.job_id}`}
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            border: "1px solid #444",
+                            borderRadius: 6,
+                            textDecoration: "none",
+                          }}
+                          title="Abrir detalle para revisar"
+                        >
+                          Revisar
+                        </Link>
+                      ) : j.estado === "SUCCEEDED" && offers === 0 ? (
+                        <button
+                          onClick={() => approve(j.job_id)}
+                          disabled={busy}
+                          style={{ padding: "6px 10px" }}
+                          title="Crear ofertas faltantes (caso legado)"
+                        >
+                          {busy ? "Procesando..." : "Backfill"}
+                        </button>
+                      ) : (
+                        <button disabled style={{ padding: "6px 10px", opacity: 0.5 }} title="Sin acciones">
+                          —
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
