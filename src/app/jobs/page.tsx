@@ -88,8 +88,17 @@ export default function JobsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ttl_seconds: 300 }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      const text = await res.text();
+      const data = (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      })();
+      if (!res.ok || !data?.ok) {
+        throw new Error((data && (data.error || data.message)) || text || `HTTP ${res.status}`);
+      }
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
@@ -111,8 +120,17 @@ export default function JobsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ttl_seconds: 300 }),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        const text = await res.text();
+        const data = (() => {
+          try {
+            return JSON.parse(text);
+          } catch {
+            return null;
+          }
+        })();
+        if (!res.ok || !data?.ok) {
+          throw new Error((data && (data.error || data.message)) || text || `HTTP ${res.status}`);
+        }
 
         if (!data?.claimed) break;
         setRunAllCount((c) => c + 1);
@@ -234,11 +252,29 @@ export default function JobsPage() {
           {loading ? "Cargando..." : "Refrescar"}
         </button>
 
-        <button type="button" onClick={runNext} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            runNext();
+          }}
+          style={{ padding: "6px 10px" }}
+          disabled={runningAll}
+        >
           Run next job
         </button>
 
-        <button type="button" onClick={runAllPending} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            runAllPending();
+          }}
+          style={{ padding: "6px 10px" }}
+          disabled={runningAll}
+        >
           {runningAll ? `Run all… (${runAllCount})` : "Run all pending"}
         </button>
 
