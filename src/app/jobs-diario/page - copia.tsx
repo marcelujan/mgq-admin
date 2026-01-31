@@ -31,11 +31,6 @@ type Row = {
   url_canonica: string;
 
   proveedor_id: number | null;
-  // El endpoint puede devolver aliases proveedor_codigo/proveedor_nombre o directamente codigo/nombre
-  proveedor_codigo?: string | null;
-  proveedor_nombre?: string | null;
-  codigo?: string | null;
-  nombre?: string | null;
 
   actualizado: boolean;
 };
@@ -112,13 +107,12 @@ export default function JobsDiarioPage() {
       if (status && String(r.cron_status).toLowerCase() !== status.toLowerCase()) return false;
       if (!qq) return true;
       const prod = productTitleFromUrl(r.url_canonica || r.url_original).toLowerCase();
-      const prov = (r.proveedor_nombre ?? (r as any).nombre ?? r.proveedor_codigo ?? (r as any).codigo ?? "").toLowerCase();
+      const prov = (r.proveedor_id != null ? `#${r.proveedor_id}` : "").toLowerCase();
       return (
         prod.includes(qq) ||
         prov.includes(qq) ||
         String(r.item_id).includes(qq) ||
-        String(r.offer_id).includes(qq) ||
-        String(r.proveedor_id ?? "").includes(qq)
+        String(r.offer_id).includes(qq)
       );
     });
   }, [rows, q, status]);
@@ -184,7 +178,7 @@ export default function JobsDiarioPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar (producto, proveedor, item_id, offer_id)"
+          placeholder="Buscar (producto, proveedor_id, item_id, offer_id)"
           style={{
             minWidth: 280,
             border: "1px solid rgba(255,255,255,0.14)",
@@ -248,12 +242,7 @@ export default function JobsDiarioPage() {
               {filtered.map((r) => {
                 const url = r.url_canonica || r.url_original;
                 const prod = productTitleFromUrl(url);
-                const prov =
-                  r.proveedor_nombre ??
-                  (r as any).nombre ??
-                  r.proveedor_codigo ??
-                  (r as any).codigo ??
-                  (r.proveedor_id ? `#${r.proveedor_id}` : "");
+                const prov = r.proveedor_id != null ? `#${r.proveedor_id}` : "";
                 const showWarn = !!r.last_error;
 
                 return (
