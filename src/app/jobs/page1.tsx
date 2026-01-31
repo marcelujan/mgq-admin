@@ -355,7 +355,7 @@ export default function JobsPage() {
             <tbody>
               {filtered.map((j) => {
                 const offers = Number(j.ofertas_count ?? 0);
-                const canApproveByStatus = j.estado === "WAITING_REVIEW" || (j.estado === "SUCCEEDED" && offers === 0);
+                const canApproveByStatus = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
                 const canApprove = canApproveByStatus && offers === 0;
                 const busy = approvingJobId === j.job_id;
 
@@ -380,13 +380,13 @@ export default function JobsPage() {
                         style={{ padding: "6px 10px" }}
                         title={
                           !canApproveByStatus
-                            ? "Solo disponible en WAITING_REVIEW (o SUCCEEDED sin ofertas)"
+                            ? "Solo disponible en WAITING_REVIEW o SUCCEEDED"
                             : offers > 0
                               ? `Ya existen ofertas (${offers})`
-                              : j.estado === "SUCCEEDED" ? "Crear ofertas faltantes (backfill)" : "Aprobar y persistir ofertas"
+                              : "Aprobar y persistir ofertas"
                         }
                       >
-                        {busy ? "Approving..." : j.estado === "SUCCEEDED" ? "Backfill" : "Approve"}
+                        {busy ? "Approving..." : "Approve"}
                       </button>
                     </td>
                   </tr>
