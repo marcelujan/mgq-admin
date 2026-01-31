@@ -662,6 +662,61 @@ async function motorPuraQuimica(
   };
 }
 
+// ------------------------------------------------------------
+// WAITING_REVIEW policy (mgq-admin v2)
+//
+// Decision (2026-01):
+// - "Primera vez" NO fuerza WAITING_REVIEW.
+// - Un SCRAPE_URL puede cerrar SUCCEEDED si pasa controles de seguridad
+//   y el resultado es consistente.
+// - Warnings cosméticos NO bloquean auto-aprobación; solo "señales de riesgo".
+// - UOM válidas: GR / ML / UN.
+// ------------------------------------------------------------
+
+function isRiskWarning(w: string): boolean {
+  const s = (w || "").toLowerCase();
+
+  // Señales de riesgo explícitas (códigos)
+  if (s.startsWith("suspect_fx_as_price")) return true;
+  if (s.startsWith("unit_price_missing")) return true;
+  if (s.startsWith("scale_min_missing")) return true;
+
+  // FX faltante bloquea porque impide costo_base_usd
+  if (s.includes("fx") && s.includes("no disponible")) return true;
+
+  // Precios por presentación faltantes / incompletos
+  if (s.includes("no se pudieron extraer precios") && s.includes("presentación")) return true;
+  if (s.includes("faltan precios") && s.includes("presentaciones")) return true;
+
+  // Por defecto: no riesgo
+  return false;
+}
+
+function isValidUom(uom: any): uom is "GR" | "ML" | "UN" {
+  return uom === "GR" || uom === "ML" || uom === "UN";
+}
+
+function isValidCandidateForAutoApprove(c: any): boolean {
+  if (!c) return false;
+  if (!isValidUom(c.uom)) return false;
+
+  const presentacion = Number(c.presentacion);
+  if (!Number.isFinite(presentacion) || presentacion <= 0) return false;
+
+  const precioArs = c.precio_ars_observado;
+  if (precioArs === null || precioArs === undefined) return false;
+  const precioArsNum = Number(precioArs);
+  if (!Number.isFinite(precioArsNum) || precioArsNum <= 0) return false;
+
+  // Si no hay costo_base_usd, no auto-aprobar (dependemos de FX).
+  const baseUsd = c.costo_base_usd;
+  if (baseUsd === null || baseUsd === undefined) return false;
+  const baseUsdNum = Number(baseUsd);
+  if (!Number.isFinite(baseUsdNum) || baseUsdNum <= 0) return false;
+
+  return true;
+}
+
 export async function POST(_req: Request) {
   const sql = db();
 
@@ -814,8 +869,16 @@ export async function POST(_req: Request) {
       );
     }
 
-    if (status === "OK") {
-      // OK -> SUCCEEDED (no requiere revisión humana)
+    // Política WAITING_REVIEW vs SUCCEEDED:
+    // - Solo warnings de riesgo bloquean auto-aprobación.
+    // - Debe existir al menos 1 candidato válido (uom/presentacion/precio/costo_base_usd).
+    const riskWarnings = (warnings ?? []).filter((w) => isRiskWarning(String(w)));
+    const infoWarnings = (warnings ?? []).filter((w) => !isRiskWarning(String(w)));
+
+    const validCandidates = (candidatos ?? []).filter((c) => isValidCandidateForAutoApprove(c));
+    const canAutoApprove = riskWarnings.length === 0 && validCandidates.length > 0;
+
+    if (canAutoApprove) {
       await sql`
         UPDATE app.job
         SET
@@ -837,13 +900,22 @@ export async function POST(_req: Request) {
             motor_id: String(motorId),
             tipo: job.tipo,
           },
-          result: { status, candidatos_len: candidatos.length, warnings, errors },
+          result: {
+            status,
+            candidatos_len: candidatos.length,
+            valid_candidates_len: validCandidates.length,
+            warnings,
+            risk_warnings: riskWarnings,
+            info_warnings: infoWarnings,
+            errors,
+          },
         },
         { status: 200 }
       );
     }
 
-    // WARNING -> WAITING_REVIEW
+    // Si el motor reportó OK pero no hay candidatos válidos, o hay warnings de riesgo,
+    // se requiere revisión humana.
     await sql`
       UPDATE app.job
       SET
@@ -864,7 +936,15 @@ export async function POST(_req: Request) {
           motor_id: String(motorId),
           tipo: job.tipo,
         },
-        result: { status, candidatos_len: candidatos.length, warnings, errors },
+        result: {
+          status,
+          candidatos_len: candidatos.length,
+          valid_candidates_len: validCandidates.length,
+          warnings,
+          risk_warnings: riskWarnings,
+          info_warnings: infoWarnings,
+          errors,
+        },
       },
       { status: 200 }
     );
