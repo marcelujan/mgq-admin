@@ -7,52 +7,7 @@ export async function GET(req: Request) {
     const estado = searchParams.get("estado");
     const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10) || 200, 500);
 
-    // opcional: solo último SUCCEEDED por item_id
-    const latestSucceeded = searchParams.get("latest_succeeded") === "1";
-
     const sql = db();
-
-    if (latestSucceeded) {
-      const rows = await sql`
-        SELECT DISTINCT ON (j.item_id)
-          j.job_id, j.tipo, j.estado, j.prioridad,
-          j.proveedor_id, j.item_id, j.corrida_id,
-          j.payload, j.attempts, j.max_attempts, j.next_run_at,
-          j.locked_by, j.locked_until, j.last_error,
-          j.created_at, j.started_at, j.finished_at, j.updated_at,
-
-          s.url_canonica,
-          s.motor_id AS motor_id,
-
-          p.nombre AS proveedor_nombre,
-          p.codigo AS proveedor_codigo,
-
-          COALESCE(jsonb_array_length(jr.warnings), 0) AS warnings_count,
-          COALESCE(jsonb_array_length(jr.errors), 0) AS errors_count,
-          COALESCE(jsonb_array_length(jr.candidatos), 0) AS candidatos_count,
-          jr.status AS result_status,
-
-          (
-            SELECT count(*)
-            FROM app.oferta_proveedor o
-            WHERE o.item_id = j.item_id
-          )::int AS ofertas_count
-
-        FROM app.job j
-        LEFT JOIN app.item_seguimiento s ON s.item_id = j.item_id
-        LEFT JOIN app.proveedor p ON p.proveedor_id = s.proveedor_id
-        LEFT JOIN app.job_result jr ON jr.job_id = j.job_id
-
-        WHERE j.estado = 'SUCCEEDED'::app.job_estado
-        ORDER BY
-          j.item_id,
-          COALESCE(j.finished_at, j.updated_at, j.created_at) DESC,
-          j.job_id DESC
-        LIMIT ${limit}
-      `;
-
-      return NextResponse.json({ ok: true, jobs: rows }, { status: 200 });
-    }
 
     const rows = await sql`
       SELECT
@@ -61,29 +16,12 @@ export async function GET(req: Request) {
         j.payload, j.attempts, j.max_attempts, j.next_run_at,
         j.locked_by, j.locked_until, j.last_error,
         j.created_at, j.started_at, j.finished_at, j.updated_at,
-
-        s.url_canonica,
-        s.motor_id AS motor_id,
-
-        p.nombre AS proveedor_nombre,
-        p.codigo AS proveedor_codigo,
-
-        COALESCE(jsonb_array_length(jr.warnings), 0) AS warnings_count,
-        COALESCE(jsonb_array_length(jr.errors), 0) AS errors_count,
-        COALESCE(jsonb_array_length(jr.candidatos), 0) AS candidatos_count,
-        jr.status AS result_status,
-
         (
           SELECT count(*)
           FROM app.oferta_proveedor o
           WHERE o.item_id = j.item_id
         )::int AS ofertas_count
-
       FROM app.job j
-      LEFT JOIN app.item_seguimiento s ON s.item_id = j.item_id
-      LEFT JOIN app.proveedor p ON p.proveedor_id = s.proveedor_id
-      LEFT JOIN app.job_result jr ON jr.job_id = j.job_id
-
       WHERE (${estado}::text IS NULL OR j.estado = ${estado}::app.job_estado)
       ORDER BY j.job_id DESC
       LIMIT ${limit}
@@ -109,8 +47,12 @@ export async function POST(req: Request) {
       )
     );
 
+    // ✅ Cambio: si viene vacío, NO romper (evita el popup/alert por POST fantasma)
     if (itemIds.length === 0) {
-      return NextResponse.json({ ok: false, error: "item_ids vacío" }, { status: 400 });
+      return NextResponse.json(
+        { ok: true, created_job_ids: [], skipped: true, reason: "item_ids vacío" },
+        { status: 200 }
+      );
     }
 
     const sql = db();
