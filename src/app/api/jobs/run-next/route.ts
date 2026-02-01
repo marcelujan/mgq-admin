@@ -1,59 +1,57 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+function isJobsRootPath(req: Request) {
+  const pathname = new URL(req.url).pathname;
+  return pathname === "/api/jobs" || pathname === "/api/jobs/";
+}
+
 export async function GET(req: Request) {
+  // Guard: este handler solo debe responder a /api/jobs (no a subrutas)
+  if (!isJobsRootPath(req)) {
+    return NextResponse.json({ ok: false, error: "Not Found" }, { status: 404 });
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const estado = searchParams.get("estado");
-    const latestSucceeded = searchParams.get("latest_succeeded") === "1";
     const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10) || 200, 500);
 
     const sql = db();
 
-    const rows = latestSucceeded
-      ? await sql`
-          SELECT DISTINCT ON (j.item_id)
-            j.job_id, j.tipo, j.estado, j.prioridad,
-            j.proveedor_id, j.item_id, j.corrida_id,
-            j.payload, j.attempts, j.max_attempts, j.next_run_at,
-            j.locked_by, j.locked_until, j.last_error,
-            j.created_at, j.started_at, j.finished_at, j.updated_at,
-            (
-              SELECT count(*)
-              FROM app.oferta_proveedor o
-              WHERE o.item_id = j.item_id
-            )::int AS ofertas_count
-          FROM app.job j
-          WHERE j.estado = 'SUCCEEDED'::app.job_estado
-          ORDER BY j.item_id, COALESCE(j.finished_at, j.updated_at, j.created_at) DESC, j.job_id DESC
-          LIMIT ${limit}
-        `
-      : await sql`
-          SELECT
-            j.job_id, j.tipo, j.estado, j.prioridad,
-            j.proveedor_id, j.item_id, j.corrida_id,
-            j.payload, j.attempts, j.max_attempts, j.next_run_at,
-            j.locked_by, j.locked_until, j.last_error,
-            j.created_at, j.started_at, j.finished_at, j.updated_at,
-            (
-              SELECT count(*)
-              FROM app.oferta_proveedor o
-              WHERE o.item_id = j.item_id
-            )::int AS ofertas_count
-          FROM app.job j
-          WHERE (${estado}::text IS NULL OR j.estado = ${estado}::app.job_estado)
-          ORDER BY j.job_id DESC
-          LIMIT ${limit}
-        `;
+    const rows = await sql`
+      SELECT
+        j.job_id, j.tipo, j.estado, j.prioridad,
+        j.proveedor_id, j.item_id, j.corrida_id,
+        j.payload, j.attempts, j.max_attempts, j.next_run_at,
+        j.locked_by, j.locked_until, j.last_error,
+        j.created_at, j.started_at, j.finished_at, j.updated_at,
+        (
+          SELECT count(*)
+          FROM app.oferta_proveedor o
+          WHERE o.item_id = j.item_id
+        )::int AS ofertas_count
+      FROM app.job j
+      WHERE (${estado}::text IS NULL OR j.estado = ${estado}::app.job_estado)
+      ORDER BY j.job_id DESC
+      LIMIT ${limit}
+    `;
 
     return NextResponse.json({ ok: true, jobs: rows }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error listando jobs" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error listando jobs" },
+      { status: 500 }
+    );
   }
 }
 
-
 export async function POST(req: Request) {
+  // Guard: este handler solo debe responder a /api/jobs (no a subrutas)
+  if (!isJobsRootPath(req)) {
+    return NextResponse.json({ ok: false, error: "Not Found" }, { status: 404 });
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const itemIdsRaw = Array.isArray(body?.item_ids) ? body.item_ids : [];
@@ -88,7 +86,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, created_job_ids: created }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Error creando jobs" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Error creando jobs" },
+      { status: 500 }
+    );
   }
 }
-
