@@ -38,8 +38,6 @@ export default function JobsPage() {
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
   const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
-  const [runningAll, setRunningAll] = useState(false);
-  const [runAllCount, setRunAllCount] = useState(0);
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -81,40 +79,6 @@ export default function JobsPage() {
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
-    }
-  }
-
-  async function runAllPending() {
-    if (runningAll) return;
-    setRunningAll(true);
-    setRunAllCount(0);
-    try {
-      // Seguridad: evitar loops infinitos y evitar que el usuario bloquee la UI.
-      // Ajustá si querés (p.ej. 200), pero 50 es un buen default para serverless.
-      const MAX = 50;
-      let n = 0;
-      while (n < MAX) {
-        const res = await fetch(`/api/jobs/run-next`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ttl_seconds: 300 }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-        if (!data?.claimed) break;
-        n += 1;
-        setRunAllCount(n);
-        // Pequeña pausa para dejar respirar el event loop y re-render.
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      await load();
-      if (n >= MAX) {
-        alert(`Se ejecutaron ${n} jobs. Quedó el tope MAX=${MAX}. Si faltan, apretá de nuevo.`);
-      }
-    } catch (e: any) {
-      alert(e?.message || "Error ejecutando jobs");
-    } finally {
-      setRunningAll(false);
     }
   }
 
@@ -223,10 +187,6 @@ export default function JobsPage() {
 
         <button onClick={runNext} style={{ padding: "6px 10px" }}>
           Run next job
-        </button>
-
-        <button onClick={runAllPending} disabled={runningAll} style={{ padding: "6px 10px" }}>
-          {runningAll ? `Running… (${runAllCount})` : "Run all pending"}
         </button>
 
         <select value={estado} onChange={(e) => setEstado(e.target.value)} style={{ padding: "6px 10px" }}>

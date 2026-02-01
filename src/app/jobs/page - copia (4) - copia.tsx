@@ -37,6 +37,7 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
+  const [latestOnly, setLatestOnly] = useState(false);
   const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
 
   // panel crear job
@@ -52,7 +53,11 @@ export default function JobsPage() {
     try {
       const qs = new URLSearchParams();
       qs.set("limit", "200");
-      if (estado) qs.set("estado", estado);
+      if (latestOnly) {
+        qs.set("latest_succeeded", "1");
+      } else {
+        if (estado) qs.set("estado", estado);
+      }
 
       const res = await fetch(`/api/jobs?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
@@ -189,7 +194,30 @@ export default function JobsPage() {
           Run next job
         </button>
 
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} style={{ padding: "6px 10px" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, opacity: 0.95 }}>
+          <input
+            type="checkbox"
+            checked={latestOnly}
+            onChange={async (e) => {
+              const v = e.target.checked;
+              setLatestOnly(v);
+              if (v) setEstado("");
+              // recargar con el nuevo modo
+              setTimeout(() => {
+                load();
+              }, 0);
+            }}
+          />
+          Solo últimos SUCCEEDED
+        </label>
+
+        <select
+          value={estado}
+          onChange={(e) => setEstado(e.target.value)}
+          style={{ padding: "6px 10px" }}
+          disabled={latestOnly}
+          title={latestOnly ? "Desactivá 'Solo últimos SUCCEEDED' para filtrar por estado" : ""}
+        >
           <option value="">(todos)</option>
           <option value="PENDING">PENDING</option>
           <option value="RUNNING">RUNNING</option>
@@ -355,6 +383,8 @@ export default function JobsPage() {
             <tbody>
               {filtered.map((j) => {
                 const offers = Number(j.ofertas_count ?? 0);
+                const canApproveByStatus = j.estado === "WAITING_REVIEW" || j.estado === "SUCCEEDED";
+                const canApprove = canApproveByStatus && offers === 0;
                 const busy = approvingJobId === j.job_id;
 
                 return (
@@ -372,34 +402,20 @@ export default function JobsPage() {
                       {j.last_error ?? ""}
                     </td>
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {j.estado === "WAITING_REVIEW" ? (
-                        <Link
-                          href={`/jobs/${j.job_id}`}
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 10px",
-                            border: "1px solid #444",
-                            borderRadius: 6,
-                            textDecoration: "none",
-                          }}
-                          title="Abrir detalle para revisar"
-                        >
-                          Revisar
-                        </Link>
-                      ) : j.estado === "SUCCEEDED" && offers === 0 ? (
-                        <button
-                          onClick={() => approve(j.job_id)}
-                          disabled={busy}
-                          style={{ padding: "6px 10px" }}
-                          title="Crear ofertas faltantes (caso legado)"
-                        >
-                          {busy ? "Procesando..." : "Backfill"}
-                        </button>
-                      ) : (
-                        <button disabled style={{ padding: "6px 10px", opacity: 0.5 }} title="Sin acciones">
-                          —
-                        </button>
-                      )}
+                      <button
+                        onClick={() => approve(j.job_id)}
+                        disabled={!canApprove || busy}
+                        style={{ padding: "6px 10px" }}
+                        title={
+                          !canApproveByStatus
+                            ? "Solo disponible en WAITING_REVIEW o SUCCEEDED"
+                            : offers > 0
+                              ? `Ya existen ofertas (${offers})`
+                              : "Aprobar y persistir ofertas"
+                        }
+                      >
+                        {busy ? "Approving..." : "Approve"}
+                      </button>
                     </td>
                   </tr>
                 );
