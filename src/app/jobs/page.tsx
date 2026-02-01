@@ -1,84 +1,56 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type JobRow = {
   job_id: number;
   tipo: string;
   estado: string;
   prioridad: number;
-  proveedor_id: number | null;
-  motor_id: number | null;
   item_id: number | null;
-  corrida_id: number | null;
   next_run_at: string | null;
   locked_until: string | null;
   last_error: string | null;
   created_at: string;
-  started_at?: string | null;
-  finished_at?: string | null;
   updated_at: string;
+  finished_at?: string | null;
 
-  // enrich desde /api/jobs
+  // enriquecidos por API
   url_canonica?: string | null;
-  proveedor_codigo?: string | null;
+  motor_id?: number | null;
   proveedor_nombre?: string | null;
-  warnings_count?: number | null;
-  errors_count?: number | null;
-  valid_count?: number | null;
+  proveedor_codigo?: string | null;
+
+  warnings_count?: number;
+  errors_count?: number;
+  valid_count?: number;
   ofertas_count?: number;
 };
 
 type ItemRow = {
   item_id: number;
-  proveedor_id: number | null;
-  motor_id: number | null;
-  estado: string;
-  seleccionado?: boolean;
   url_canonica: string;
-  updated_at: string;
+  estado: string;
 };
 
-function fmtIso(ts?: string | null) {
-  if (!ts) return "";
+function prettyNameFromUrl(url?: string | null) {
+  if (!url) return "";
   try {
-    return new Date(ts).toLocaleString();
+    const u = new URL(url);
+    const slug = u.pathname.split("/").filter(Boolean).pop() || "";
+    return slug.replace(/-/g, " ");
   } catch {
-    return ts;
+    const slug = String(url).split("/").filter(Boolean).pop() || "";
+    return slug.replace(/-/g, " ");
   }
 }
 
-function shortUrl(u?: string | null) {
-  if (!u) return "";
-  try {
-    const url = new URL(u);
-    const path = url.pathname.replace(/\/+$/, "");
-    const tail = path.split("/").filter(Boolean).slice(-1)[0] || url.hostname;
-    return tail.length > 48 ? tail.slice(0, 45) + "…" : tail;
-  } catch {
-    return u.length > 48 ? u.slice(0, 45) + "…" : u;
-  }
-}
-
-function badgeStyle(estado: string) {
-  const s = estado || "";
-  const base: CSSProperties = {
-    display: "inline-block",
-    padding: "2px 8px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.18)",
-    fontSize: 12,
-    lineHeight: "16px",
-    letterSpacing: 0.2,
-  };
-
-  if (s === "SUCCEEDED") return { ...base, background: "rgba(34,197,94,0.15)", borderColor: "rgba(34,197,94,0.35)" };
-  if (s === "WAITING_REVIEW") return { ...base, background: "rgba(250,204,21,0.14)", borderColor: "rgba(250,204,21,0.35)" };
-  if (s === "FAILED") return { ...base, background: "rgba(239,68,68,0.14)", borderColor: "rgba(239,68,68,0.35)" };
-  if (s === "RUNNING") return { ...base, background: "rgba(59,130,246,0.14)", borderColor: "rgba(59,130,246,0.35)" };
-  if (s === "PENDING") return { ...base, background: "rgba(255,255,255,0.06)" };
-  return base;
+function fmtDate(s?: string | null) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleString();
 }
 
 export default function JobsPage() {
@@ -89,7 +61,9 @@ export default function JobsPage() {
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
   const [onlyLatestSucceeded, setOnlyLatestSucceeded] = useState(false);
+
   const [runningAll, setRunningAll] = useState(false);
+  const [ranCount, setRanCount] = useState(0);
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -104,7 +78,6 @@ export default function JobsPage() {
     try {
       const qs = new URLSearchParams();
       qs.set("limit", "200");
-
       if (onlyLatestSucceeded) {
         qs.set("latest_succeeded", "1");
       } else if (estado) {
@@ -113,43 +86,13 @@ export default function JobsPage() {
 
       const res = await fetch(`/api/jobs?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (e: any) {
       setErr(e?.message || "Error cargando jobs");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function runNext() {
-    try {
-      const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      await load();
-    } catch (e: any) {
-      alert(e?.message || "Error ejecutando job");
-    }
-  }
-
-  async function runAllPending() {
-    if (runningAll) return;
-    setRunningAll(true);
-    try {
-      // Loop con corte para evitar loops infinitos.
-      // run-next devuelve { ok:true, claimed:false } cuando ya no hay PENDING.
-      for (let i = 0; i < 100; i++) {
-        const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-        if (data?.claimed === false) break;
-      }
-      await load();
-    } catch (e: any) {
-      alert(e?.message || "Error ejecutando jobs");
-    } finally {
-      setRunningAll(false);
     }
   }
 
@@ -163,6 +106,7 @@ export default function JobsPage() {
       const res = await fetch(`/api/items?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
       const list = Array.isArray(data.items) ? data.items : Array.isArray(data.rows) ? data.rows : [];
       setItems(list);
     } catch (e: any) {
@@ -172,7 +116,50 @@ export default function JobsPage() {
     }
   }
 
-  async function createJobsForSelected() {
+  async function runNextClick(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      // IMPORTANTE: POST sin body para evitar contratos distintos entre deployments
+      const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      await load();
+    } catch (ex: any) {
+      alert(ex?.message || "Error ejecutando run-next");
+    }
+  }
+
+  async function runAllClick(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (runningAll) return;
+
+    setRunningAll(true);
+    setRanCount(0);
+
+    const MAX = 100;
+    try {
+      for (let i = 0; i < MAX; i++) {
+        const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+        if (data.claimed === false) break;
+        setRanCount((c) => c + 1);
+      }
+      await load();
+    } catch (ex: any) {
+      alert(ex?.message || "Error ejecutando run-all");
+    } finally {
+      setRunningAll(false);
+    }
+  }
+
+  async function createJobsForSelected(e: React.MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+
     const ids = selectedItemIds.slice();
     if (ids.length === 0) {
       alert("Seleccioná al menos un item");
@@ -189,8 +176,8 @@ export default function JobsPage() {
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setSelectedItemIds([]);
       await load();
-    } catch (e: any) {
-      alert(e?.message || "Error creando jobs");
+    } catch (ex: any) {
+      alert(ex?.message || "Error creando jobs");
     } finally {
       setCreating(false);
     }
@@ -202,16 +189,14 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
-    // recargar al cambiar toggle/filtro
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado, onlyLatestSucceeded]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return jobs;
     return jobs.filter((j) => {
-      const prov = `${j.proveedor_codigo || ""} ${j.proveedor_nombre || ""}`.toLowerCase();
+      const prov = `${j.proveedor_nombre || ""} ${j.proveedor_codigo || ""}`.toLowerCase();
       const url = (j.url_canonica || "").toLowerCase();
       return (
         String(j.job_id).includes(needle) ||
@@ -224,6 +209,19 @@ export default function JobsPage() {
     });
   }, [jobs, q]);
 
+  function toggleItem(id: number) {
+    setSelectedItemIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function selectVisible() {
+    const visible = items.map((it) => it.item_id);
+    setSelectedItemIds(Array.from(new Set([...selectedItemIds, ...visible])));
+  }
+
+  function clearSelection() {
+    setSelectedItemIds([]);
+  }
+
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", color: "rgba(255,255,255,0.92)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
@@ -233,15 +231,15 @@ export default function JobsPage() {
           {loading ? "Cargando..." : "Refrescar"}
         </button>
 
-        <button type="button" onClick={runNext} style={{ padding: "6px 10px" }} disabled={runningAll}>
+        <button type="button" onClick={runNextClick} disabled={loading || runningAll} style={{ padding: "6px 10px" }}>
           Run next job
         </button>
 
-        <button type="button" onClick={runAllPending} style={{ padding: "6px 10px" }} disabled={runningAll}>
-          {runningAll ? "Running..." : "Run all pending"}
+        <button type="button" onClick={runAllClick} disabled={loading || runningAll} style={{ padding: "6px 10px" }}>
+          {runningAll ? `Run all... (${ranCount})` : "Run all pending"}
         </button>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <input
             type="checkbox"
             checked={onlyLatestSucceeded}
@@ -251,11 +249,10 @@ export default function JobsPage() {
         </label>
 
         <select
-          value={estado}
+          value={onlyLatestSucceeded ? "" : estado}
           onChange={(e) => setEstado(e.target.value)}
-          style={{ padding: "6px 10px" }}
           disabled={onlyLatestSucceeded}
-          title={onlyLatestSucceeded ? "Deshabilitado cuando está activo 'Solo últimos SUCCEEDED'" : ""}
+          style={{ padding: "6px 10px", minWidth: 180 }}
         >
           <option value="">(todos)</option>
           <option value="PENDING">PENDING</option>
@@ -278,247 +275,156 @@ export default function JobsPage() {
         />
       </div>
 
-      {/* Panel crear job */}
+      {err ? (
+        <div style={{ marginBottom: 12, padding: 10, border: "1px solid rgba(255,80,80,0.5)", borderRadius: 10 }}>
+          {err}
+        </div>
+      ) : null}
+
+      {/* Panel crear job manual */}
       <div
         style={{
           marginBottom: 14,
           padding: 12,
           border: "1px solid rgba(255,255,255,0.10)",
           borderRadius: 12,
-          background: "rgba(255,255,255,0.02)",
         }}
       >
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>Crear job manual (por item_id)</div>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Crear job manual (por item_id)</div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
           <input
             value={itemsQ}
             onChange={(e) => setItemsQ(e.target.value)}
             placeholder="Buscar items (url / proveedor / id)"
-            style={{ flex: "1 1 420px", padding: "6px 10px" }}
+            style={{ flex: 1, padding: "8px 10px" }}
           />
-
-          <button type="button" onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
+          <button type="button" onClick={loadItems} disabled={itemsLoading} style={{ padding: "8px 12px" }}>
             {itemsLoading ? "Buscando..." : "Buscar"}
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              const ids = items.map((x) => x.item_id);
-              setSelectedItemIds((prev) => Array.from(new Set([...prev, ...ids])));
-            }}
-            style={{ padding: "6px 10px" }}
-            disabled={items.length === 0}
-          >
+          <button type="button" onClick={selectVisible} style={{ padding: "8px 12px" }}>
             Seleccionar visibles
           </button>
-
-          <button
-            type="button"
-            onClick={() => setSelectedItemIds([])}
-            style={{ padding: "6px 10px" }}
-            disabled={selectedItemIds.length === 0}
-          >
+          <button type="button" onClick={clearSelection} disabled={selectedItemIds.length === 0} style={{ padding: "8px 12px" }}>
             Limpiar selección
           </button>
-
           <button
             type="button"
             onClick={createJobsForSelected}
             disabled={creating || selectedItemIds.length === 0}
-            style={{ padding: "6px 10px" }}
+            style={{ padding: "8px 12px" }}
           >
             {creating ? "Creando..." : `Crear jobs (${selectedItemIds.length})`}
           </button>
         </div>
 
-        <div
-          style={{
-            marginTop: 10,
-            maxHeight: 260,
-            overflow: "auto",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 10,
-          }}
-        >
-          <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
+        <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr>
-                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 48 }} />
-                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 80 }}>
-                  item_id
-                </th>
-                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>url</th>
-                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 120 }}>
-                  estado
-                </th>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                <th style={{ width: 34 }} />
+                <th style={{ padding: "6px 8px" }}>item_id</th>
+                <th style={{ padding: "6px 8px" }}>url</th>
+                <th style={{ padding: "6px 8px" }}>estado</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => {
                 const checked = selectedItemIds.includes(it.item_id);
                 return (
-                  <tr key={it.item_id}>
-                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedItemIds((prev) => Array.from(new Set([...prev, it.item_id])));
-                          } else {
-                            setSelectedItemIds((prev) => prev.filter((x) => x !== it.item_id));
-                          }
-                        }}
-                      />
+                  <tr key={it.item_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                    <td style={{ padding: "6px 8px" }}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleItem(it.item_id)} />
                     </td>
-                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{it.item_id}</td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid rgba(255,255,255,0.06)",
-                        maxWidth: 520,
-                        wordBreak: "break-word",
-                      }}
-                      title={it.url_canonica}
-                    >
-                      {it.url_canonica}
+                    <td style={{ padding: "6px 8px" }}>{it.item_id}</td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <a href={it.url_canonica} target="_blank" rel="noreferrer" style={{ color: "#a6d1ff" }}>
+                        {it.url_canonica}
+                      </a>
                     </td>
-                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{it.estado}</td>
+                    <td style={{ padding: "6px 8px" }}>{it.estado}</td>
                   </tr>
                 );
               })}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={4} style={{ padding: 12, opacity: 0.8 }}>
-                    {itemsLoading ? "Cargando..." : "Sin items (usá Buscar)"}
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {err && (
-        <div style={{ marginBottom: 12, padding: 10, border: "1px solid #c00" }}>
-          <b>Error:</b> {err}
-        </div>
-      )}
+      {/* Tabla jobs */}
+      <div style={{ overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              <th style={{ padding: "8px 10px" }}>job_id</th>
+              <th style={{ padding: "8px 10px" }}>estado</th>
+              <th style={{ padding: "8px 10px" }}>tipo</th>
+              <th style={{ padding: "8px 10px" }}>artículo</th>
+              <th style={{ padding: "8px 10px" }}>proveedor</th>
+              <th style={{ padding: "8px 10px" }}>motor</th>
+              <th style={{ padding: "8px 10px" }}>prioridad</th>
+              <th style={{ padding: "8px 10px" }}>terminó</th>
+              <th style={{ padding: "8px 10px" }}>warn/err</th>
+              <th style={{ padding: "8px 10px" }}>locked_until</th>
+              <th style={{ padding: "8px 10px" }}>last_error</th>
+              <th style={{ padding: "8px 10px" }}>actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((j) => {
+              const prov = j.proveedor_nombre
+                ? `${j.proveedor_nombre}${j.proveedor_codigo ? ` (${j.proveedor_codigo})` : ""}`
+                : "";
+              const when = j.finished_at || j.updated_at || j.created_at;
+              const warn = j.warnings_count ?? 0;
+              const errc = j.errors_count ?? 0;
 
-      {loading ? (
-        <div>Cargando...</div>
-      ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
-            <thead>
-              <tr>
-                {[
-                  "job_id",
-                  "estado",
-                  "tipo",
-                  "artículo",
-                  "proveedor",
-                  "motor",
-                  "prioridad",
-                  "terminó",
-                  "warn/err",
-                  "locked_until",
-                  "last_error",
-                  "actions",
-                ].map((h) => (
-                  <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((j) => {
-                const url = j.url_canonica || null;
-                const prov = j.proveedor_nombre || j.proveedor_codigo || "";
-                const warn = Number(j.warnings_count ?? 0);
-                const errc = Number(j.errors_count ?? 0);
-
-                return (
-                  <tr key={j.job_id}>
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      <Link href={`/jobs/${j.job_id}`}>{j.job_id}</Link>
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222" }}>
-                      <span style={badgeStyle(j.estado)}>{j.estado}</span>
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
-
-                    <td style={{ borderBottom: "1px solid #222", maxWidth: 320 }} title={url || undefined}>
-                      {url ? (
-                        <a href={url} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
-                          {shortUrl(url)}
-                        </a>
-                      ) : (
-                        <span style={{ opacity: 0.75 }}>item_id: {j.item_id ?? ""}</span>
-                      )}
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222" }} title={prov || undefined}>
-                      {prov || ""}
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.motor_id ?? ""}</td>
-
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
-
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {fmtIso(j.finished_at || null) || fmtIso(j.updated_at)}
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {(warn || errc) ? (
-                        <span title={`warnings: ${warn} | errors: ${errc}`}>{warn}/{errc}</span>
-                      ) : (
-                        ""
-                      )}
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>{fmtIso(j.locked_until)}</td>
-
-                    <td
-                      style={{ borderBottom: "1px solid #222", maxWidth: 420, wordBreak: "break-word" }}
-                      title={j.last_error || undefined}
-                    >
-                      {j.last_error ? (j.last_error.length > 140 ? j.last_error.slice(0, 140) + "…" : j.last_error) : ""}
-                    </td>
-
-                    <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {j.estado === "WAITING_REVIEW" ? (
-                        <Link href={`/jobs/${j.job_id}`} style={{ padding: "6px 10px", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 6 }}>
-                          Revisar
-                        </Link>
-                      ) : j.estado === "SUCCEEDED" ? (
-                        <Link href={`/jobs/${j.job_id}`} style={{ padding: "6px 10px", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 6, opacity: 0.85 }}>
-                          Ver
-                        </Link>
-                      ) : (
-                        <span style={{ opacity: 0.5 }}>—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={12} style={{ padding: 12 }}>
-                    Sin resultados
+              return (
+                <tr key={j.job_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <td style={{ padding: "8px 10px" }}>{j.job_id}</td>
+                  <td style={{ padding: "8px 10px" }}>{j.estado}</td>
+                  <td style={{ padding: "8px 10px" }}>{j.tipo}</td>
+                  <td style={{ padding: "8px 10px" }}>
+                    {j.url_canonica ? (
+                      <a href={j.url_canonica} target="_blank" rel="noreferrer" style={{ color: "#a6d1ff" }}>
+                        {prettyNameFromUrl(j.url_canonica) || `item_id: ${j.item_id ?? ""}`}
+                      </a>
+                    ) : (
+                      <span>{`item_id: ${j.item_id ?? ""}`}</span>
+                    )}
+                  </td>
+                  <td style={{ padding: "8px 10px" }}>{prov || "—"}</td>
+                  <td style={{ padding: "8px 10px" }}>{j.motor_id ?? "—"}</td>
+                  <td style={{ padding: "8px 10px" }}>{j.prioridad}</td>
+                  <td style={{ padding: "8px 10px" }}>{fmtDate(when)}</td>
+                  <td style={{ padding: "8px 10px" }}>{`${warn}/${errc}`}</td>
+                  <td style={{ padding: "8px 10px" }}>{j.locked_until ? fmtDate(j.locked_until) : "—"}</td>
+                  <td style={{ padding: "8px 10px" }} title={j.last_error || ""}>
+                    {(j.last_error || "—").slice(0, 80)}
+                    {(j.last_error || "").length > 80 ? "…" : ""}
+                  </td>
+                  <td style={{ padding: "8px 10px" }}>
+                    {j.estado === "WAITING_REVIEW" ? (
+                      <Link href={`/jobs/${j.job_id}`} style={{ color: "#a6d1ff" }}>
+                        Revisar
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+              );
+            })}
+            {filtered.length === 0 ? (
+              <tr>
+                <td style={{ padding: "12px 10px", opacity: 0.75 }} colSpan={12}>
+                  {loading ? "Cargando..." : "Sin resultados"}
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
