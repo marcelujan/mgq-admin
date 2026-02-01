@@ -42,10 +42,12 @@ function isFinitePos(n: any) {
   return Number.isFinite(x) && x > 0;
 }
 
-export async function GET(req: NextRequest, ctx: { params: { oferta_id: string } }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
+    const { oferta_id: oferta_idStr } = await ctx.params;
+
     const sql = db();
-    const oferta_id = Number(ctx.params.oferta_id);
+    const oferta_id = Number(oferta_idStr);
     if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const debug = new URL(req.url).searchParams.get("debug") === "true";

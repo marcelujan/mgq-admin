@@ -8,10 +8,12 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
-export async function POST(req: NextRequest, ctx: { params: { oferta_id: string } }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
+    const { oferta_id: oferta_idStr } = await ctx.params;
+
     const sql = db();
-    const oferta_id = Number(ctx.params.oferta_id);
+    const oferta_id = Number(oferta_idStr);
     if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const body = await req.json().catch(() => ({} as any));

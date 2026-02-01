@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../../../../../lib/db";
 
-export async function PATCH(req: NextRequest, ctx: { params: { producto_id: string; linea_id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
+    const { producto_id: producto_idStr, linea_id: linea_idStr } = await ctx.params;
+
     const sql = db();
-    const producto_id = Number(ctx.params.producto_id);
-    const linea_id = Number(ctx.params.linea_id);
+    const producto_id = Number(producto_idStr);
+    const linea_id = Number(linea_idStr);
     if (!Number.isFinite(producto_id) || !Number.isFinite(linea_id)) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }
@@ -50,11 +52,11 @@ export async function PATCH(req: NextRequest, ctx: { params: { producto_id: stri
   }
 }
 
-export async function DELETE(_: NextRequest, ctx: { params: { producto_id: string; linea_id: string } }) {
+export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
     const sql = db();
-    const producto_id = Number(ctx.params.producto_id);
-    const linea_id = Number(ctx.params.linea_id);
+    const producto_id = Number(producto_idStr);
+    const linea_id = Number(linea_idStr);
     if (!Number.isFinite(producto_id) || !Number.isFinite(linea_id)) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }

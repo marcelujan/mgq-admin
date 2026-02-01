@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../../../../../lib/db";
 
-export async function PATCH(req: NextRequest, ctx: { params: { oferta_id: string; extra_id: string } }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ oferta_id: string; extra_id: string }> }) {
   try {
+    const { oferta_id: oferta_idStr, extra_id: extra_idStr } = await ctx.params;
+
     const sql = db();
-    const oferta_id = Number(ctx.params.oferta_id);
-    const extra_id = Number(ctx.params.extra_id);
+    const oferta_id = Number(oferta_idStr);
+    const extra_id = Number(extra_idStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(extra_id)) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }
@@ -47,11 +49,11 @@ export async function PATCH(req: NextRequest, ctx: { params: { oferta_id: string
   }
 }
 
-export async function DELETE(_: NextRequest, ctx: { params: { oferta_id: string; extra_id: string } }) {
+export async function DELETE(_: NextRequest, ctx: { params: Promise<{ oferta_id: string; extra_id: string }> }) {
   try {
     const sql = db();
-    const oferta_id = Number(ctx.params.oferta_id);
-    const extra_id = Number(ctx.params.extra_id);
+    const oferta_id = Number(oferta_idStr);
+    const extra_id = Number(extra_idStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(extra_id)) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }

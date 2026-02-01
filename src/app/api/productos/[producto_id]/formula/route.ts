@@ -8,10 +8,12 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
-export async function GET(_: NextRequest, ctx: { params: { producto_id: string } }) {
+export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
+    const { producto_id: producto_idStr } = await ctx.params;
+
     const sql = db();
-    const producto_id = Number(ctx.params.producto_id);
+    const producto_id = Number(producto_idStr);
     if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
 
     const r: any = await sql.query(
@@ -29,10 +31,10 @@ export async function GET(_: NextRequest, ctx: { params: { producto_id: string }
 }
 
 // PUT upsert formula header
-export async function PUT(req: NextRequest, ctx: { params: { producto_id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
     const sql = db();
-    const producto_id = Number(ctx.params.producto_id);
+    const producto_id = Number(producto_idStr);
     if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
 
     const body = await req.json().catch(() => ({} as any));
@@ -61,10 +63,10 @@ export async function PUT(req: NextRequest, ctx: { params: { producto_id: string
   }
 }
 
-export async function DELETE(_: NextRequest, ctx: { params: { producto_id: string } }) {
+export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
     const sql = db();
-    const producto_id = Number(ctx.params.producto_id);
+    const producto_id = Number(producto_idStr);
     if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
 
     await sql.query(`DELETE FROM app.producto_formula WHERE producto_id=$1`, [producto_id]);
