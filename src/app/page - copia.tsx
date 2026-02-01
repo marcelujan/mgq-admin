@@ -6,9 +6,6 @@ export default function Home() {
       <h1 style={{ marginTop: 0 }}>MGq Admin (v2)</h1>
       <ul style={{ lineHeight: 1.9 }}>
         <li>
-          <Link href="/productos">Productos</Link>
-        </li>
-        <li>
           <Link href="/items">Items</Link>
         </li>
         <li>
