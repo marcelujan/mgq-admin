@@ -33,6 +33,7 @@ export async function GET(req: Request) {
   }
 }
 
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -47,12 +48,8 @@ export async function POST(req: Request) {
       )
     );
 
-    // ✅ Cambio: si viene vacío, NO romper (evita el popup/alert por POST fantasma)
     if (itemIds.length === 0) {
-      return NextResponse.json(
-        { ok: true, created_job_ids: [], skipped: true, reason: "item_ids vacío" },
-        { status: 200 }
-      );
+      return NextResponse.json({ ok: false, error: "item_ids vacío" }, { status: 400 });
     }
 
     const sql = db();
@@ -75,3 +72,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || "Error creando jobs" }, { status: 500 });
   }
 }
+
