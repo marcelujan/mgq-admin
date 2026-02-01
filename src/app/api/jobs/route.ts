@@ -2,17 +2,11 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 /**
- * Neon/pg client in this project can return:
- * - array of rows (Record<string, any>[])
- * - array-of-arrays (any[][])
- * - FullQueryResults-like object with { rows: ... }
- *
- * This helper normalizes the result to an array of objects.
+ * Normaliza el resultado del cliente SQL (Neon/pg)
+ * a un array de filas (objetos).
  */
 function toRows<T extends Record<string, any>>(result: unknown): T[] {
   if (Array.isArray(result)) {
-    // Could be T[] or any[][]. We only support the object-row case here.
-    // If it is any[][], it will not have named columns.
     const first = result[0];
     if (first && typeof first === "object" && !Array.isArray(first)) {
       return result as T[];
@@ -43,18 +37,47 @@ export async function GET(req: Request) {
       SELECT *
       FROM (
         SELECT DISTINCT ON (j.item_id, j.estado)
-          j.job_id, j.tipo, j.estado, j.prioridad,
-          j.proveedor_id, j.item_id, j.corrida_id,
-          j.payload, j.attempts, j.max_attempts, j.next_run_at,
-          j.locked_by, j.locked_until, j.last_error,
-          j.created_at, j.started_at, j.finished_at, j.updated_at,
+          j.job_id,
+          j.tipo,
+          j.estado,
+          j.prioridad,
+          j.proveedor_id,
+          j.item_id,
+          j.corrida_id,
+          j.payload,
+          j.attempts,
+          j.max_attempts,
+          j.next_run_at,
+          j.locked_by,
+          j.locked_until,
+          j.last_error,
+          j.created_at,
+          j.started_at,
+          j.finished_at,
+          j.updated_at,
+
+          -- URL del item (canonizada si existe)
+          COALESCE(s.url_canonica, s.url_original) AS item_url,
+
           (
             SELECT count(*)
             FROM app.oferta_proveedor o
             WHERE o.item_id = j.item_id
           )::int AS ofertas_count
+
         FROM app.job j
+
+        -- Tomamos la última URL conocida del item
+        LEFT JOIN LATERAL (
+          SELECT url_canonica, url_original
+          FROM app.item_seguimiento s
+          WHERE s.item_id = j.item_id
+          ORDER BY s.updated_at DESC
+          LIMIT 1
+        ) s ON true
+
         WHERE (${estado}::text IS NULL OR j.estado = ${estado}::app.job_estado)
+
         ORDER BY
           j.item_id,
           j.estado,
@@ -76,12 +99,7 @@ export async function GET(req: Request) {
 }
 
 /**
- * Opción A: "jobs como estado actual"
- * - Requiere un índice único:
- *   CREATE UNIQUE INDEX IF NOT EXISTS job_unique_item_tipo
- *   ON app.job (item_id, tipo) WHERE item_id IS NOT NULL;
- *
- * Este endpoint re-encola (UPSERT) el mismo job por (item_id, tipo).
+ * POST: re-encola jobs (Opción A: 1 job por item+tipo)
  */
 export async function POST(req: Request) {
   try {
@@ -115,8 +133,7 @@ export async function POST(req: Request) {
     const upserted: number[] = [];
 
     for (const itemId of itemIds) {
-      const payloadObj = { source: "manual_ui", item_id: itemId };
-      const payload = JSON.stringify(payloadObj);
+      const payload = JSON.stringify({ source: "manual_ui", item_id: itemId });
 
       const result = await sql`
         INSERT INTO app.job (
@@ -159,9 +176,8 @@ export async function POST(req: Request) {
       if (jid != null) upserted.push(Number(jid));
     }
 
-    // Para no romper posibles consumidores viejos, devuelvo ambos nombres.
     return NextResponse.json(
-      { ok: true, job_ids: upserted, created_job_ids: upserted },
+      { ok: true, job_ids: upserted },
       { status: 200 }
     );
   } catch (e: any) {
