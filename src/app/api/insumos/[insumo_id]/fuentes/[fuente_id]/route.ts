@@ -50,14 +50,18 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ insumo_id
   }
 }
 
+
 export async function DELETE(_: NextRequest, ctx: { params: Promise<{ insumo_id: string; fuente_id: string }> }) {
   try {
     const sql = db();
+    const { insumo_id: insumo_idStr, fuente_id: fuente_idStr } = await ctx.params;
+
     const insumo_id = Number(insumo_idStr);
     const fuente_id = Number(fuente_idStr);
     if (!Number.isFinite(insumo_id) || !Number.isFinite(fuente_id)) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }
+
     await sql.query(`DELETE FROM app.insumo_fuente WHERE insumo_id=$1 AND fuente_id=$2`, [insumo_id, fuente_id]);
     return NextResponse.json({ ok: true });
   } catch (e: any) {
