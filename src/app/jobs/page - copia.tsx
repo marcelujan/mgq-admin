@@ -19,10 +19,7 @@ type JobRow = {
   updated_at: string;
   ofertas_count?: number;
 
-  // Campo nuevo desde /api/jobs (join con item_seguimiento)
-  item_url?: string | null;
-
-  // Campo legacy (por si /api/jobs todavía devuelve este nombre)
+  // opcional: si el backend lo trae (join con item_seguimiento)
   url_canonica?: string | null;
 };
 
@@ -40,23 +37,6 @@ function prettyNameFromUrl(url?: string | null) {
   if (!url) return "";
   const slug = url.split("/").filter(Boolean).pop() ?? "";
   return slug.replace(/[-_]+/g, " ").trim();
-}
-
-/**
- * Devuelve URL "limpia" (sin query/hash), en formato hostname+pathname,
- * y acortada para UI.
- */
-function formatJobUrl(u: string) {
-  try {
-    const url = new URL(u);
-    const clean = `${url.hostname}${url.pathname}`.replace(/\/$/, "");
-    const max = 80;
-    return clean.length > max ? clean.slice(0, max - 1) + "…" : clean;
-  } catch {
-    const s = u.split("?")[0].split("#")[0];
-    const max = 80;
-    return s.length > max ? s.slice(0, max - 1) + "…" : s;
-  }
 }
 
 export default function JobsPage() {
@@ -245,13 +225,12 @@ export default function JobsPage() {
     const needle = q.trim().toLowerCase();
     if (!needle) return jobs;
     return jobs.filter((j) => {
-      const u = (j.item_url || j.url_canonica || "").toLowerCase();
       return (
         String(j.job_id).includes(needle) ||
         (j.tipo || "").toLowerCase().includes(needle) ||
         (j.estado || "").toLowerCase().includes(needle) ||
         String(j.item_id ?? "").includes(needle) ||
-        u.includes(needle)
+        (j.url_canonica || "").toLowerCase().includes(needle)
       );
     });
   }, [jobs, q]);
@@ -292,7 +271,11 @@ export default function JobsPage() {
         </button>
 
         <label style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.95 }}>
-          <input type="checkbox" checked={latestSucceeded} onChange={(e) => setLatestSucceeded(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={latestSucceeded}
+            onChange={(e) => setLatestSucceeded(e.target.checked)}
+          />
           Solo últimos SUCCEEDED
         </label>
 
@@ -348,8 +331,7 @@ export default function JobsPage() {
             {itemsLoading ? "Buscando..." : "Buscar"}
           </button>
 
-          <button
-            type="button"
+          <button type="button"
             onClick={() => {
               const ids = items.map((x) => x.item_id);
               setSelectedItemIds((prev) => Array.from(new Set([...prev, ...ids])));
@@ -360,8 +342,7 @@ export default function JobsPage() {
             Seleccionar visibles
           </button>
 
-          <button
-            type="button"
+          <button type="button"
             onClick={() => setSelectedItemIds([])}
             style={{ padding: "6px 10px" }}
             disabled={selectedItemIds.length === 0}
@@ -369,8 +350,7 @@ export default function JobsPage() {
             Limpiar selección
           </button>
 
-          <button
-            type="button"
+          <button type="button"
             onClick={createJobsForSelected}
             disabled={creating || selectedItemIds.length === 0}
             style={{ padding: "6px 10px" }}
@@ -476,9 +456,6 @@ export default function JobsPage() {
                 const showReview = j.estado === "WAITING_REVIEW";
                 const showBackfill = j.estado === "SUCCEEDED" && offers === 0;
 
-                const rawUrl = j.item_url || j.url_canonica || "";
-                const titleUrl = rawUrl || "";
-
                 return (
                   <tr key={j.job_id}>
                     <td style={{ borderBottom: "1px solid #222" }}>
@@ -488,18 +465,14 @@ export default function JobsPage() {
                     <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
 
                     <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-word" }}>
-                      {/* Nombre derivado del slug (opcional) */}
-                      <div style={{ fontWeight: 600 }}>{prettyNameFromUrl(rawUrl) || ""}</div>
-
-                      {/* URL limpia + acortada */}
-                      <div style={{ fontSize: 12, opacity: 0.85 }}>
-                        {rawUrl ? (
-                          <a href={rawUrl} target="_blank" rel="noreferrer" title={titleUrl} style={{ opacity: 0.95 }}>
-                            {formatJobUrl(rawUrl)}
+                      <div style={{ fontWeight: 600 }}>{prettyNameFromUrl(j.url_canonica) || ""}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        item_id: {j.item_id ?? ""} {j.url_canonica ? "•" : ""}{" "}
+                        {j.url_canonica ? (
+                          <a href={j.url_canonica} target="_blank" rel="noreferrer" style={{ opacity: 0.85 }}>
+                            link
                           </a>
-                        ) : (
-                          <span style={{ opacity: 0.7 }}>item_id: {j.item_id ?? ""}</span>
-                        )}
+                        ) : null}
                       </div>
                     </td>
 
@@ -512,13 +485,10 @@ export default function JobsPage() {
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
                       {showReview ? (
                         <Link href={`/jobs/${j.job_id}`}>
-                          <button type="button" style={{ padding: "6px 10px" }}>
-                            Revisar
-                          </button>
+                          <button type="button" style={{ padding: "6px 10px" }}>Revisar</button>
                         </Link>
                       ) : showBackfill ? (
-                        <button
-                          type="button"
+                        <button type="button"
                           onClick={() => backfill(j.job_id)}
                           disabled={busy}
                           style={{ padding: "6px 10px" }}
