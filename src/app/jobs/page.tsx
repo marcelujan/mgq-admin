@@ -19,10 +19,10 @@ type JobRow = {
   updated_at: string;
   ofertas_count?: number;
 
-  // Campo nuevo desde /api/jobs (join con item_seguimiento)
+  // Nuevo (desde /api/jobs con join item_seguimiento)
   item_url?: string | null;
 
-  // Campo legacy (por si /api/jobs todavía devuelve este nombre)
+  // Legacy (por si el backend aún lo devuelve con este nombre)
   url_canonica?: string | null;
 };
 
@@ -43,8 +43,8 @@ function prettyNameFromUrl(url?: string | null) {
 }
 
 /**
- * Devuelve URL "limpia" (sin query/hash), en formato hostname+pathname,
- * y acortada para UI.
+ * URL limpia (sin query/hash) en formato hostname+pathname, acortada.
+ * Se usa para tooltip.
  */
 function formatJobUrl(u: string) {
   try {
@@ -236,7 +236,6 @@ export default function JobsPage() {
   }, []);
 
   useEffect(() => {
-    // al cambiar filtros/toggle, recargar
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estado, latestSucceeded]);
@@ -292,7 +291,11 @@ export default function JobsPage() {
         </button>
 
         <label style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.95 }}>
-          <input type="checkbox" checked={latestSucceeded} onChange={(e) => setLatestSucceeded(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={latestSucceeded}
+            onChange={(e) => setLatestSucceeded(e.target.checked)}
+          />
           Solo últimos SUCCEEDED
         </label>
 
@@ -395,7 +398,10 @@ export default function JobsPage() {
                 <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 80 }}>
                   item_id
                 </th>
-                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>url</th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>artículo</th>
+                <th style={{ textAlign: "center", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 56 }}>
+                  url
+                </th>
                 <th style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)", width: 120 }}>
                   estado
                 </th>
@@ -404,6 +410,8 @@ export default function JobsPage() {
             <tbody>
               {items.map((it) => {
                 const checked = selectedItemIds.includes(it.item_id);
+                const rawUrl = it.url_canonica;
+                const tooltip = rawUrl ? formatJobUrl(rawUrl) : "";
                 return (
                   <tr key={it.item_id}>
                     <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -426,9 +434,24 @@ export default function JobsPage() {
                         maxWidth: 520,
                         wordBreak: "break-word",
                       }}
-                      title={it.url_canonica}
+                      title={rawUrl}
                     >
-                      {it.url_canonica}
+                      {prettyNameFromUrl(rawUrl) || rawUrl}
+                    </td>
+                    <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", textAlign: "center" }}>
+                      {rawUrl ? (
+                        <a
+                          href={rawUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={tooltip}
+                          style={{ textDecoration: "none", opacity: 0.9 }}
+                        >
+                          🔗
+                        </a>
+                      ) : (
+                        <span style={{ opacity: 0.4 }}>—</span>
+                      )}
                     </td>
                     <td style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>{it.estado}</td>
                   </tr>
@@ -436,7 +459,7 @@ export default function JobsPage() {
               })}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={4} style={{ padding: 12, opacity: 0.8 }}>
+                  <td colSpan={5} style={{ padding: 12, opacity: 0.8 }}>
                     {itemsLoading ? "Cargando..." : "Sin items (usá Buscar)"}
                   </td>
                 </tr>
@@ -459,13 +482,22 @@ export default function JobsPage() {
           <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                {["job_id", "estado", "tipo", "artículo", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
-                  (h) => (
-                    <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
-                      {h}
-                    </th>
-                  )
-                )}
+                {[
+                  "job_id",
+                  "estado",
+                  "tipo",
+                  "artículo",
+                  "url",
+                  "prioridad",
+                  "next_run_at",
+                  "locked_until",
+                  "last_error",
+                  "actions",
+                ].map((h) => (
+                  <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -476,8 +508,8 @@ export default function JobsPage() {
                 const showReview = j.estado === "WAITING_REVIEW";
                 const showBackfill = j.estado === "SUCCEEDED" && offers === 0;
 
-                const rawUrl = j.item_url || j.url_canonica || "";
-                const titleUrl = rawUrl || "";
+                const rawUrl = j.item_url || j.url_canonica || null;
+                const tooltip = rawUrl ? formatJobUrl(rawUrl) : "";
 
                 return (
                   <tr key={j.job_id}>
@@ -488,19 +520,25 @@ export default function JobsPage() {
                     <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
 
                     <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-word" }}>
-                      {/* Nombre derivado del slug (opcional) */}
-                      <div style={{ fontWeight: 600 }}>{prettyNameFromUrl(rawUrl) || ""}</div>
-
-                      {/* URL limpia + acortada */}
-                      <div style={{ fontSize: 12, opacity: 0.85 }}>
-                        {rawUrl ? (
-                          <a href={rawUrl} target="_blank" rel="noreferrer" title={titleUrl} style={{ opacity: 0.95 }}>
-                            {formatJobUrl(rawUrl)}
-                          </a>
-                        ) : (
-                          <span style={{ opacity: 0.7 }}>item_id: {j.item_id ?? ""}</span>
-                        )}
+                      <div style={{ fontWeight: 600 }}>
+                        {prettyNameFromUrl(rawUrl) || (j.item_id != null ? `item_id: ${j.item_id}` : "")}
                       </div>
+                    </td>
+
+                    <td style={{ borderBottom: "1px solid #222", textAlign: "center", width: 56 }}>
+                      {rawUrl ? (
+                        <a
+                          href={rawUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={tooltip}
+                          style={{ textDecoration: "none", opacity: 0.9 }}
+                        >
+                          🔗
+                        </a>
+                      ) : (
+                        <span style={{ opacity: 0.4 }}>—</span>
+                      )}
                     </td>
 
                     <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
@@ -509,6 +547,7 @@ export default function JobsPage() {
                     <td style={{ borderBottom: "1px solid #222", maxWidth: 420, wordBreak: "break-word" }}>
                       {j.last_error ?? ""}
                     </td>
+
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
                       {showReview ? (
                         <Link href={`/jobs/${j.job_id}`}>
@@ -536,7 +575,7 @@ export default function JobsPage() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 12 }}>
+                  <td colSpan={10} style={{ padding: 12 }}>
                     Sin resultados
                   </td>
                 </tr>
