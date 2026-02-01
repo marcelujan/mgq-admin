@@ -18,6 +18,9 @@ type JobRow = {
   created_at: string;
   updated_at: string;
   ofertas_count?: number;
+
+  // opcional: si el backend lo trae (join con item_seguimiento)
+  url_canonica?: string | null;
 };
 
 type ItemRow = {
@@ -30,6 +33,12 @@ type ItemRow = {
   updated_at: string;
 };
 
+function prettyNameFromUrl(url?: string | null) {
+  if (!url) return "";
+  const slug = url.split("/").filter(Boolean).pop() ?? "";
+  return slug.replace(/[-_]+/g, " ").trim();
+}
+
 export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -37,7 +46,9 @@ export default function JobsPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [q, setQ] = useState("");
   const [estado, setEstado] = useState("");
-  const [approvingJobId, setApprovingJobId] = useState<number | null>(null);
+  const [latestSucceeded, setLatestSucceeded] = useState(false);
+
+  const [actingJobId, setActingJobId] = useState<number | null>(null);
 
   // panel crear job
   const [items, setItems] = useState<ItemRow[]>([]);
@@ -46,19 +57,22 @@ export default function JobsPage() {
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
   const [creating, setCreating] = useState(false);
 
+  const [runningAll, setRunningAll] = useState(false);
+  const [runAllCount, setRunAllCount] = useState(0);
+
   async function load() {
     setLoading(true);
     setErr(null);
     try {
       const qs = new URLSearchParams();
       qs.set("limit", "200");
-      if (estado) qs.set("estado", estado);
+      if (!latestSucceeded && estado) qs.set("estado", estado);
+      if (latestSucceeded) qs.set("latest_succeeded", "1");
 
       const res = await fetch(`/api/jobs?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      // IMPORTANTE: /api/jobs devuelve { ok:true, jobs: rows }
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (e: any) {
       setErr(e?.message || "Error cargando jobs");
@@ -69,21 +83,60 @@ export default function JobsPage() {
 
   async function runNext() {
     try {
-      const res = await fetch(`/api/jobs/run-next`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ttl_seconds: 300 }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
+      const text = await res.text();
+      const data = (() => {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return null;
+        }
+      })();
+      if (!res.ok || !data?.ok) {
+        throw new Error((data && (data.error || data.message)) || text || `HTTP ${res.status}`);
+      }
       await load();
     } catch (e: any) {
       alert(e?.message || "Error ejecutando worker");
     }
   }
 
-  async function approve(jobId: number) {
-    setApprovingJobId(jobId);
+  async function runAllPending() {
+    if (runningAll) return;
+    setRunningAll(true);
+    setRunAllCount(0);
+
+    // corte de seguridad: evita loops infinitos si el backend siempre "claimed:true"
+    const MAX = 100;
+
+    try {
+      for (let i = 0; i < MAX; i++) {
+        const res = await fetch(`/api/jobs/run-next`, { method: "POST" });
+        const text = await res.text();
+        const data = (() => {
+          try {
+            return JSON.parse(text);
+          } catch {
+            return null;
+          }
+        })();
+        if (!res.ok || !data?.ok) {
+          throw new Error((data && (data.error || data.message)) || text || `HTTP ${res.status}`);
+        }
+
+        if (!data?.claimed) break;
+        setRunAllCount((c) => c + 1);
+      }
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Error ejecutando jobs");
+    } finally {
+      setRunningAll(false);
+    }
+  }
+
+  async function backfill(jobId: number) {
+    setActingJobId(jobId);
     try {
       const res = await fetch(`/api/jobs/${jobId}/approve`, {
         method: "POST",
@@ -105,9 +158,9 @@ export default function JobsPage() {
 
       await load();
     } catch (e: any) {
-      alert(e?.message || "Error aprobando job");
+      alert(e?.message || "Error ejecutando backfill");
     } finally {
-      setApprovingJobId(null);
+      setActingJobId(null);
     }
   }
 
@@ -116,15 +169,13 @@ export default function JobsPage() {
     try {
       const qs = new URLSearchParams();
       qs.set("limit", "50");
-      if (itemsQ.trim()) qs.set("search", itemsQ.trim()); // /api/items usa search
+      if (itemsQ.trim()) qs.set("search", itemsQ.trim());
 
       const res = await fetch(`/api/items?${qs.toString()}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
-      // En tu app /api/items suele devolver items o rows según versión.
-      // Soportamos ambos para no romper.
       const list = Array.isArray(data.items) ? data.items : Array.isArray(data.rows) ? data.rows : [];
       setItems(list);
     } catch (e: any) {
@@ -161,7 +212,14 @@ export default function JobsPage() {
   useEffect(() => {
     load();
     loadItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // al cambiar filtros/toggle, recargar
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado, latestSucceeded]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -171,7 +229,8 @@ export default function JobsPage() {
         String(j.job_id).includes(needle) ||
         (j.tipo || "").toLowerCase().includes(needle) ||
         (j.estado || "").toLowerCase().includes(needle) ||
-        String(j.item_id ?? "").includes(needle)
+        String(j.item_id ?? "").includes(needle) ||
+        (j.url_canonica || "").toLowerCase().includes(needle)
       );
     });
   }, [jobs, q]);
@@ -181,15 +240,52 @@ export default function JobsPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <h1 style={{ margin: 0 }}>Jobs manual</h1>
 
-        <button onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
+        <button type="button" onClick={load} disabled={loading} style={{ padding: "6px 10px" }}>
           {loading ? "Cargando..." : "Refrescar"}
         </button>
 
-        <button onClick={runNext} style={{ padding: "6px 10px" }}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            runNext();
+          }}
+          style={{ padding: "6px 10px" }}
+          disabled={runningAll}
+        >
           Run next job
         </button>
 
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} style={{ padding: "6px 10px" }}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            runAllPending();
+          }}
+          style={{ padding: "6px 10px" }}
+          disabled={runningAll}
+        >
+          {runningAll ? `Run all… (${runAllCount})` : "Run all pending"}
+        </button>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 8, opacity: 0.95 }}>
+          <input
+            type="checkbox"
+            checked={latestSucceeded}
+            onChange={(e) => setLatestSucceeded(e.target.checked)}
+          />
+          Solo últimos SUCCEEDED
+        </label>
+
+        <select
+          value={estado}
+          onChange={(e) => setEstado(e.target.value)}
+          style={{ padding: "6px 10px" }}
+          disabled={latestSucceeded}
+          title={latestSucceeded ? "Desactivado cuando 'Solo últimos SUCCEEDED' está activo" : ""}
+        >
           <option value="">(todos)</option>
           <option value="PENDING">PENDING</option>
           <option value="RUNNING">RUNNING</option>
@@ -199,19 +295,19 @@ export default function JobsPage() {
           <option value="CANCELLED">CANCELLED</option>
         </select>
 
-        <button onClick={load} style={{ padding: "6px 10px" }}>
+        <button type="button" onClick={load} style={{ padding: "6px 10px" }} disabled={loading}>
           Filtrar
         </button>
 
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por id / tipo / estado / item_id"
+          placeholder="Buscar por id / tipo / estado / item_id / url"
           style={{ flex: 1, padding: "6px 10px" }}
         />
       </div>
 
-      {/* Panel crear job (ubicación correcta: entre toolbar y tabla) */}
+      {/* Panel crear job */}
       <div
         style={{
           marginBottom: 14,
@@ -231,11 +327,11 @@ export default function JobsPage() {
             style={{ flex: "1 1 420px", padding: "6px 10px" }}
           />
 
-          <button onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
+          <button type="button" onClick={loadItems} disabled={itemsLoading} style={{ padding: "6px 10px" }}>
             {itemsLoading ? "Buscando..." : "Buscar"}
           </button>
 
-          <button
+          <button type="button"
             onClick={() => {
               const ids = items.map((x) => x.item_id);
               setSelectedItemIds((prev) => Array.from(new Set([...prev, ...ids])));
@@ -246,7 +342,7 @@ export default function JobsPage() {
             Seleccionar visibles
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setSelectedItemIds([])}
             style={{ padding: "6px 10px" }}
             disabled={selectedItemIds.length === 0}
@@ -254,7 +350,7 @@ export default function JobsPage() {
             Limpiar selección
           </button>
 
-          <button
+          <button type="button"
             onClick={createJobsForSelected}
             disabled={creating || selectedItemIds.length === 0}
             style={{ padding: "6px 10px" }}
@@ -343,7 +439,7 @@ export default function JobsPage() {
           <table cellPadding={8} style={{ borderCollapse: "collapse", width: "100%" }}>
             <thead>
               <tr>
-                {["job_id", "estado", "tipo", "item_id", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
+                {["job_id", "estado", "tipo", "artículo", "prioridad", "next_run_at", "locked_until", "last_error", "actions"].map(
                   (h) => (
                     <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
                       {h}
@@ -355,7 +451,10 @@ export default function JobsPage() {
             <tbody>
               {filtered.map((j) => {
                 const offers = Number(j.ofertas_count ?? 0);
-                const busy = approvingJobId === j.job_id;
+                const busy = actingJobId === j.job_id;
+
+                const showReview = j.estado === "WAITING_REVIEW";
+                const showBackfill = j.estado === "SUCCEEDED" && offers === 0;
 
                 return (
                   <tr key={j.job_id}>
@@ -364,7 +463,19 @@ export default function JobsPage() {
                     </td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.estado}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.tipo}</td>
-                    <td style={{ borderBottom: "1px solid #222" }}>{j.item_id ?? ""}</td>
+
+                    <td style={{ borderBottom: "1px solid #222", maxWidth: 520, wordBreak: "break-word" }}>
+                      <div style={{ fontWeight: 600 }}>{prettyNameFromUrl(j.url_canonica) || ""}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>
+                        item_id: {j.item_id ?? ""} {j.url_canonica ? "•" : ""}{" "}
+                        {j.url_canonica ? (
+                          <a href={j.url_canonica} target="_blank" rel="noreferrer" style={{ opacity: 0.85 }}>
+                            link
+                          </a>
+                        ) : null}
+                      </div>
+                    </td>
+
                     <td style={{ borderBottom: "1px solid #222" }}>{j.prioridad}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.next_run_at}</td>
                     <td style={{ borderBottom: "1px solid #222" }}>{j.locked_until ?? ""}</td>
@@ -372,33 +483,21 @@ export default function JobsPage() {
                       {j.last_error ?? ""}
                     </td>
                     <td style={{ borderBottom: "1px solid #222", whiteSpace: "nowrap" }}>
-                      {j.estado === "WAITING_REVIEW" ? (
-                        <Link
-                          href={`/jobs/${j.job_id}`}
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 10px",
-                            border: "1px solid #444",
-                            borderRadius: 6,
-                            textDecoration: "none",
-                          }}
-                          title="Abrir detalle para revisar"
-                        >
-                          Revisar
+                      {showReview ? (
+                        <Link href={`/jobs/${j.job_id}`}>
+                          <button type="button" style={{ padding: "6px 10px" }}>Revisar</button>
                         </Link>
-                      ) : j.estado === "SUCCEEDED" && offers === 0 ? (
-                        <button
-                          onClick={() => approve(j.job_id)}
+                      ) : showBackfill ? (
+                        <button type="button"
+                          onClick={() => backfill(j.job_id)}
                           disabled={busy}
                           style={{ padding: "6px 10px" }}
-                          title="Crear ofertas faltantes (caso legado)"
+                          title="Crea ofertas faltantes si el job quedó SUCCEEDED sin persistir ofertas (legado)"
                         >
-                          {busy ? "Procesando..." : "Backfill"}
+                          {busy ? "Backfill..." : "Backfill"}
                         </button>
                       ) : (
-                        <button disabled style={{ padding: "6px 10px", opacity: 0.5 }} title="Sin acciones">
-                          —
-                        </button>
+                        <span style={{ opacity: 0.5 }}>—</span>
                       )}
                     </td>
                   </tr>
