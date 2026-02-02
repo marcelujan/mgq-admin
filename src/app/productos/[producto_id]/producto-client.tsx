@@ -115,6 +115,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [newInsumoId, setNewInsumoId] = useState<string>("");
   const [newPct, setNewPct] = useState<string>("");
 
+  // Quick insumo import
+  const [showImportInsumo, setShowImportInsumo] = useState(false);
+  const [impItemId, setImpItemId] = useState<string>("");
+  const [impNombre, setImpNombre] = useState<string>("");
+  const [impTipoUom, setImpTipoUom] = useState<"GR" | "ML" | "UN">("GR");
+  const [impDensidad, setImpDensidad] = useState<string>("");
+  const [impPresentacion, setImpPresentacion] = useState<string>("");
+  const [impPrioridad, setImpPrioridad] = useState<string>("10");
+
+
   // Oferta new
   const [newOfertaNombre, setNewOfertaNombre] = useState<string>("");
   const [newOfertaPeso, setNewOfertaPeso] = useState<string>("");
@@ -297,6 +307,54 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await loadAll();
     setModo("FORMULA");
   }
+
+
+async function importInsumoFromItem() {
+  setError(null);
+  const item_id = Number(impItemId);
+  const nombre = impNombre.trim();
+  const tipo_uom = impTipoUom;
+  const dens = impDensidad.trim() ? Number(impDensidad) : null;
+  const pref = impPresentacion.trim() ? Number(impPresentacion) : NaN;
+  const prioridad = impPrioridad.trim() ? Number(impPrioridad) : 10;
+
+  if (!Number.isFinite(item_id) || item_id <= 0) { setError("Seleccionar item"); return; }
+  if (!nombre) { setError("Nombre de insumo requerido"); return; }
+  if (dens !== null && (!Number.isFinite(dens) || dens <= 0)) { setError("Densidad inválida"); return; }
+  if (!Number.isFinite(pref) || pref <= 0) { setError("presentacion_preferida requerida (>0)"); return; }
+  if (!Number.isFinite(prioridad)) { setError("Prioridad inválida"); return; }
+
+  const resI = await fetch(`/api/insumos`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nombre, tipo_uom, densidad_g_ml: dens, activo: true, notas: null }),
+  });
+  const jI = await resI.json().catch(() => null);
+  if (!resI.ok || !jI?.ok) { setError(jI?.error || `HTTP ${resI.status}`); return; }
+  const insumo_id = Number(jI.insumo_id);
+
+  const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tipo: "ITEM", item_id, presentacion_preferida: pref, habilitada: true, prioridad }),
+  });
+  const jF = await resF.json().catch(() => null);
+  if (!resF.ok || !jF?.ok) { setError(jF?.error || `HTTP ${resF.status}`); return; }
+
+  const insR = await fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" });
+  const insJ = await insR.json().catch(() => null);
+  if (insR.ok && insJ?.ok) setInsumos(insJ.insumos || []);
+
+  setNewInsumoId(String(insumo_id));
+  setShowImportInsumo(false);
+  setImpItemId("");
+  setImpNombre("");
+  setImpTipoUom("GR");
+  setImpDensidad("");
+  setImpPresentacion("");
+  setImpPrioridad("10");
+}
+
 
   async function addLinea() {
     setError(null);
@@ -486,6 +544,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       </option>
                     ))}
                 </select>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button
+                    onClick={() => setShowImportInsumo(true)}
+                    style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+                  >
+                    Importar desde item
+                  </button>
+                  <a href="/insumos" style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)", textDecoration: "none", color: "inherit" }}>
+                    Gestionar insumos
+                  </a>
+                </div>
               </label>
             ) : (
               <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 220px" }}>
@@ -739,6 +808,133 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         ) : (
           <div style={{ opacity: 0.75, fontSize: 12 }}>Ejecutá “Costear” en una oferta.</div>
         )}
+{showImportInsumo ? (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.65)",
+      display: "grid",
+      placeItems: "center",
+      padding: 16,
+      zIndex: 50,
+    }}
+    onClick={() => setShowImportInsumo(false)}
+  >
+    <div
+      style={{ width: "min(720px, 100%)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(20,20,20,0.98)", padding: 12, display: "grid", gap: 10 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontWeight: 700 }}>Importar insumo desde item (proveedor)</div>
+        <button
+          onClick={() => setShowImportInsumo(false)}
+          style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+        >
+          Cerrar
+        </button>
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.8 }}>
+        Crea un insumo interno y lo vincula a un item con <b>presentación preferida obligatoria</b>.
+      </div>
+
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 160px 160px" }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Item</div>
+          <select
+            value={impItemId}
+            onChange={(e) => {
+              const v = e.target.value;
+              setImpItemId(v);
+              const id = Number(v);
+              const it = items.find((x) => x.item_id === id);
+              if (it && !impNombre.trim()) setImpNombre(`${it.proveedor_nombre}`);
+            }}
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          >
+            <option value="">Seleccionar...</option>
+            {items.map((it) => (
+              <option key={it.item_id} value={String(it.item_id)}>
+                #{it.item_id} - {it.proveedor_nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>UOM del insumo</div>
+          <select
+            value={impTipoUom}
+            onChange={(e) => setImpTipoUom(e.target.value as any)}
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          >
+            <option value="GR">GR</option>
+            <option value="ML">ML</option>
+            <option value="UN">UN</option>
+          </select>
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Prioridad</div>
+          <input
+            value={impPrioridad}
+            onChange={(e) => setImpPrioridad(e.target.value)}
+            placeholder="10"
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 200px 200px" }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Nombre del insumo</div>
+          <input
+            value={impNombre}
+            onChange={(e) => setImpNombre(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Densidad (g/mL) (si UOM=ML)</div>
+          <input
+            value={impDensidad}
+            onChange={(e) => setImpDensidad(e.target.value)}
+            placeholder="1.020"
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Presentación preferida (misma UOM)</div>
+          <input
+            value={impPresentacion}
+            onChange={(e) => setImpPresentacion(e.target.value)}
+            placeholder="ej: 1000"
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          />
+        </label>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <button
+          onClick={() => setShowImportInsumo(false)}
+          style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={importInsumoFromItem}
+          style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)" }}
+        >
+          Crear insumo
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
+
       </section>
     </div>
   );
