@@ -20,7 +20,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
       `SELECT oferta_id, producto_id, nombre,
               peso_neto_g, volumen_neto_ml, unidades_pack,
               masa_por_unidad_g, volumen_por_unidad_ml,
-              densidad_override_g_ml, merma_pct, activo, created_at, updated_at
+              densidad_override_g_ml, merma_pct, is_bulk, activo, created_at, updated_at
        FROM app.producto_oferta
        WHERE producto_id=$1
        ORDER BY updated_at DESC, oferta_id DESC`,
@@ -54,6 +54,7 @@ const sql = db();
     const volumen_por_unidad_ml = pick(body?.volumen_por_unidad_ml);
     const densidad_override_g_ml = pick(body?.densidad_override_g_ml);
     const merma_pct = pick(body?.merma_pct);
+    const is_bulk = body?.is_bulk === true;
     const activo = body?.activo === false ? false : true;
 
     const anyPresent = (peso_neto_g && peso_neto_g > 0) || (volumen_neto_ml && volumen_neto_ml > 0) || (unidades_pack && unidades_pack > 0);
@@ -85,8 +86,8 @@ const sql = db();
           producto_id, nombre,
           peso_neto_g, volumen_neto_ml, unidades_pack,
           masa_por_unidad_g, volumen_por_unidad_ml,
-          densidad_override_g_ml, merma_pct, activo
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          densidad_override_g_ml, merma_pct, is_bulk, activo
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING oferta_id`,
       [
         producto_id,
@@ -98,6 +99,7 @@ const sql = db();
         volumen_por_unidad_ml,
         densidad_override_g_ml,
         merma_pct,
+        is_bulk,
         activo,
       ]
     );

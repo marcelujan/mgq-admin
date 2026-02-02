@@ -20,7 +20,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: st
       `SELECT oferta_id, producto_id, nombre,
               peso_neto_g, volumen_neto_ml, unidades_pack,
               masa_por_unidad_g, volumen_por_unidad_ml,
-              densidad_override_g_ml, merma_pct, activo, created_at, updated_at
+              densidad_override_g_ml, merma_pct, is_bulk, activo, created_at, updated_at
        FROM app.producto_oferta
        WHERE oferta_id=$1
        LIMIT 1`,

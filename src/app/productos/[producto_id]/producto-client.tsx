@@ -58,6 +58,19 @@ type ItemRow = {
   estado: string;
 };
 
+type BulkOferta = {
+  oferta_id: number;
+  producto_id: number;
+  producto_nombre: string;
+  oferta_nombre: string;
+  peso_neto_g: number | null;
+  volumen_neto_ml: number | null;
+  unidades_pack: number | null;
+  masa_por_unidad_g: number | null;
+  volumen_por_unidad_ml: number | null;
+  densidad_override_g_ml: number | null;
+};
+
 type Oferta = {
   oferta_id: number;
   producto_id: number;
@@ -69,6 +82,7 @@ type Oferta = {
   volumen_por_unidad_ml: number | null;
   densidad_override_g_ml: number | null;
   merma_pct: number | null;
+  is_bulk?: boolean;
   activo: boolean;
 };
 
@@ -94,6 +108,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+
+  const [bulkOfertas, setBulkOfertas] = useState<BulkOferta[]>([]);
 
   const [modo, setModo] = useState<"BASE" | "FORMULA">("BASE");
 
@@ -124,11 +140,18 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [impPresentacion, setImpPresentacion] = useState<string>("");
   const [impPrioridad, setImpPrioridad] = useState<string>("10");
 
+  // Importar OFERTA BULK como insumo (crea insumo GR + fuente OFERTA_BULK)
+  const [showImportBulk, setShowImportBulk] = useState(false);
+  const [bulkOfertaId, setBulkOfertaId] = useState<string>("");
+  const [bulkInsumoNombre, setBulkInsumoNombre] = useState<string>("");
+  const [bulkPrioridad, setBulkPrioridad] = useState<string>("10");
+
 
   // Oferta new
   const [newOfertaNombre, setNewOfertaNombre] = useState<string>("");
   const [newOfertaPeso, setNewOfertaPeso] = useState<string>("");
   const [newOfertaVol, setNewOfertaVol] = useState<string>("");
+  const [newOfertaIsBulk, setNewOfertaIsBulk] = useState<boolean>(false);
 
   const [costeo, setCosteo] = useState<Costeo | null>(null);
   const [costeoOfertaId, setCosteoOfertaId] = useState<number | null>(null);
@@ -144,11 +167,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     setLoading(true);
     setError(null);
     try {
-      const [pR, oR, insR, itR] = await Promise.all([
+      const [pR, oR, insR, itR, compR] = await Promise.all([
         fetch(`/api/productos/${productoId}`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/ofertas`, { cache: "no-store" }),
         fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" }),
         fetch(`/api/items?limit=200&offset=0`, { cache: "no-store" }),
+        fetch(`/api/componentes`, { cache: "no-store" }),
       ]);
 
       const pJ = await pR.json();
@@ -163,6 +187,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       const itJ = await itR.json();
       if (!itR.ok || !itJ?.ok) throw new Error(itJ?.error || `HTTP ${itR.status}`);
 
+
+      const compJ = await compR.json();
+      if (!compR.ok || !compJ?.ok) throw new Error(compJ?.error || `HTTP ${compR.status}`);
+
       setProducto(pJ.producto);
       setBase(pJ.base);
       setFormula(pJ.formula);
@@ -170,6 +198,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       setOfertas(oJ.ofertas || []);
       setInsumos(insJ.insumos || []);
       setItems(itJ.items || []);
+      setBulkOfertas(compJ.ofertas_bulk || []);
 
       setNombre(pJ.producto?.nombre || "");
       setDensidadProducto(pJ.producto?.densidad_producto_g_ml === null || pJ.producto?.densidad_producto_g_ml === undefined ? "" : String(pJ.producto.densidad_producto_g_ml));
@@ -352,9 +381,87 @@ async function importInsumoFromItem() {
   setImpTipoUom("GR");
   setImpDensidad("");
   setImpPresentacion("");
-  setImpPrioridad("10");
+
+
+async function importInsumoFromBulk() {
+  setError(null);
+  const oferta_id = Number(bulkOfertaId);
+  const nombre = bulkInsumoNombre.trim();
+  const prioridad = bulkPrioridad.trim() ? Number(bulkPrioridad) : 10;
+
+  if (!Number.isFinite(oferta_id) || oferta_id <= 0) { setError("Seleccionar oferta BULK"); return; }
+  if (!nombre) { setError("Nombre de insumo requerido"); return; }
+  if (!Number.isFinite(prioridad)) { setError("Prioridad inválida"); return; }
+
+  // Crear insumo GR (fórmula está en % p/p)
+  const resI = await fetch(`/api/insumos`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nombre, tipo_uom: "GR", densidad_g_ml: null, activo: true, notas: null }),
+  });
+  const jI = await resI.json().catch(() => null);
+  if (!resI.ok || !jI?.ok) { setError(jI?.error || `HTTP ${resI.status}`); return; }
+  const insumo_id = Number(jI.insumo_id);
+
+  const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tipo: "OFERTA_BULK", oferta_id, habilitada: true, prioridad }),
+  });
+  const jF = await resF.json().catch(() => null);
+  if (!resF.ok || !jF?.ok) { setError(jF?.error || `HTTP ${resF.status}`); return; }
+
+  const insR = await fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" });
+  const insJ = await insR.json().catch(() => null);
+  if (insR.ok && insJ?.ok) setInsumos(insJ.insumos || []);
+
+  setNewInsumoId(String(insumo_id));
+  setShowImportBulk(false);
+  setBulkOfertaId("");
+  setBulkInsumoNombre("");
+  setBulkPrioridad("10");
 }
 
+
+
+async function importInsumoFromBulk() {
+  setError(null);
+  const oferta_id = Number(bulkOfertaId);
+  const nombre = bulkInsumoNombre.trim();
+  const prioridad = bulkPrioridad.trim() ? Number(bulkPrioridad) : 10;
+
+  if (!Number.isFinite(oferta_id) || oferta_id <= 0) { setError("Seleccionar oferta BULK"); return; }
+  if (!nombre) { setError("Nombre de insumo requerido"); return; }
+  if (!Number.isFinite(prioridad)) { setError("Prioridad inválida"); return; }
+
+  // Crear insumo GR. (La fórmula está en % p/p; el costo se resolverá como $/g)
+  const resI = await fetch(`/api/insumos`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ nombre, tipo_uom: "GR", densidad_g_ml: null, activo: true, notas: null }),
+  });
+  const jI = await resI.json().catch(() => null);
+  if (!resI.ok || !jI?.ok) { setError(jI?.error || `HTTP ${resI.status}`); return; }
+  const insumo_id = Number(jI.insumo_id);
+
+  const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tipo: "OFERTA_BULK", oferta_id, habilitada: true, prioridad }),
+  });
+  const jF = await resF.json().catch(() => null);
+  if (!resF.ok || !jF?.ok) { setError(jF?.error || `HTTP ${resF.status}`); return; }
+
+  const insR = await fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" });
+  const insJ = await insR.json().catch(() => null);
+  if (insR.ok && insJ?.ok) setInsumos(insJ.insumos || []);
+
+  setNewInsumoId(String(insumo_id));
+  setShowImportBulk(false);
+  setBulkOfertaId("");
+  setBulkInsumoNombre("");
+  setBulkPrioridad("10");
+}
 
   async function addLinea() {
     setError(null);
@@ -621,7 +728,7 @@ async function importInsumoFromItem() {
 
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 140px 140px" }}>
               <label style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>Agregar insumo</div>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>Agregar componente</div>
                 <select
                   value={newInsumoId}
                   onChange={(e) => setNewInsumoId(e.target.value)}
@@ -636,9 +743,23 @@ async function importInsumoFromItem() {
                       </option>
                     ))}
                 </select>
-              </label>
 
-              <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button
+                    onClick={() => setShowImportInsumo(true)}
+                    style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+                  >
+                    Importar item
+                  </button>
+
+                  <button
+                    onClick={() => setShowImportBulk(true)}
+                    style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+                  >
+                    Importar BULK
+                  </button>
+                </div>
+              </label><label style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>% p/p</div>
                 <input
                   value={newPct}
@@ -721,6 +842,12 @@ async function importInsumoFromItem() {
             placeholder="volumen mL"
             style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
           />
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 6px", fontSize: 12, opacity: 0.9 }}>
+            <input type="checkbox" checked={newOfertaIsBulk} onChange={(e) => setNewOfertaIsBulk(e.target.checked)} />
+            BULK
+          </label>
+
           <button
             onClick={createOferta}
             style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
@@ -743,7 +870,7 @@ async function importInsumoFromItem() {
                 const pres = o.peso_neto_g ? `${o.peso_neto_g} g` : o.volumen_neto_ml ? `${o.volumen_neto_ml} mL` : "(pack)";
                 return (
                   <tr key={o.oferta_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                    <td style={{ padding: 10 }}>{o.nombre} <span style={{ opacity: 0.7, fontSize: 12 }}>#{o.oferta_id}</span></td>
+                    <td style={{ padding: 10 }}>{o.nombre}{o.is_bulk ? " (BULK)" : ""} <span style={{ opacity: 0.7, fontSize: 12 }}>#{o.oferta_id}</span></td>
                     <td style={{ padding: 10 }}>{pres}</td>
                     <td style={{ padding: 10, width: 1 }}>
                       <button
@@ -933,6 +1060,104 @@ async function importInsumoFromItem() {
       </div>
     </div>
   </div>
+
+{showImportBulk ? (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.65)",
+      display: "grid",
+      placeItems: "center",
+      padding: 16,
+      zIndex: 50,
+    }}
+    onClick={() => setShowImportBulk(false)}
+  >
+    <div
+      style={{ width: "min(720px, 100%)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(20,20,20,0.98)", padding: 12, display: "grid", gap: 10 }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontWeight: 700 }}>Importar oferta BULK (subproducto)</div>
+        <button
+          onClick={() => setShowImportBulk(false)}
+          style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+        >
+          Cerrar
+        </button>
+      </div>
+
+      <div style={{ fontSize: 12, opacity: 0.8 }}>
+        Crea un insumo interno (GR) cuyo costo proviene del costeo de una <b>oferta marcada como BULK</b>.
+      </div>
+
+      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 160px" }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Oferta BULK</div>
+          <select
+            value={bulkOfertaId}
+            onChange={(e) => {
+              const v = e.target.value;
+              setBulkOfertaId(v);
+              const id = Number(v);
+              const o = bulkOfertas.find((x) => x.oferta_id === id);
+              if (o && !bulkInsumoNombre.trim()) setBulkInsumoNombre(`${o.producto_nombre} - ${o.oferta_nombre} (BULK)`);
+            }}
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          >
+            <option value="">Seleccionar...</option>
+            {bulkOfertas
+              .filter((o) => o.producto_id !== productoId)
+              .map((o) => (
+                <option key={o.oferta_id} value={String(o.oferta_id)}>
+                  {o.producto_nombre} — {o.oferta_nombre}
+                </option>
+              ))}
+          </select>
+          <div style={{ fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+            Se excluyen ofertas del mismo producto para evitar ciclos obvios (A→A). (No reemplaza validación completa anti-ciclo).
+          </div>
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Prioridad</div>
+          <input
+            value={bulkPrioridad}
+            onChange={(e) => setBulkPrioridad(e.target.value)}
+            placeholder="10"
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          />
+        </label>
+      </div>
+
+      <label style={{ display: "grid", gap: 6 }}>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>Nombre del insumo</div>
+        <input
+          value={bulkInsumoNombre}
+          onChange={(e) => setBulkInsumoNombre(e.target.value)}
+          style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+        />
+      </label>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <button
+          onClick={() => setShowImportBulk(false)}
+          style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={importInsumoFromBulk}
+          style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)" }}
+        >
+          Crear insumo
+        </button>
+      </div>
+    </div>
+  </div>
+) : null}
+
 ) : null}
 
       </section>

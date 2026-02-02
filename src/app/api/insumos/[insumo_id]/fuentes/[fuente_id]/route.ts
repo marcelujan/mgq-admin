@@ -38,6 +38,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ insumo_id
       pushSet("presentacion_preferida = ?", pref);
     }
 
+    if (body?.oferta_id !== undefined) {
+      const oid = body.oferta_id === null ? null : Number(body.oferta_id);
+      if (oid !== null && (!Number.isFinite(oid) || oid <= 0)) {
+        return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 422 });
+      }
+      pushSet("oferta_id = ?", oid);
+    }
+
     if (!sets.length) return NextResponse.json({ ok: false, error: "sin cambios" }, { status: 400 });
 
     params.push(insumo_id);

@@ -25,7 +25,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ insumo_id: st
     if (!insumo) return NextResponse.json({ ok: false, error: "no encontrado" }, { status: 404 });
 
     const b: any = await sql.query(
-      `SELECT fuente_id, insumo_id, tipo, costo_por_uom_ars, vigente_desde, item_id, presentacion_preferida, habilitada, prioridad, created_at
+      `SELECT fuente_id, insumo_id, tipo, costo_por_uom_ars, vigente_desde, item_id, presentacion_preferida, oferta_id, habilitada, prioridad, created_at
        FROM app.insumo_fuente
        WHERE insumo_id=$1
        ORDER BY prioridad ASC, fuente_id ASC`,
