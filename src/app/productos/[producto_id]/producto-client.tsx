@@ -1060,6 +1060,7 @@ async function importInsumoFromBulk() {
       </div>
     </div>
   </div>
+  ) : null}
 
 {showImportBulk ? (
   <div
@@ -1157,9 +1158,6 @@ async function importInsumoFromBulk() {
     </div>
   </div>
 ) : null}
-
-) : null}
-
       </section>
     </div>
   );
