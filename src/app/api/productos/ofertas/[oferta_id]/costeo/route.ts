@@ -197,8 +197,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ oferta_id: 
       // ITEM
       const fuente_id = Number(fuente.fuente_id);
       const item_id = Number(fuente.item_id);
-      const pref = fuente.presentacion_preferida === null || fuente.presentacion_preferida === undefined ? null : Number(fuente.presentacion_preferida);
-      if (!isFinitePos(pref)) {
+      const prefRaw = fuente.presentacion_preferida;
+      const prefNum = prefRaw === null || prefRaw === undefined ? NaN : Number(prefRaw);
+      if (!Number.isFinite(prefNum) || prefNum <= 0) {
         setIssue({ code: "PREFERRED_PRESENTATION_REQUIRED", message: `Insumo ${insumo_id}: falta presentacion_preferida.`, ref: { insumo_id, item_id, fuente_id } });
         return { policy, fuente_tipo: "ITEM", fuente_id, selected_reason: "PREFERRED_PRESENTATION", item_id, costo_unitario_ars_por_uom: null };
       }
@@ -215,16 +216,16 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ oferta_id: 
          FROM app.item_price_daily_pres
          WHERE item_id=$1 AND as_of_date=$2 AND presentacion=$3
          LIMIT 1`,
-        [item_id, last_date, pref]
+        [item_id, last_date, prefNum]
       );
       const row = normalizeQueryResult(priceRes)?.[0] ?? null;
       if (!row) {
         setIssue({
           code: "PREFERRED_PRESENTATION_NOT_FOUND_LAST_DAY",
-          message: `Insumo ${insumo_id}: preferida=${pref} no existe en último día (${String(last_date)}).`,
+          message: `Insumo ${insumo_id}: preferida=${prefNum} no existe en último día (${String(last_date)}).`,
           ref: { insumo_id, item_id, fuente_id },
         });
-        return { policy, fuente_tipo: "ITEM", fuente_id, selected_reason: "PREFERRED_PRESENTATION", item_id, as_of_date: String(last_date), presentacion: pref, costo_unitario_ars_por_uom: null };
+        return { policy, fuente_tipo: "ITEM", fuente_id, selected_reason: "PREFERRED_PRESENTATION", item_id, as_of_date: String(last_date), presentacion: prefNum, costo_unitario_ars_por_uom: null };
       }
 
       const price_ars = Number(row.price_ars);
