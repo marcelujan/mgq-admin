@@ -33,9 +33,9 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
 // PUT upsert formula header
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
+    
     const { producto_id: producto_idStr } = await ctx.params;
-
-    const sql = db();
+const sql = db();
     const producto_id = Number(producto_idStr);
     if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
 
@@ -67,9 +67,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ producto_id
 
 export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
+    
     const { producto_id: producto_idStr } = await ctx.params;
-
-    const sql = db();
+const sql = db();
     const producto_id = Number(producto_idStr);
     if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
 

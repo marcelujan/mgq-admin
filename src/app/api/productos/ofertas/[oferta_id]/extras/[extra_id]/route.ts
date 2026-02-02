@@ -51,7 +51,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ oferta_id
 
 export async function DELETE(_: NextRequest, ctx: { params: Promise<{ oferta_id: string; extra_id: string }> }) {
   try {
-    const sql = db();
+    
+    const { extra_id: extra_idStr, oferta_id: oferta_idStr } = await ctx.params;
+const sql = db();
     const oferta_id = Number(oferta_idStr);
     const extra_id = Number(extra_idStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(extra_id)) {

@@ -46,7 +46,9 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: st
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const sql = db();
+    
+    const { oferta_id: oferta_idStr } = await ctx.params;
+const sql = db();
     const oferta_id = Number(oferta_idStr);
     if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
