@@ -382,48 +382,6 @@ async function importInsumoFromItem() {
   setImpDensidad("");
   setImpPresentacion("");
 
-
-async function importInsumoFromBulk() {
-  setError(null);
-  const oferta_id = Number(bulkOfertaId);
-  const nombre = bulkInsumoNombre.trim();
-  const prioridad = bulkPrioridad.trim() ? Number(bulkPrioridad) : 10;
-
-  if (!Number.isFinite(oferta_id) || oferta_id <= 0) { setError("Seleccionar oferta BULK"); return; }
-  if (!nombre) { setError("Nombre de insumo requerido"); return; }
-  if (!Number.isFinite(prioridad)) { setError("Prioridad inválida"); return; }
-
-  // Crear insumo GR (fórmula está en % p/p)
-  const resI = await fetch(`/api/insumos`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ nombre, tipo_uom: "GR", densidad_g_ml: null, activo: true, notas: null }),
-  });
-  const jI = await resI.json().catch(() => null);
-  if (!resI.ok || !jI?.ok) { setError(jI?.error || `HTTP ${resI.status}`); return; }
-  const insumo_id = Number(jI.insumo_id);
-
-  const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ tipo: "OFERTA_BULK", oferta_id, habilitada: true, prioridad }),
-  });
-  const jF = await resF.json().catch(() => null);
-  if (!resF.ok || !jF?.ok) { setError(jF?.error || `HTTP ${resF.status}`); return; }
-
-  const insR = await fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" });
-  const insJ = await insR.json().catch(() => null);
-  if (insR.ok && insJ?.ok) setInsumos(insJ.insumos || []);
-
-  setNewInsumoId(String(insumo_id));
-  setShowImportBulk(false);
-  setBulkOfertaId("");
-  setBulkInsumoNombre("");
-  setBulkPrioridad("10");
-}
-
-
-
 async function importInsumoFromBulk() {
   setError(null);
   const oferta_id = Number(bulkOfertaId);
@@ -1161,4 +1119,5 @@ async function importInsumoFromBulk() {
       </section>
     </div>
   );
+}
 }
