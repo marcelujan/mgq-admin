@@ -1,27 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../lib/db";
 
-function normalizeQueryResult(res: any): any[] {
+function rows(res: any): any[] {
   if (!res) return [];
   if (Array.isArray(res)) return res;
   if (Array.isArray(res.rows)) return res.rows;
   return [];
 }
 
-// Helper: agrega cláusulas con placeholders correctos ($1..$n)
-function addWhere(where: string[], params: any[], clause: string, values?: any | any[]) {
-  if (values === undefined) {
-    where.push(clause);
-    return;
-  }
-  const vs = Array.isArray(values) ? values : [values];
-  for (const v of vs) params.push(v);
-  let i = params.length - vs.length + 1;
-  const replaced = clause.replace(/\?/g, () => `$${i++}`);
-  where.push(replaced);
-}
-
-// GET /api/productos
 export async function GET(req: NextRequest) {
   try {
     const sql = db();
@@ -38,45 +24,32 @@ export async function GET(req: NextRequest) {
     const where: string[] = [];
     const params: any[] = [];
 
-    if (search) addWhere(where, params, `p.nombre ILIKE ?`, `%${search}%`);
-    if (activoRaw === "true") addWhere(where, params, `p.activo = ?`, true);
-    if (activoRaw === "false") addWhere(where, params, `p.activo = ?`, false);
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`nombre ILIKE $${params.length}`);
+    }
+    if (activoRaw === "true" || activoRaw === "false") {
+      params.push(activoRaw === "true");
+      where.push(`activo = $${params.length}`);
+    }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    // Además de los datos del producto, devolvemos flags para UI:
-    // - tiene_base
-    // - tiene_formula
     const q = `
-      SELECT
-        p.producto_id,
-        p.nombre,
-        p.descripcion,
-        p.categoria,
-        p.densidad_producto_g_ml,
-        p.activo,
-        p.created_at,
-        p.updated_at,
-        (pb.producto_id IS NOT NULL) AS tiene_base,
-        (pf.producto_id IS NOT NULL) AS tiene_formula
-      FROM app.producto p
-      LEFT JOIN app.producto_base pb ON pb.producto_id = p.producto_id
-      LEFT JOIN app.producto_formula pf ON pf.producto_id = p.producto_id
+      SELECT producto_id, nombre, descripcion, categoria, activo, densidad_producto_g_ml, created_at, updated_at
+      FROM app.producto
       ${whereSql}
-      ORDER BY p.updated_at DESC, p.producto_id DESC
+      ORDER BY updated_at DESC, producto_id DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
+    const r: any = await sql.query(q, [...params, limit, offset]);
 
-    const res: any = await sql.query(q, [...params, limit, offset]);
-    const productos = normalizeQueryResult(res);
-
-    return NextResponse.json({ ok: true, limit, offset, count: productos.length, productos });
+    return NextResponse.json({ ok: true, limit, offset, count: rows(r).length, productos: rows(r) });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
 
-// POST /api/productos
 export async function POST(req: NextRequest) {
   try {
     const sql = db();
@@ -97,13 +70,11 @@ export async function POST(req: NextRequest) {
     }
 
     const r: any = await sql.query(
-      `INSERT INTO app.producto (nombre, descripcion, categoria, densidad_producto_g_ml, activo)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING producto_id`,
-      [nombre, descripcion, categoria, densidad_producto_g_ml, activo]
+      `INSERT INTO app.producto (nombre, descripcion, categoria, activo, densidad_producto_g_ml)
+       VALUES ($1,$2,$3,$4,$5) RETURNING producto_id`,
+      [nombre, descripcion, categoria, activo, densidad_producto_g_ml]
     );
-    const producto_id = normalizeQueryResult(r)?.[0]?.producto_id;
-    return NextResponse.json({ ok: true, producto_id }, { status: 201 });
+    return NextResponse.json({ ok: true, producto_id: rows(r)?.[0]?.producto_id }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

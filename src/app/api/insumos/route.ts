@@ -1,23 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../lib/db";
 
-function normalizeQueryResult(res: any): any[] {
+function rows(res: any): any[] {
   if (!res) return [];
   if (Array.isArray(res)) return res;
   if (Array.isArray(res.rows)) return res.rows;
   return [];
-}
-
-function addWhere(where: string[], params: any[], clause: string, values?: any | any[]) {
-  if (values === undefined) {
-    where.push(clause);
-    return;
-  }
-  const vs = Array.isArray(values) ? values : [values];
-  for (const v of vs) params.push(v);
-  let i = params.length - vs.length + 1;
-  const replaced = clause.replace(/\?/g, () => `$${i++}`);
-  where.push(replaced);
 }
 
 export async function GET(req: NextRequest) {
@@ -29,18 +17,26 @@ export async function GET(req: NextRequest) {
     const tipo_uom = (searchParams.get("tipo_uom") || "").trim().toUpperCase();
     const activoRaw = (searchParams.get("activo") || "").trim();
 
-    const limitRaw = Number(searchParams.get("limit") || 50);
+    const limitRaw = Number(searchParams.get("limit") || 100);
     const offsetRaw = Number(searchParams.get("offset") || 0);
-    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
     const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
 
     const where: string[] = [];
     const params: any[] = [];
 
-    if (search) addWhere(where, params, `nombre ILIKE ?`, `%${search}%`);
-    if (tipo_uom && ["GR", "ML", "UN"].includes(tipo_uom)) addWhere(where, params, `tipo_uom = ?`, tipo_uom);
-    if (activoRaw === "true") addWhere(where, params, `activo = ?`, true);
-    if (activoRaw === "false") addWhere(where, params, `activo = ?`, false);
+    if (search) {
+      params.push(`%${search}%`);
+      where.push(`nombre ILIKE $${params.length}`);
+    }
+    if (tipo_uom && ["GR", "ML", "UN"].includes(tipo_uom)) {
+      params.push(tipo_uom);
+      where.push(`tipo_uom = $${params.length}`);
+    }
+    if (activoRaw === "true" || activoRaw === "false") {
+      params.push(activoRaw === "true");
+      where.push(`activo = $${params.length}`);
+    }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
@@ -51,10 +47,9 @@ export async function GET(req: NextRequest) {
       ORDER BY updated_at DESC, insumo_id DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
+    const r: any = await sql.query(q, [...params, limit, offset]);
 
-    const res: any = await sql.query(q, [...params, limit, offset]);
-    const insumos = normalizeQueryResult(res);
-    return NextResponse.json({ ok: true, limit, offset, count: insumos.length, insumos });
+    return NextResponse.json({ ok: true, limit, offset, count: rows(r).length, insumos: rows(r) });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
@@ -67,7 +62,8 @@ export async function POST(req: NextRequest) {
 
     const nombre = typeof body?.nombre === "string" ? body.nombre.trim() : "";
     const tipo_uom = typeof body?.tipo_uom === "string" ? body.tipo_uom.trim().toUpperCase() : "";
-    const densidad_g_ml = body?.densidad_g_ml === null || body?.densidad_g_ml === undefined ? null : Number(body.densidad_g_ml);
+    const densidad_g_ml =
+      body?.densidad_g_ml === null || body?.densidad_g_ml === undefined ? null : Number(body.densidad_g_ml);
     const activo = body?.activo === false ? false : true;
     const notas = typeof body?.notas === "string" ? body.notas : null;
 
@@ -79,13 +75,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "densidad_g_ml inválida" }, { status: 422 });
     }
 
-    const r: any = await sql.query(
-      `INSERT INTO app.insumo (nombre, tipo_uom, densidad_g_ml, activo, notas)
-       VALUES ($1,$2,$3,$4,$5)
-       RETURNING insumo_id`,
-      [nombre, tipo_uom, densidad_g_ml, activo, notas]
-    );
-    const insumo_id = normalizeQueryResult(r)?.[0]?.insumo_id;
+    const q = `
+      INSERT INTO app.insumo (nombre, tipo_uom, densidad_g_ml, activo, notas)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING insumo_id
+    `;
+    const r: any = await sql.query(q, [nombre, tipo_uom, densidad_g_ml, activo, notas]);
+    const insumo_id = rows(r)?.[0]?.insumo_id;
+
     return NextResponse.json({ ok: true, insumo_id }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
