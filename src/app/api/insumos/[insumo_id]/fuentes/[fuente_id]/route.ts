@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "../../../../../../lib/db";
+import { db } from "@/lib/db";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ insumo_id: string; fuente_id: string }> }) {
   try {
