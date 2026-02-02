@@ -9,9 +9,6 @@ export default function Home() {
           <Link href="/productos">Productos</Link>
         </li>
         <li>
-          <Link href="/insumos">Insumos</Link>
-        </li>
-        <li>
           <Link href="/items">Items</Link>
         </li>
         <li>
@@ -21,9 +18,7 @@ export default function Home() {
           <Link href="/jobs-diario">Jobs diario</Link>
         </li>
         <li>
-          <Link href="/api/db-health" target="_blank">
-            DB health
-          </Link>
+          <Link href="/api/db-health" target="_blank">DB health</Link>
         </li>
       </ul>
     </div>

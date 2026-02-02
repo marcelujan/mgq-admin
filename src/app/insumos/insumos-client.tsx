@@ -8,249 +8,316 @@ type Insumo = {
   tipo_uom: "GR" | "ML" | "UN";
   densidad_g_ml: number | null;
   activo: boolean;
+  notas: string | null;
+  updated_at: string;
 };
 
-type Item = { item_id: number; nombre: string; proveedor?: string | null };
+type ItemRow = {
+  item_id: number;
+  proveedor_codigo: string;
+  proveedor_nombre: string;
+  url_original: string;
+  estado: string;
+};
+
+function numOrNull(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
 
 export default function InsumosClient() {
-  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [items, setItems] = useState<ItemRow[]>([]);
+
+  // create form
   const [nombre, setNombre] = useState("");
   const [tipoUom, setTipoUom] = useState<"GR" | "ML" | "UN">("GR");
-  const [densidad, setDensidad] = useState<string>("");
+  const [densidad, setDensidad] = useState("");
 
-  const [fuenteTipo, setFuenteTipo] = useState<"MANUAL" | "ITEM">("MANUAL");
-  const [costoManual, setCostoManual] = useState<string>("");
-  const [itemId, setItemId] = useState<string>("");
-  const [presentacionPreferida, setPresentacionPreferida] = useState<string>("");
+  const [fuenteTipo, setFuenteTipo] = useState<"MANUAL" | "ITEM">("ITEM");
+  const [costoManual, setCostoManual] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [presentacionPref, setPresentacionPref] = useState("");
+  const [prioridad, setPrioridad] = useState("10");
 
-  const [itemsSuggest, setItemsSuggest] = useState<Item[]>([]);
-  const [itemSearch, setItemSearch] = useState("");
+  const insumoCount = useMemo(() => insumos.length, [insumos]);
 
-  async function loadInsumos() {
+  async function loadAll() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch("/api/insumos?limit=500", { cache: "no-store" });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "Error cargando insumos");
-      setInsumos(j.insumos || []);
+      const [iR, itR] = await Promise.all([
+        fetch(`/api/insumos?limit=500&offset=0`, { cache: "no-store" }),
+        fetch(`/api/items?limit=500&offset=0`, { cache: "no-store" }),
+      ]);
+      const iJ = await iR.json();
+      if (!iR.ok || !iJ?.ok) throw new Error(iJ?.error || `HTTP ${iR.status}`);
+      const itJ = await itR.json();
+      if (!itR.ok || !itJ?.ok) throw new Error(itJ?.error || `HTTP ${itR.status}`);
+
+      setInsumos(iJ.insumos || []);
+      setItems(itJ.items || []);
     } catch (e: any) {
-      setError(e?.message ?? "error");
+      setError(e?.message || "error");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadInsumos();
+    loadAll();
   }, []);
 
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const q = itemSearch.trim();
-      if (!q) {
-        setItemsSuggest([]);
+  async function createInsumo() {
+    setError(null);
+    const n = nombre.trim();
+    if (!n) {
+      setError("Nombre requerido");
+      return;
+    }
+
+    const d = numOrNull(densidad);
+    if (d !== null && (d <= 0 || !Number.isFinite(d))) {
+      setError("Densidad inválida");
+      return;
+    }
+
+    // 1) insumo
+    const resI = await fetch(`/api/insumos`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ nombre: n, tipo_uom: tipoUom, densidad_g_ml: d, activo: true, notas: null }),
+    });
+    const jI = await resI.json().catch(() => null);
+    if (!resI.ok || !jI?.ok) {
+      setError(jI?.error || `HTTP ${resI.status}`);
+      return;
+    }
+    const insumo_id = Number(jI.insumo_id);
+
+    // 2) fuente
+    const pr = numOrNull(prioridad) ?? 10;
+    if (!Number.isFinite(pr)) {
+      setError("Prioridad inválida");
+      return;
+    }
+
+    if (fuenteTipo === "MANUAL") {
+      const c = numOrNull(costoManual);
+      if (c === null || c < 0) {
+        setError("Costo manual inválido");
         return;
       }
-      try {
-        // Reusa tu API de items si existe: /api/items?search=
-        const r = await fetch(`/api/items?search=${encodeURIComponent(q)}&limit=20`, { cache: "no-store" });
-        const j = await r.json();
-        if (j.ok && Array.isArray(j.items)) setItemsSuggest(j.items);
-        else setItemsSuggest([]);
-      } catch {
-        setItemsSuggest([]);
-      }
-    }, 300);
-    return () => clearTimeout(t);
-  }, [itemSearch]);
-
-  async function crearInsumo() {
-    setError(null);
-    try {
-      const dens = densidad.trim() ? Number(densidad) : null;
-      const r1 = await fetch("/api/insumos", {
+      const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          nombre,
-          tipo_uom: tipoUom,
-          densidad_g_ml: dens,
-          activo: true,
-        }),
+        body: JSON.stringify({ tipo: "MANUAL", costo_por_uom_ars: c, vigente_desde: null, habilitada: true, prioridad: pr }),
       });
-      const j1 = await r1.json();
-      if (!j1.ok) throw new Error(j1.error || "No se pudo crear insumo");
-      const newId = j1.insumo_id as number;
-
-      if (fuenteTipo === "MANUAL") {
-        const c = Number(costoManual);
-        const r2 = await fetch(`/api/insumos/${newId}/fuentes`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            tipo: "MANUAL",
-            costo_por_uom_ars: c,
-            prioridad: 10,
-            habilitada: true,
-          }),
-        });
-        const j2 = await r2.json();
-        if (!j2.ok) throw new Error(j2.error || "No se pudo crear fuente manual");
-      } else {
-        const it = Number(itemId);
-        const pref = Number(presentacionPreferida);
-        const r2 = await fetch(`/api/insumos/${newId}/fuentes`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            tipo: "ITEM",
-            item_id: it,
-            presentacion_preferida: pref,
-            prioridad: 10,
-            habilitada: true,
-          }),
-        });
-        const j2 = await r2.json();
-        if (!j2.ok) throw new Error(j2.error || "No se pudo crear fuente ITEM");
+      const jF = await resF.json().catch(() => null);
+      if (!resF.ok || !jF?.ok) {
+        setError(jF?.error || `HTTP ${resF.status}`);
+        return;
       }
-
-      setNombre("");
-      setDensidad("");
-      setCostoManual("");
-      setItemId("");
-      setPresentacionPreferida("");
-      setItemSearch("");
-      setItemsSuggest([]);
-      await loadInsumos();
-    } catch (e: any) {
-      setError(e?.message ?? "error");
+    } else {
+      const id = numOrNull(itemId);
+      const pref = numOrNull(presentacionPref);
+      if (id === null || id <= 0) {
+        setError("Seleccionar item");
+        return;
+      }
+      if (pref === null || pref <= 0) {
+        setError("Presentación preferida requerida (>0)");
+        return;
+      }
+      const resF = await fetch(`/api/insumos/${insumo_id}/fuentes`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tipo: "ITEM", item_id: id, presentacion_preferida: pref, habilitada: true, prioridad: pr }),
+      });
+      const jF = await resF.json().catch(() => null);
+      if (!resF.ok || !jF?.ok) {
+        setError(jF?.error || `HTTP ${resF.status}`);
+        return;
+      }
     }
+
+    // reset
+    setNombre("");
+    setDensidad("");
+    setCostoManual("");
+    setItemId("");
+    setPresentacionPref("");
+    await loadAll();
   }
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>
-      <h2 style={{ marginTop: 0 }}>Insumos</h2>
+    <div style={{ display: "grid", gap: 12 }}>
+      {error ? (
+        <div style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(255,0,0,0.35)", color: "tomato" }}>{error}</div>
+      ) : null}
 
-      <div style={{ border: "1px solid #ddd", padding: 12, borderRadius: 8, marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Crear insumo</h3>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 140px", gap: 8 }}>
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre" />
-          <select value={tipoUom} onChange={(e) => setTipoUom(e.target.value as any)}>
-            <option value="GR">GR</option>
-            <option value="ML">ML</option>
-            <option value="UN">UN</option>
-          </select>
-          <input
-            value={densidad}
-            onChange={(e) => setDensidad(e.target.value)}
-            placeholder="Densidad g/mL (si UOM=ML)"
-          />
+      <section style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+        <div style={{ fontWeight: 700 }}>Crear insumo</div>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>
+          Los insumos son los componentes de una fórmula. Se pueden costear por fuente manual o por item con presentación preferida obligatoria.
         </div>
 
-        <div style={{ marginTop: 10 }}>
-          <label style={{ marginRight: 8 }}>Fuente:</label>
-          <select value={fuenteTipo} onChange={(e) => setFuenteTipo(e.target.value as any)}>
-            <option value="MANUAL">Manual</option>
-            <option value="ITEM">Desde item (cron)</option>
-          </select>
-        </div>
-
-        {fuenteTipo === "MANUAL" ? (
-          <div style={{ marginTop: 8 }}>
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 160px 200px" }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>Nombre</div>
             <input
-              value={costoManual}
-              onChange={(e) => setCostoManual(e.target.value)}
-              placeholder="Costo por UOM (ARS)"
-              style={{ width: 240 }}
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
             />
-          </div>
-        ) : (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 220px", gap: 8 }}>
-              <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Buscar item..." />
-              <input value={itemId} onChange={(e) => setItemId(e.target.value)} placeholder="item_id" />
-              <input
-                value={presentacionPreferida}
-                onChange={(e) => setPresentacionPreferida(e.target.value)}
-                placeholder="presentación preferida (obligatoria)"
-              />
-            </div>
-            {itemsSuggest.length > 0 && (
-              <div style={{ border: "1px solid #eee", marginTop: 8, padding: 8, borderRadius: 6 }}>
-                <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Sugerencias:</div>
-                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {itemsSuggest.map((it) => (
-                    <li key={it.item_id}>
-                      <button
-                        onClick={() => {
-                          setItemId(String(it.item_id));
-                          setItemsSuggest([]);
-                        }}
-                      >
-                        usar
-                      </button>{" "}
-                      <span style={{ marginLeft: 8 }}>
-                        #{it.item_id} {it.nombre}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+          </label>
 
-        <div style={{ marginTop: 10 }}>
-          <button onClick={crearInsumo} disabled={!nombre.trim()}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>UOM</div>
+            <select
+              value={tipoUom}
+              onChange={(e) => setTipoUom(e.target.value as any)}
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+            >
+              <option value="GR">GR</option>
+              <option value="ML">ML</option>
+              <option value="UN">UN</option>
+            </select>
+          </label>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>Densidad (g/mL) (si UOM=ML)</div>
+            <input
+              value={densidad}
+              onChange={(e) => setDensidad(e.target.value)}
+              placeholder="1.020"
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "240px 1fr 220px" }}>
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>Fuente</div>
+            <select
+              value={fuenteTipo}
+              onChange={(e) => setFuenteTipo(e.target.value as any)}
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+            >
+              <option value="ITEM">Item (proveedor)</option>
+              <option value="MANUAL">Manual</option>
+            </select>
+          </label>
+
+          {fuenteTipo === "MANUAL" ? (
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Costo por UOM (ARS)</div>
+              <input
+                value={costoManual}
+                onChange={(e) => setCostoManual(e.target.value)}
+                placeholder="ej: 0.15"
+                style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+              />
+            </label>
+          ) : (
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 220px" }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>Item</div>
+                <select
+                  value={itemId}
+                  onChange={(e) => setItemId(e.target.value)}
+                  style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+                >
+                  <option value="">Seleccionar...</option>
+                  {items.map((it) => (
+                    <option key={it.item_id} value={String(it.item_id)}>
+                      #{it.item_id} - {it.proveedor_nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: 6 }}>
+                <div style={{ fontSize: 12, opacity: 0.8 }}>Presentación preferida</div>
+                <input
+                  value={presentacionPref}
+                  onChange={(e) => setPresentacionPref(e.target.value)}
+                  placeholder="ej: 1000"
+                  style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+                />
+              </label>
+            </div>
+          )}
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>Prioridad</div>
+            <input
+              value={prioridad}
+              onChange={(e) => setPrioridad(e.target.value)}
+              placeholder="10"
+              style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            onClick={createInsumo}
+            disabled={loading}
+            style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)" }}
+          >
             Crear
           </button>
         </div>
+      </section>
 
-        {error && <div style={{ marginTop: 10, color: "crimson" }}>{error}</div>}
-      </div>
+      <section style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700 }}>Insumos ({insumoCount})</div>
+          <button
+            onClick={loadAll}
+            style={{ padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.03)" }}
+          >
+            Recargar
+          </button>
+        </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <h3 style={{ margin: 0 }}>Lista</h3>
-        <button onClick={loadInsumos} disabled={loading}>
-          Recargar
-        </button>
-        <span style={{ opacity: 0.7 }}>{loading ? "cargando..." : `${insumos.length} insumos`}</span>
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>ID</th>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>Nombre</th>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>UOM</th>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>Densidad</th>
-            </tr>
-          </thead>
-          <tbody>
-            {insumos.map((i) => (
-              <tr key={i.insumo_id}>
-                <td style={{ padding: "6px 0" }}>{i.insumo_id}</td>
-                <td>{i.nombre}</td>
-                <td>{i.tipo_uom}</td>
-                <td>{i.densidad_g_ml ?? ""}</td>
+        <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>UOM</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Densidad</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Activo</th>
               </tr>
-            ))}
-            {insumos.length === 0 && (
-              <tr>
-                <td colSpan={4} style={{ padding: 10, opacity: 0.7 }}>
-                  No hay insumos.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {insumos.map((i) => (
+                <tr key={i.insumo_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <td style={{ padding: 10 }}>{i.nombre}</td>
+                  <td style={{ padding: 10 }}>{i.tipo_uom}</td>
+                  <td style={{ padding: 10 }}>{i.densidad_g_ml ?? "-"}</td>
+                  <td style={{ padding: 10 }}>{i.activo ? "sí" : "no"}</td>
+                </tr>
+              ))}
+              {!insumos.length ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: 10, opacity: 0.75 }}>
+                    Sin insumos.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,26 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type Producto = { producto_id: number; nombre: string; activo: boolean; updated_at?: string };
+type ProductoRow = {
+  producto_id: number;
+  nombre: string;
+  categoria: string | null;
+  densidad_producto_g_ml: number | null;
+  activo: boolean;
+  tiene_base: boolean;
+  tiene_formula: boolean;
+  updated_at: string;
+};
 
 export default function ProductosClient() {
-  const [productos, setProductos] = useState<Producto[]>([]);
+  const [rows, setRows] = useState<ProductoRow[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => (r.nombre || "").toLowerCase().includes(q));
+  }, [rows, search]);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`/api/productos?limit=200&search=${encodeURIComponent(search)}`, { cache: "no-store" });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "error");
-      setProductos(j.productos || []);
+      const res = await fetch(`/api/productos?limit=200&offset=0`, { cache: "no-store" });
+      const data = await res.json();
+      if (!data?.ok) throw new Error(data?.error || "error");
+      setRows(data.productos || []);
     } catch (e: any) {
-      setError(e?.message ?? "error");
+      setError(e?.message || "error");
     } finally {
       setLoading(false);
     }
@@ -28,52 +43,72 @@ export default function ProductosClient() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div style={{ padding: 16, fontFamily: "system-ui, sans-serif" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Productos</h2>
-        <Link href="/productos/new">Crear</Link>
-      </div>
-
-      <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="buscar..." />
-        <button onClick={load} disabled={loading}>
-          Buscar
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nombre"
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(255,255,255,0.03)",
+            width: 320,
+          }}
+        />
+        <button
+          onClick={load}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(255,255,255,0.03)",
+          }}
+        >
+          Refrescar
         </button>
-        {loading && <span style={{ opacity: 0.7 }}>cargando...</span>}
+        {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando...</span> : null}
+        {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
       </div>
 
-      {error && <div style={{ marginTop: 10, color: "crimson" }}>{error}</div>}
-
-      <div style={{ marginTop: 14 }}>
+      <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>ID</th>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>Nombre</th>
-              <th style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>Activo</th>
+            <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Producto</th>
+              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Tipo</th>
+              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Densidad</th>
+              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Activo</th>
             </tr>
           </thead>
           <tbody>
-            {productos.map((p) => (
-              <tr key={p.producto_id}>
-                <td style={{ padding: "6px 0" }}>{p.producto_id}</td>
-                <td>
-                  <Link href={`/productos/${p.producto_id}`}>{p.nombre}</Link>
-                </td>
-                <td>{p.activo ? "sí" : "no"}</td>
-              </tr>
-            ))}
-            {productos.length === 0 && (
+            {filtered.map((r) => {
+              const tipo = r.tiene_formula ? "Formulado" : r.tiene_base ? "Simple" : "Sin definir";
+              return (
+                <tr key={r.producto_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <td style={{ padding: 10 }}>
+                    <Link href={`/productos/${r.producto_id}`} style={{ textDecoration: "underline" }}>
+                      {r.nombre}
+                    </Link>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>#{r.producto_id}</div>
+                  </td>
+                  <td style={{ padding: 10 }}>{tipo}</td>
+                  <td style={{ padding: 10 }}>{r.densidad_producto_g_ml ?? "-"}</td>
+                  <td style={{ padding: 10 }}>{r.activo ? "Sí" : "No"}</td>
+                </tr>
+              );
+            })}
+            {!filtered.length ? (
               <tr>
-                <td colSpan={3} style={{ padding: 10, opacity: 0.7 }}>
-                  No hay productos.
+                <td colSpan={4} style={{ padding: 10, opacity: 0.75 }}>
+                  Sin resultados.
                 </td>
               </tr>
-            )}
+            ) : null}
           </tbody>
         </table>
       </div>
