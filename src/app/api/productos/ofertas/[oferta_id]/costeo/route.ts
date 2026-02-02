@@ -329,13 +329,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ oferta_id: 
         }
 
         const masa_g = contenido_real_g * (pct_peso / 100);
-        const dens_insumo = insumo?.densidad_g_ml === null || insumo?.densidad_g_ml === undefined ? null : Number(insumo.densidad_g_ml);
+        const dens_insumo =
+          insumo?.densidad_g_ml === null || insumo?.densidad_g_ml === undefined
+            ? null
+            : Number(insumo.densidad_g_ml);
         let volumen_ml: number | null = null;
         if (tipo_uom === "ML") {
-          if (!isFinitePos(dens_insumo)) {
+          if (dens_insumo === null || !Number.isFinite(dens_insumo) || dens_insumo <= 0) {
             setIssue({ code: "INSUMO_DENSITY_REQUIRED", message: `Insumo ${insumo_id} (${nombre}): falta densidad_g_ml.`, ref: { insumo_id, linea_id } });
           } else {
-            volumen_ml = masa_g / dens_insumo;
+            const dens = dens_insumo; // ya es number por el if anterior
+            volumen_ml = masa_g / dens;
           }
         }
 
