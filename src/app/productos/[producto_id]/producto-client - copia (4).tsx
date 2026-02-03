@@ -117,9 +117,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
 
-  // bulk costs: producto_id -> ars_por_kg
-  const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
-
   async function loadAll() {
     setLoading(true);
     setError(null);
@@ -149,40 +146,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const lJ = await lR.json();
       if (!lR.ok || !lJ?.ok) throw new Error(lJ?.error || `HTTP ${lR.status}`);
-      const lineas = (lJ.lineas || []) as LineaV2[];
-      setLineasV2(lineas);
+      setLineasV2(lJ.lineas || []);
 
       const optJ = await optR.json();
       if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
       setItemOptions(optJ.item_options || []);
       setExtraOptions(optJ.cost_options_extra || []);
-
-      // Prefetch bulks usados en esta fórmula
-      const bulkIds = Array.from(
-        new Set(
-          lineas
-            .filter((x) => x.tipo === "BULK_PRODUCTO" && x.bulk_producto_id)
-            .map((x) => Number(x.bulk_producto_id))
-            .filter((x) => Number.isFinite(x))
-        )
-      );
-
-      if (bulkIds.length) {
-        const results = await Promise.all(
-          bulkIds.map(async (id) => {
-            const r = await fetch(`/api/productos/${id}/costo-bulk`, { cache: "no-store" });
-            const j = await r.json().catch(() => ({} as any));
-            if (!r.ok || !j?.ok) throw new Error(j?.error || `bulk ${id}: HTTP ${r.status}`);
-            return [id, Number(j.ars_por_kg)] as const;
-          })
-        );
-
-        const next: Record<number, number> = {};
-        for (const [id, arsKg] of results) next[id] = arsKg;
-        setBulkCostByProducto(next);
-      } else {
-        setBulkCostByProducto({});
-      }
     } catch (e: any) {
       setError(e?.message || "error");
     } finally {
@@ -223,12 +192,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       return { ok: true, ars: Number(l.manual_costo_ars) };
     }
     if (l.tipo === "BULK_PRODUCTO") {
-      const bp = l.bulk_producto_id ?? null;
-      if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
-      const arsKg = bulkCostByProducto[bp];
-      if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      // “unidad” bulk será 1 kg (ARS/kg)
-      return { ok: true, ars: arsKg };
+      return { ok: false, err: "bulk: costeo aún no integrado (siguiente etapa)" };
     }
     return { ok: false, err: "tipo no soportado" };
   }
@@ -258,14 +222,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         return { ok: true, arsPorG: c.ars / gramos };
       }
 
-      if (u === "UN") return { ok: false, err: "manual: UN no convertible a gramos (definir masa por unidad)" };
-
-      return { ok: false, err: "manual: uom inválida" };
-    }
-
-    if (l.tipo === "BULK_PRODUCTO") {
-      // c.ars = ARS/kg
-      return { ok: true, arsPorG: c.ars / 1000 };
+      if (u === "UN") {
+        return { ok: false, err: "manual: UN no convertible a gramos (definir masa por unidad)" };
+      }
     }
 
     return { ok: false, err: "conversión no soportada" };
@@ -310,7 +269,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     const arsPorKgConProd = arsPorKg !== null ? arsPorKg + (prodARSporKg ?? 0) : null;
 
     return { rows, sumPct, totalARS, arsPorKg, prodARSporKg, arsPorKgConProd, issues };
-  }, [lineasV2, loteRefG, pctCsp, pctFijos, cspLinea, itemOptions, costosProd, bulkCostByProducto]);
+  }, [lineasV2, loteRefG, pctCsp, pctFijos, cspLinea, itemOptions, costosProd]);
 
   async function saveHeaderV2(
     patch: Partial<{
@@ -429,7 +388,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2 (incluye BULK)</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2 (item+presentación, CSP, densidad por opción)</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
         </div>
 
