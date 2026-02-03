@@ -1,15 +1,25 @@
 import Link from "next/link";
-
 import ProductoClient from "./producto-client";
 
-export default function ProductoPage({ params }: { params: { producto_id: string } }) {
-  const productoId = Number(params.producto_id);
+type ParamsShape = { producto_id: string };
+
+export default async function ProductoPage({
+  params,
+}: {
+  params: ParamsShape | Promise<ParamsShape>;
+}) {
+  const resolvedParams: ParamsShape =
+    typeof (params as any)?.then === "function" ? await (params as Promise<ParamsShape>) : (params as ParamsShape);
+
+  const productoId = Number(resolvedParams.producto_id);
 
   if (!Number.isFinite(productoId)) {
     return (
       <div style={{ padding: 16, display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Producto #{params.producto_id}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            Producto #{resolvedParams.producto_id}
+          </h1>
           <div style={{ fontSize: 12, color: "tomato" }}>producto_id inválido (URL)</div>
         </div>
 
@@ -33,7 +43,9 @@ export default function ProductoPage({ params }: { params: { producto_id: string
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "grid", gap: 4 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Producto #{params.producto_id}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            Producto #{resolvedParams.producto_id}
+          </h1>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Editor (base o fórmula) + ofertas + costeo</div>
         </div>
 
