@@ -18,7 +18,7 @@ function bool(v: any): boolean {
   return v === true || v === "true" || v === 1 || v === "1";
 }
 
-// GET líneas v2
+// GET líneas v2 (incluye job_price_ars / job_as_of_date para ITEM_PRESENTACION)
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
     const { producto_id: productoIdStr } = await ctx.params;
@@ -29,15 +29,32 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
 
     const r: any = await sql.query(
       `
+      WITH last_rows AS (
+        SELECT item_id, presentacion, max(as_of_date) as max_date
+        FROM app.item_price_daily_pres
+        GROUP BY item_id, presentacion
+      )
       SELECT
         l.linea_id, l.producto_id, l.cost_option_id, l.pct_peso, l.is_csp, l.orden,
         co.tipo,
         co.item_id, co.item_presentacion,
         co.manual_nombre, co.manual_uom, co.manual_cantidad, co.manual_costo_ars,
         co.bulk_producto_id,
-        co.densidad_g_ml
+        co.densidad_g_ml,
+
+        -- precio latest del job para ITEM_PRESENTACION
+        ip.price_ars::float8 as job_price_ars,
+        lr.max_date::text as job_as_of_date
+
       FROM app.producto_formula_linea_v2 l
       JOIN app.cost_option co ON co.cost_option_id = l.cost_option_id
+
+      LEFT JOIN last_rows lr
+        ON lr.item_id = co.item_id AND lr.presentacion = co.item_presentacion
+
+      LEFT JOIN app.item_price_daily_pres ip
+        ON ip.item_id = lr.item_id AND ip.presentacion = lr.presentacion AND ip.as_of_date = lr.max_date
+
       WHERE l.producto_id=$1
       ORDER BY l.orden ASC, l.linea_id ASC
       `,
@@ -50,7 +67,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
   }
 }
 
-// POST crear línea
+// POST crear línea (igual que antes)
 export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
     const { producto_id: productoIdStr } = await ctx.params;
@@ -69,7 +86,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
     const sql = db();
 
     if (is_csp) {
-      // asegurar 1 solo CSP
       await sql.query(`UPDATE app.producto_formula_linea_v2 SET is_csp=false WHERE producto_id=$1`, [producto_id]);
     }
 

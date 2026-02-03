@@ -80,10 +80,6 @@ type LineaV2 = {
   item_id: number | null;
   item_presentacion: number | null;
 
-  // NUEVO: precio latest del job (servidor)
-  job_price_ars: number | null;
-  job_as_of_date: string | null;
-
   manual_nombre: string | null;
   manual_uom: "GR" | "ML" | "UN" | null;
   manual_cantidad: number | null;
@@ -121,6 +117,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
 
+  // bulk costs: producto_id -> ars_por_kg
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
 
   async function loadAll() {
@@ -214,12 +211,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
     if (l.tipo === "ITEM_PRESENTACION") {
-      // Fuente primaria: precio job que devuelve el backend en la línea
-      if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
-        return { ok: true, ars: Number(l.job_price_ars) };
-      }
-
-      // Fallback: lista (puede faltar por filtros)
       const item_id = l.item_id ?? null;
       const pres = l.item_presentacion ?? null;
       if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
@@ -227,20 +218,18 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (!found) return { ok: false, err: "precio no encontrado (job)" };
       return { ok: true, ars: Number(found.price_ars) };
     }
-
     if (l.tipo === "MANUAL_PRESENTACION") {
       if (l.manual_costo_ars === null || l.manual_costo_ars === undefined) return { ok: false, err: "falta costo manual" };
       return { ok: true, ars: Number(l.manual_costo_ars) };
     }
-
     if (l.tipo === "BULK_PRODUCTO") {
       const bp = l.bulk_producto_id ?? null;
       if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
       const arsKg = bulkCostByProducto[bp];
       if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg }; // ARS/kg
+      // “unidad” bulk será 1 kg (ARS/kg)
+      return { ok: true, ars: arsKg };
     }
-
     return { ok: false, err: "tipo no soportado" };
   }
 
@@ -270,10 +259,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
 
       if (u === "UN") return { ok: false, err: "manual: UN no convertible a gramos (definir masa por unidad)" };
+
       return { ok: false, err: "manual: uom inválida" };
     }
 
     if (l.tipo === "BULK_PRODUCTO") {
+      // c.ars = ARS/kg
       return { ok: true, arsPorG: c.ars / 1000 };
     }
 
@@ -438,11 +429,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2 (incluye BULK)</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
         </div>
 
-        {/* header igual que antes */}
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
@@ -466,7 +456,72 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 }}
               />
             </label>
-            {/* ... resto header igual ... */}
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Costos prod: lote ref (kg)
+              <input
+                defaultValue={String(costosProd?.lote_ref_kg ?? "")}
+                onBlur={async (e) => {
+                  const v = e.target.value.trim() === "" ? null : Number(e.target.value);
+                  try {
+                    await saveHeaderV2({ lote_ref_kg: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 160,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Fijo ARS/lote
+              <input
+                defaultValue={String(costosProd?.costo_fijo_por_lote_ars ?? "")}
+                onBlur={async (e) => {
+                  const v = e.target.value.trim() === "" ? null : Number(e.target.value);
+                  try {
+                    await saveHeaderV2({ costo_fijo_por_lote_ars: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 160,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Variable ARS/kg
+              <input
+                defaultValue={String(costosProd?.costo_variable_por_kg_ars ?? "")}
+                onBlur={async (e) => {
+                  const v = e.target.value.trim() === "" ? null : Number(e.target.value);
+                  try {
+                    await saveHeaderV2({ costo_variable_por_kg_ars: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 160,
+                }}
+              />
+            </label>
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
@@ -509,10 +564,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <tr key={r.l.linea_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 600 }}>{lineaLabel(r.l)}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      opt #{r.l.cost_option_id} · tipo {r.l.tipo}
-                      {r.l.tipo === "ITEM_PRESENTACION" && r.l.job_as_of_date ? ` · job ${r.l.job_as_of_date}` : ""}
-                    </div>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>opt #{r.l.cost_option_id} · tipo {r.l.tipo}</div>
                   </td>
 
                   <td style={{ padding: 10 }}>
@@ -529,12 +581,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     />
                   </td>
 
-                  {/* FIX: input editable */}
                   <td style={{ padding: 10 }}>
                     <input
-                      key={`${r.l.linea_id}:${r.l.pct_peso ?? ""}:${r.l.is_csp ? "csp" : "fix"}`}
-                      defaultValue={r.l.is_csp ? String(r.pct ?? "") : String(r.l.pct_peso ?? "")}
+                      value={r.l.is_csp ? String(r.pct ?? "") : String(r.l.pct_peso ?? "")}
                       disabled={r.l.is_csp}
+                      onChange={() => {}}
                       onBlur={async (e) => {
                         if (r.l.is_csp) return;
                         const v = e.target.value.trim() === "" ? null : Number(e.target.value);
@@ -614,7 +665,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </table>
         </div>
 
-        {/* selector job igual que antes */}
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Opciones (job)</div>
@@ -713,10 +763,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      {/* ofertas sin cambios */}
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>Sin cambios en esta etapa.</div>
+        <div style={{ fontSize: 12, opacity: 0.75 }}>Sin cambios en esta etapa (packaging/volumen se agrega luego).</div>
 
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
