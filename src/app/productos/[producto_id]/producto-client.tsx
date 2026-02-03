@@ -110,6 +110,16 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
+function fmtFixed(v: any, dec: number): string {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(dec) : "-";
+}
+
+function fmtMaybe(v: any, dec: number): string {
+  const n = numOrNull(v);
+  return n === null ? "-" : n.toFixed(dec);
+}
+
 export default function ProductoClient({ productoId }: { productoId: number }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +132,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [lineasV2, setLineasV2] = useState<LineaV2[]>([]);
 
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
-  const [extraOptions, setExtraOptions] = useState<CostOptionExtra[]>([]);
+  const [_extraOptions, setExtraOptions] = useState<CostOptionExtra[]>([]);
 
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
@@ -130,7 +140,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
   const [bulkSelf, setBulkSelf] = useState<{ ars_por_kg: number | null } | null>(null);
 
-  // Selector de bulks (productos formulados)
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -152,7 +161,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const pJ = await pR.json();
       if (!pR.ok || !pJ?.ok) throw new Error(pJ?.error || `HTTP ${pR.status}`);
-      setProducto(pJ.producto);
+      // Normalizar densidad si viene como string numeric
+      const p = pJ.producto as any;
+      if (p && "densidad_producto_g_ml" in p) {
+        p.densidad_producto_g_ml = numOrNull(p.densidad_producto_g_ml);
+      }
+      setProducto(p);
 
       const oJ = await oR.json();
       if (!oR.ok || !oJ?.ok) throw new Error(oJ?.error || `HTTP ${oR.status}`);
@@ -166,11 +180,25 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       const lJ = await lR.json();
       if (!lR.ok || !lJ?.ok) throw new Error(lJ?.error || `HTTP ${lR.status}`);
       const lineas = (lJ.lineas || []) as LineaV2[];
+      // Normalizar numeric-string por línea
+      for (const l of lineas as any[]) {
+        l.pct_peso = numOrNull(l.pct_peso);
+        l.densidad_g_ml = numOrNull(l.densidad_g_ml);
+        l.job_price_ars = numOrNull(l.job_price_ars);
+        l.manual_cantidad = numOrNull(l.manual_cantidad);
+        l.manual_costo_ars = numOrNull(l.manual_costo_ars);
+      }
       setLineasV2(lineas);
 
       const optJ = await optR.json();
       if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
-      setItemOptions(optJ.item_options || []);
+      // Normalizar price_ars/presentacion por si vienen numeric-string
+      const items = (optJ.item_options || []) as any[];
+      for (const it of items) {
+        it.presentacion = Number(it.presentacion);
+        it.price_ars = Number(it.price_ars);
+      }
+      setItemOptions(items as ItemOption[]);
       setExtraOptions(optJ.cost_options_extra || []);
 
       // Bulk del producto actual (info)
@@ -178,8 +206,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         const r = await fetch(`/api/productos/${productoId}/costo-bulk`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
         if (r.ok && j?.ok) {
-          const arsKg = Number(j.ars_por_kg);
-          setBulkSelf({ ars_por_kg: Number.isFinite(arsKg) ? arsKg : null });
+          const arsKg = numOrNull(j.ars_por_kg);
+          setBulkSelf({ ars_por_kg: arsKg });
         } else {
           setBulkSelf({ ars_por_kg: null });
         }
@@ -187,7 +215,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         setBulkSelf({ ars_por_kg: null });
       }
 
-      // Prefetch bulks usados en esta fórmula (sub-bulks)
+      // Prefetch bulks usados en esta fórmula
       const bulkIds = Array.from(
         new Set(
           lineas
@@ -203,12 +231,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             const r = await fetch(`/api/productos/${id}/costo-bulk`, { cache: "no-store" });
             const j = await r.json().catch(() => ({} as any));
             if (!r.ok || !j?.ok) throw new Error(j?.error || `bulk ${id}: HTTP ${r.status}`);
-            return [id, Number(j.ars_por_kg)] as const;
+            return [id, numOrNull(j.ars_por_kg)] as const;
           })
         );
 
         const next: Record<number, number> = {};
-        for (const [id, arsKg] of results) next[id] = arsKg;
+        for (const [id, arsKg] of results) if (arsKg !== null) next[id] = arsKg;
         setBulkCostByProducto(next);
       } else {
         setBulkCostByProducto({});
@@ -228,7 +256,14 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      setBulkRows((j.rows || []) as BulkRow[]);
+
+      const rows = (j.rows || []) as any[];
+      for (const b of rows) {
+        b.producto_id = Number(b.producto_id);
+        b.densidad_producto_g_ml = numOrNull(b.densidad_producto_g_ml);
+        b.ars_por_kg = numOrNull(b.ars_por_kg);
+      }
+      setBulkRows(rows as BulkRow[]);
     } catch (e: any) {
       setError(e?.message || "error");
     } finally {
@@ -241,13 +276,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loteRefG = formulaV2?.lote_ref_g ?? 1000;
+  const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
 
   const cspLinea = useMemo(() => lineasV2.find((l) => l.is_csp), [lineasV2]);
   const pctFijos = useMemo(() => {
-    return lineasV2
-      .filter((l) => !l.is_csp)
-      .reduce((acc, l) => acc + (numOrNull(l.pct_peso) ?? 0), 0);
+    return lineasV2.filter((l) => !l.is_csp).reduce((acc, l) => acc + (numOrNull(l.pct_peso) ?? 0), 0);
   }, [lineasV2]);
 
   const pctCsp = useMemo(() => {
@@ -263,7 +296,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-    if (j.producto) setProducto(j.producto);
+    if (j.producto) {
+      const p = j.producto as any;
+      p.densidad_producto_g_ml = numOrNull(p.densidad_producto_g_ml);
+      setProducto(p);
+    }
   }
 
   function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
@@ -289,7 +326,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
       const arsKg = bulkCostByProducto[bp];
       if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg }; // ARS/kg
+      return { ok: true, ars: arsKg };
     }
 
     return { ok: false, err: "tipo no soportado" };
@@ -343,7 +380,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       const pct = effectivePct(l);
       const masa_g = pct === null ? null : (loteRefG * pct) / 100;
 
-      const dens = l.densidad_g_ml ?? null;
+      const dens = numOrNull(l.densidad_g_ml);
       const vol_ml = masa_g !== null && dens && dens > 0 ? masa_g / dens : null;
 
       const arsG = getARSporGramo(l);
@@ -361,9 +398,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
     const arsPorKg = loteRefG > 0 ? (totalARS / loteRefG) * 1000 : null;
 
-    const lote_ref_kg = costosProd?.lote_ref_kg ?? null;
-    const fijo = costosProd?.costo_fijo_por_lote_ars ?? null;
-    const variable = costosProd?.costo_variable_por_kg_ars ?? null;
+    const lote_ref_kg = numOrNull(costosProd?.lote_ref_kg);
+    const fijo = numOrNull(costosProd?.costo_fijo_por_lote_ars);
+    const variable = numOrNull(costosProd?.costo_variable_por_kg_ars);
+
     const prodARSporKg =
       lote_ref_kg && fijo !== null && fijo !== undefined ? fijo / lote_ref_kg + (variable ?? 0) : variable ?? null;
 
@@ -493,8 +531,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return `Opción ${l.cost_option_id}`;
   }
 
-  const densProd = producto?.densidad_producto_g_ml ?? null;
-  const bulkSelfARSkg = bulkSelf?.ars_por_kg ?? null;
+  const densProd = numOrNull(producto?.densidad_producto_g_ml);
+  const bulkSelfARSkg = numOrNull(bulkSelf?.ars_por_kg);
   const bulkSelfARSl = bulkSelfARSkg !== null && densProd !== null ? bulkSelfARSkg * densProd : null;
 
   return (
@@ -587,25 +625,19 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               }}
             >
               <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                ARS/kg: {bulkSelfARSkg === null ? "-" : bulkSelfARSkg.toFixed(2)}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                Dens g/ml: {densProd === null ? "-" : densProd.toFixed(4)}
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                ARS/L: {bulkSelfARSl === null ? "-" : bulkSelfARSl.toFixed(2)}
-              </div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg: {fmtMaybe(bulkSelfARSkg, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>Dens g/ml: {fmtMaybe(densProd, 4)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L: {fmtMaybe(bulkSelfARSl, 2)}</div>
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
             <div>CSP: {cspLinea ? `sí (linea ${cspLinea.linea_id})` : "no"}</div>
-            <div>% fijos: {pctFijos.toFixed(4)}</div>
-            <div>% total: {calc.sumPct.toFixed(4)}</div>
-            <div>ARS/kg (sin prod): {calc.arsPorKg === null ? "-" : calc.arsPorKg.toFixed(2)}</div>
-            <div>ARS/kg prod: {calc.prodARSporKg === null ? "-" : calc.prodARSporKg.toFixed(2)}</div>
-            <div>ARS/kg total: {calc.arsPorKgConProd === null ? "-" : calc.arsPorKgConProd.toFixed(2)}</div>
+            <div>% fijos: {fmtFixed(pctFijos, 4)}</div>
+            <div>% total: {fmtFixed(calc.sumPct, 4)}</div>
+            <div>ARS/kg (sin prod): {fmtMaybe(calc.arsPorKg, 2)}</div>
+            <div>ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)}</div>
+            <div>ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}</div>
           </div>
 
           {calc.issues.length ? (
@@ -805,8 +837,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
-                    <td style={{ padding: 10 }}>{x.presentacion}</td>
-                    <td style={{ padding: 10 }}>{x.price_ars.toFixed(2)}</td>
+                    <td style={{ padding: 10 }}>{String(x.presentacion)}</td>
+                    <td style={{ padding: 10 }}>{fmtFixed(x.price_ars, 2)}</td>
                     <td style={{ padding: 10 }}>{x.as_of_date}</td>
                     <td style={{ padding: 10 }}>
                       <button
@@ -888,18 +920,19 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               </thead>
               <tbody>
                 {bulkRows.slice(0, 50).map((b) => {
-                  const dens = b.densidad_producto_g_ml ?? null;
-                  const arsKg = b.ars_por_kg ?? null;
+                  const dens = numOrNull(b.densidad_producto_g_ml);
+                  const arsKg = numOrNull(b.ars_por_kg);
                   const arsL = dens !== null && arsKg !== null ? arsKg * dens : null;
+
                   return (
                     <tr key={b.producto_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontWeight: 600 }}>{b.nombre}</div>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>#{b.producto_id}</div>
                       </td>
-                      <td style={{ padding: 10 }}>{dens === null ? "-" : dens.toFixed(4)}</td>
-                      <td style={{ padding: 10 }}>{arsKg === null ? "-" : arsKg.toFixed(2)}</td>
-                      <td style={{ padding: 10 }}>{arsL === null ? "-" : arsL.toFixed(2)}</td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(dens, 4)}</td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(arsKg, 2)}</td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(arsL, 2)}</td>
                       <td style={{ padding: 10 }}>
                         <button
                           onClick={async () => {
