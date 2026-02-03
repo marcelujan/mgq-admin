@@ -80,7 +80,7 @@ type LineaV2 = {
   item_id: number | null;
   item_presentacion: number | null;
 
-  // NUEVO: precio latest del job (servidor)
+  // precio latest del job (servidor)
   job_price_ars: number | null;
   job_as_of_date: string | null;
 
@@ -132,9 +132,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         fetch(`/api/productos/${productoId}/ofertas`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
-        fetch(`/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`, {
-          cache: "no-store",
-        }),
+        fetch(
+          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`,
+          { cache: "no-store" }
+        ),
       ]);
 
       const pJ = await pR.json();
@@ -212,14 +213,23 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return 100 - pctFijos;
   }, [cspLinea, pctFijos]);
 
+  async function patchProducto(patch: { densidad_producto_g_ml: number | null }) {
+    const r = await fetch(`/api/productos/${productoId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    if (j.producto) setProducto(j.producto);
+  }
+
   function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
     if (l.tipo === "ITEM_PRESENTACION") {
-      // Fuente primaria: precio job que devuelve el backend en la línea
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
       }
 
-      // Fallback: lista (puede faltar por filtros)
       const item_id = l.item_id ?? null;
       const pres = l.item_presentacion ?? null;
       if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
@@ -238,7 +248,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
       const arsKg = bulkCostByProducto[bp];
       if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg }; // ARS/kg
+      return { ok: true, ars: arsKg };
     }
 
     return { ok: false, err: "tipo no soportado" };
@@ -407,7 +417,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${l.item_presentacion}`;
-    if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
+    if (l.tipo === "MANUAL_PRESENTACION")
+      return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
     return `Opción ${l.cost_option_id}`;
   }
@@ -442,7 +453,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
         </div>
 
-        {/* header igual que antes */}
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
@@ -466,6 +476,32 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 }}
               />
             </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Densidad producto (g/ml)
+              <input
+                key={`dens-prod-${producto?.producto_id ?? "x"}-${producto?.densidad_producto_g_ml ?? ""}`}
+                defaultValue={String(producto?.densidad_producto_g_ml ?? "")}
+                placeholder="(opcional)"
+                onBlur={async (e) => {
+                  const raw = e.target.value.trim();
+                  const v = raw === "" ? null : Number(raw);
+                  try {
+                    await patchProducto({ densidad_producto_g_ml: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 190,
+                }}
+              />
+            </label>
+
             {/* ... resto header igual ... */}
           </div>
 
@@ -529,7 +565,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     />
                   </td>
 
-                  {/* FIX: input editable */}
                   <td style={{ padding: 10 }}>
                     <input
                       key={`${r.l.linea_id}:${r.l.pct_peso ?? ""}:${r.l.is_csp ? "csp" : "fix"}`}
@@ -614,7 +649,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </table>
         </div>
 
-        {/* selector job igual que antes */}
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Opciones (job)</div>
@@ -672,7 +706,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.75,
+                          maxWidth: 520,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
@@ -713,7 +756,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      {/* ofertas sin cambios */}
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
         <div style={{ fontSize: 12, opacity: 0.75 }}>Sin cambios en esta etapa.</div>
