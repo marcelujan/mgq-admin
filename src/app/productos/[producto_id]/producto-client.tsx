@@ -110,11 +110,6 @@ function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function fmtFixed(v: any, dec: number): string {
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(dec) : "-";
-}
-
 function fmtMaybe(v: any, dec: number): string {
   const n = numOrNull(v);
   return n === null ? "-" : n.toFixed(dec);
@@ -132,7 +127,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [lineasV2, setLineasV2] = useState<LineaV2[]>([]);
 
   const [itemOptions, setItemOptions] = useState<ItemOption[]>([]);
-  const [_extraOptions, setExtraOptions] = useState<CostOptionExtra[]>([]);
+  const [extraOptions, setExtraOptions] = useState<CostOptionExtra[]>([]);
 
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
@@ -140,9 +135,18 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
   const [bulkSelf, setBulkSelf] = useState<{ ars_por_kg: number | null } | null>(null);
 
+  // Selector de bulks
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+
+  // Manuales
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualNombre, setManualNombre] = useState("");
+  const [manualUom, setManualUom] = useState<"GR" | "ML" | "UN">("GR");
+  const [manualCantidad, setManualCantidad] = useState<string>("");
+  const [manualCostoARS, setManualCostoARS] = useState<string>("");
+  const [manualDens, setManualDens] = useState<string>("");
 
   async function loadAll() {
     setLoading(true);
@@ -161,11 +165,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const pJ = await pR.json();
       if (!pR.ok || !pJ?.ok) throw new Error(pJ?.error || `HTTP ${pR.status}`);
-      // Normalizar densidad si viene como string numeric
       const p = pJ.producto as any;
-      if (p && "densidad_producto_g_ml" in p) {
-        p.densidad_producto_g_ml = numOrNull(p.densidad_producto_g_ml);
-      }
+      if (p && "densidad_producto_g_ml" in p) p.densidad_producto_g_ml = numOrNull(p.densidad_producto_g_ml);
       setProducto(p);
 
       const oJ = await oR.json();
@@ -179,35 +180,42 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const lJ = await lR.json();
       if (!lR.ok || !lJ?.ok) throw new Error(lJ?.error || `HTTP ${lR.status}`);
-      const lineas = (lJ.lineas || []) as LineaV2[];
-      // Normalizar numeric-string por línea
-      for (const l of lineas as any[]) {
+      const lineas = (lJ.lineas || []) as any[];
+      for (const l of lineas) {
         l.pct_peso = numOrNull(l.pct_peso);
         l.densidad_g_ml = numOrNull(l.densidad_g_ml);
         l.job_price_ars = numOrNull(l.job_price_ars);
         l.manual_cantidad = numOrNull(l.manual_cantidad);
         l.manual_costo_ars = numOrNull(l.manual_costo_ars);
       }
-      setLineasV2(lineas);
+      setLineasV2(lineas as LineaV2[]);
 
       const optJ = await optR.json();
       if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
-      // Normalizar price_ars/presentacion por si vienen numeric-string
       const items = (optJ.item_options || []) as any[];
       for (const it of items) {
         it.presentacion = Number(it.presentacion);
         it.price_ars = Number(it.price_ars);
       }
       setItemOptions(items as ItemOption[]);
-      setExtraOptions(optJ.cost_options_extra || []);
+
+      const extras = (optJ.cost_options_extra || []) as any[];
+      for (const e of extras) {
+        e.cost_option_id = Number(e.cost_option_id);
+        e.item_presentacion = numOrNull(e.item_presentacion);
+        e.manual_cantidad = numOrNull(e.manual_cantidad);
+        e.manual_costo_ars = numOrNull(e.manual_costo_ars);
+        e.densidad_g_ml = numOrNull(e.densidad_g_ml);
+        e.bulk_producto_id = numOrNull(e.bulk_producto_id);
+      }
+      setExtraOptions(extras as CostOptionExtra[]);
 
       // Bulk del producto actual (info)
       try {
         const r = await fetch(`/api/productos/${productoId}/costo-bulk`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
         if (r.ok && j?.ok) {
-          const arsKg = numOrNull(j.ars_por_kg);
-          setBulkSelf({ ars_por_kg: arsKg });
+          setBulkSelf({ ars_por_kg: numOrNull(j.ars_por_kg) });
         } else {
           setBulkSelf({ ars_por_kg: null });
         }
@@ -215,10 +223,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         setBulkSelf({ ars_por_kg: null });
       }
 
-      // Prefetch bulks usados en esta fórmula
+      // Prefetch bulks usados en fórmula
       const bulkIds = Array.from(
         new Set(
-          lineas
+          (lineas as LineaV2[])
             .filter((x) => x.tipo === "BULK_PRODUCTO" && x.bulk_producto_id)
             .map((x) => Number(x.bulk_producto_id))
             .filter((x) => Number.isFinite(x))
@@ -326,7 +334,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
       const arsKg = bulkCostByProducto[bp];
       if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg };
+      return { ok: true, ars: arsKg }; // ARS/kg
     }
 
     return { ok: false, err: "tipo no soportado" };
@@ -401,7 +409,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     const lote_ref_kg = numOrNull(costosProd?.lote_ref_kg);
     const fijo = numOrNull(costosProd?.costo_fijo_por_lote_ars);
     const variable = numOrNull(costosProd?.costo_variable_por_kg_ars);
-
     const prodARSporKg =
       lote_ref_kg && fijo !== null && fijo !== undefined ? fijo / lote_ref_kg + (variable ?? 0) : variable ?? null;
 
@@ -461,8 +468,33 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return id;
   }
 
-  async function addLineaFromItem(opt: ItemOption) {
-    const cost_option_id = await ensureCostOptionItem(opt.item_id, opt.presentacion);
+  async function ensureCostOptionManual(payload: {
+    manual_nombre: string;
+    manual_uom: "GR" | "ML" | "UN";
+    manual_cantidad: number;
+    manual_costo_ars: number;
+    densidad_g_ml: number | null;
+  }): Promise<number> {
+    const r = await fetch(`/api/cost-options`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tipo: "MANUAL_PRESENTACION",
+        manual_nombre: payload.manual_nombre,
+        manual_uom: payload.manual_uom,
+        manual_cantidad: payload.manual_cantidad,
+        manual_costo_ars: payload.manual_costo_ars,
+        densidad_g_ml: payload.densidad_g_ml,
+      }),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    const id = Number(j.cost_option_id);
+    if (!Number.isFinite(id)) throw new Error("cost_option_id inválido en respuesta");
+    return id;
+  }
+
+  async function addLineaFromCostOption(cost_option_id: number) {
     const up = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -478,21 +510,42 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await loadAll();
   }
 
+  async function addLineaFromItem(opt: ItemOption) {
+    const cost_option_id = await ensureCostOptionItem(opt.item_id, opt.presentacion);
+    await addLineaFromCostOption(cost_option_id);
+  }
+
   async function addLineaFromBulk(bulk_producto_id: number) {
     const cost_option_id = await ensureCostOptionBulk(bulk_producto_id);
-    const up = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        cost_option_id,
-        pct_peso: null,
-        is_csp: false,
-        orden: 999,
-      }),
+    await addLineaFromCostOption(cost_option_id);
+  }
+
+  async function createManualAndAdd() {
+    const nombre = manualNombre.trim();
+    const qty = numOrNull(manualCantidad);
+    const ars = numOrNull(manualCostoARS);
+    const dens = manualDens.trim() === "" ? null : numOrNull(manualDens);
+
+    if (!nombre) throw new Error("manual: falta nombre");
+    if (!qty || qty <= 0) throw new Error("manual: cantidad inválida");
+    if (ars === null || ars < 0) throw new Error("manual: costo ARS inválido");
+    if (manualUom === "ML" && (!dens || dens <= 0)) throw new Error("manual: UOM=ML requiere densidad g/ml");
+
+    const cost_option_id = await ensureCostOptionManual({
+      manual_nombre: nombre,
+      manual_uom: manualUom,
+      manual_cantidad: qty,
+      manual_costo_ars: ars,
+      densidad_g_ml: manualUom === "ML" ? dens! : dens ?? null,
     });
-    const uj = await up.json().catch(() => ({} as any));
-    if (!up.ok || !uj?.ok) throw new Error(uj?.error || `HTTP ${up.status}`);
-    await loadAll();
+
+    await addLineaFromCostOption(cost_option_id);
+
+    // limpiar form
+    setManualNombre("");
+    setManualCantidad("");
+    setManualCostoARS("");
+    setManualDens("");
   }
 
   async function patchLinea(linea_id: number, patch: any) {
@@ -534,6 +587,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const densProd = numOrNull(producto?.densidad_producto_g_ml);
   const bulkSelfARSkg = numOrNull(bulkSelf?.ars_por_kg);
   const bulkSelfARSl = bulkSelfARSkg !== null && densProd !== null ? bulkSelfARSkg * densProd : null;
+
+  const manualOptions = useMemo(() => {
+    const q = manualSearch.trim().toLowerCase();
+    const rows = extraOptions.filter((x) => x.tipo === "MANUAL_PRESENTACION" && x.activo);
+    if (!q) return rows;
+    return rows.filter((x) => (x.manual_nombre ?? "").toLowerCase().includes(q));
+  }, [extraOptions, manualSearch]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -633,8 +693,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
             <div>CSP: {cspLinea ? `sí (linea ${cspLinea.linea_id})` : "no"}</div>
-            <div>% fijos: {fmtFixed(pctFijos, 4)}</div>
-            <div>% total: {fmtFixed(calc.sumPct, 4)}</div>
+            <div>% fijos: {fmtMaybe(pctFijos, 4)}</div>
+            <div>% total: {fmtMaybe(calc.sumPct, 4)}</div>
             <div>ARS/kg (sin prod): {fmtMaybe(calc.arsPorKg, 2)}</div>
             <div>ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)}</div>
             <div>ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}</div>
@@ -838,7 +898,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       </div>
                     </td>
                     <td style={{ padding: 10 }}>{String(x.presentacion)}</td>
-                    <td style={{ padding: 10 }}>{fmtFixed(x.price_ars, 2)}</td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(x.price_ars, 2)}</td>
                     <td style={{ padding: 10 }}>{x.as_of_date}</td>
                     <td style={{ padding: 10 }}>
                       <button
@@ -966,8 +1026,191 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             </table>
           </div>
         </div>
+
+        {/* MANUALES */}
+        <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Componentes manuales</div>
+
+          {/* Crear manual */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Nombre
+              <input
+                value={manualNombre}
+                onChange={(e) => setManualNombre(e.target.value)}
+                placeholder="ej: Agua"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 220,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              UOM
+              <select
+                value={manualUom}
+                onChange={(e) => setManualUom(e.target.value as any)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 110,
+                }}
+              >
+                <option value="GR">GR</option>
+                <option value="ML">ML</option>
+                <option value="UN">UN</option>
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Cantidad (presentación)
+              <input
+                value={manualCantidad}
+                onChange={(e) => setManualCantidad(e.target.value)}
+                placeholder={manualUom === "GR" ? "ej: 1000" : manualUom === "ML" ? "ej: 1000" : "ej: 1"}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 170,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Costo ARS (por presentación)
+              <input
+                value={manualCostoARS}
+                onChange={(e) => setManualCostoARS(e.target.value)}
+                placeholder="ej: 250"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 190,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Densidad g/ml (opcional; req si UOM=ML)
+              <input
+                value={manualDens}
+                onChange={(e) => setManualDens(e.target.value)}
+                placeholder={manualUom === "ML" ? "ej: 1.0" : "(opcional)"}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 260,
+                }}
+              />
+            </label>
+
+            <button
+              onClick={async () => {
+                try {
+                  await createManualAndAdd();
+                } catch (err: any) {
+                  setError(err?.message || "error");
+                }
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Crear y agregar
+            </button>
+          </div>
+
+          {/* Reusar manuales */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700 }}>Reusar manual existente</div>
+            <input
+              value={manualSearch}
+              onChange={(e) => setManualSearch(e.target.value)}
+              placeholder="buscar manual por nombre"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 260,
+              }}
+            />
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Encontrados: {manualOptions.length}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Presentación</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Dens</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualOptions.slice(0, 80).map((m) => (
+                  <tr key={m.cost_option_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600 }}>{m.manual_nombre ?? "Manual"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>opt #{m.cost_option_id}</div>
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      {fmtMaybe(m.manual_cantidad, 4)} {m.manual_uom ?? ""}
+                    </td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(m.manual_costo_ars, 2)}</td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(m.densidad_g_ml, 4)}</td>
+                    <td style={{ padding: 10 }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await addLineaFromCostOption(m.cost_option_id);
+                          } catch (err: any) {
+                            setError(err?.message || "error");
+                          }
+                        }}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(255,255,255,0.03)",
+                        }}
+                      >
+                        Agregar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!manualOptions.length ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                      Sin manuales.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
+      {/* ofertas sin cambios */}
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
         <div style={{ fontSize: 12, opacity: 0.75 }}>Sin cambios en esta etapa.</div>
