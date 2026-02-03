@@ -338,7 +338,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }
 
 
-async function importInsumoFromItem() {
+  async function importInsumoFromItem() {
   setError(null);
   const item_id = Number(impItemId);
   const nombre = impNombre.trim();
@@ -382,8 +382,10 @@ async function importInsumoFromItem() {
   setImpDensidad("");
   setImpPresentacion("");
 
+  setImpPrioridad("10");
+}
 
-async function importInsumoFromBulk() {
+  async function importInsumoFromBulk() {
   setError(null);
   const oferta_id = Number(bulkOfertaId);
   const nombre = bulkInsumoNombre.trim();
@@ -393,7 +395,7 @@ async function importInsumoFromBulk() {
   if (!nombre) { setError("Nombre de insumo requerido"); return; }
   if (!Number.isFinite(prioridad)) { setError("Prioridad inválida"); return; }
 
-  // Crear insumo GR. (La fórmula está en % p/p; el costo se resolverá como $/g)
+  // Crear insumo GR (fórmula está en % p/p)
   const resI = await fetch(`/api/insumos`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -422,7 +424,7 @@ async function importInsumoFromBulk() {
   setBulkPrioridad("10");
 }
 
-  async function addLinea() {
+async function addLinea() {
     setError(null);
     const insumo_id = Number(newInsumoId);
     const pct = Number(newPct);
@@ -484,7 +486,7 @@ async function importInsumoFromBulk() {
     const res = await fetch(`/api/productos/${productoId}/ofertas`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nombre: n, peso_neto_g: peso, volumen_neto_ml: vol }),
+      body: JSON.stringify({ nombre: n, peso_neto_g: peso, volumen_neto_ml: vol, is_bulk: newOfertaIsBulk }),
     });
     const j = await res.json().catch(() => null);
     if (!res.ok || !j?.ok) {
@@ -494,6 +496,7 @@ async function importInsumoFromBulk() {
     setNewOfertaNombre("");
     setNewOfertaPeso("");
     setNewOfertaVol("");
+    setNewOfertaIsBulk(false);
     await loadAll();
   }
 
@@ -1120,5 +1123,4 @@ async function importInsumoFromBulk() {
       </section>
     </div>
   );
-}
 }
