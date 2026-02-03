@@ -88,13 +88,23 @@ export default function ProductosClient() {
           <tbody>
             {filtered.map((r) => {
               const tipo = r.tiene_formula ? "Formulado" : r.tiene_base ? "Simple" : "Sin definir";
+              const idNum = Number((r as any).producto_id);
+              const idOk = Number.isFinite(idNum);
+
               return (
-                <tr key={r.producto_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                <tr key={String((r as any).producto_id)} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                   <td style={{ padding: 10 }}>
-                    <Link href={`/productos/${r.producto_id}`} style={{ textDecoration: "underline" }}>
-                      {r.nombre}
-                    </Link>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>#{r.producto_id}</div>
+                    {idOk ? (
+                      <Link href={`/productos/${idNum}`} style={{ textDecoration: "underline" }}>
+                        {r.nombre}
+                      </Link>
+                    ) : (
+                      <span>{r.nombre}</span>
+                    )}
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                      #{String((r as any).producto_id)}
+                      {!idOk ? <span style={{ color: "tomato" }}> (ID inválido)</span> : null}
+                    </div>
                   </td>
                   <td style={{ padding: 10 }}>{tipo}</td>
                   <td style={{ padding: 10 }}>{r.densidad_producto_g_ml ?? "-"}</td>
