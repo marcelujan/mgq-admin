@@ -80,7 +80,6 @@ type LineaV2 = {
   item_id: number | null;
   item_presentacion: number | null;
 
-  // precio latest del job (servidor)
   job_price_ars: number | null;
   job_as_of_date: string | null;
 
@@ -92,6 +91,13 @@ type LineaV2 = {
   bulk_producto_id: number | null;
 
   densidad_g_ml: number | null;
+};
+
+type BulkRow = {
+  producto_id: number;
+  nombre: string;
+  densidad_producto_g_ml: number | null;
+  ars_por_kg: number | null;
 };
 
 function numOrNull(v: any): number | null {
@@ -122,6 +128,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [soloSel, setSoloSel] = useState(true);
 
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
+  const [bulkSelf, setBulkSelf] = useState<{ ars_por_kg: number | null } | null>(null);
+
+  // Selector de bulks (productos formulados)
+  const [bulkSearch, setBulkSearch] = useState("");
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   async function loadAll() {
     setLoading(true);
@@ -161,7 +173,21 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       setItemOptions(optJ.item_options || []);
       setExtraOptions(optJ.cost_options_extra || []);
 
-      // Prefetch bulks usados en esta fórmula
+      // Bulk del producto actual (info)
+      try {
+        const r = await fetch(`/api/productos/${productoId}/costo-bulk`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({} as any));
+        if (r.ok && j?.ok) {
+          const arsKg = Number(j.ars_por_kg);
+          setBulkSelf({ ars_por_kg: Number.isFinite(arsKg) ? arsKg : null });
+        } else {
+          setBulkSelf({ ars_por_kg: null });
+        }
+      } catch {
+        setBulkSelf({ ars_por_kg: null });
+      }
+
+      // Prefetch bulks usados en esta fórmula (sub-bulks)
       const bulkIds = Array.from(
         new Set(
           lineas
@@ -191,6 +217,22 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       setError(e?.message || "error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadBulks() {
+    setBulkLoading(true);
+    try {
+      const r = await fetch(`/api/productos/bulks?limit=50&offset=0&search=${encodeURIComponent(bulkSearch)}`, {
+        cache: "no-store",
+      });
+      const j = await r.json().catch(() => ({} as any));
+      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      setBulkRows((j.rows || []) as BulkRow[]);
+    } catch (e: any) {
+      setError(e?.message || "error");
+    } finally {
+      setBulkLoading(false);
     }
   }
 
@@ -229,7 +271,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
       }
-
       const item_id = l.item_id ?? null;
       const pres = l.item_presentacion ?? null;
       if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
@@ -248,7 +289,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
       const arsKg = bulkCostByProducto[bp];
       if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg };
+      return { ok: true, ars: arsKg }; // ARS/kg
     }
 
     return { ok: false, err: "tipo no soportado" };
@@ -369,8 +410,38 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return id;
   }
 
+  async function ensureCostOptionBulk(bulk_producto_id: number): Promise<number> {
+    const r = await fetch(`/api/cost-options`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tipo: "BULK_PRODUCTO", bulk_producto_id }),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    const id = Number(j.cost_option_id);
+    if (!Number.isFinite(id)) throw new Error("cost_option_id inválido en respuesta");
+    return id;
+  }
+
   async function addLineaFromItem(opt: ItemOption) {
     const cost_option_id = await ensureCostOptionItem(opt.item_id, opt.presentacion);
+    const up = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        cost_option_id,
+        pct_peso: null,
+        is_csp: false,
+        orden: 999,
+      }),
+    });
+    const uj = await up.json().catch(() => ({} as any));
+    if (!up.ok || !uj?.ok) throw new Error(uj?.error || `HTTP ${up.status}`);
+    await loadAll();
+  }
+
+  async function addLineaFromBulk(bulk_producto_id: number) {
+    const cost_option_id = await ensureCostOptionBulk(bulk_producto_id);
     const up = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -417,11 +488,14 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${l.item_presentacion}`;
-    if (l.tipo === "MANUAL_PRESENTACION")
-      return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
+    if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
     return `Opción ${l.cost_option_id}`;
   }
+
+  const densProd = producto?.densidad_producto_g_ml ?? null;
+  const bulkSelfARSkg = bulkSelf?.ars_por_kg ?? null;
+  const bulkSelfARSl = bulkSelfARSkg !== null && densProd !== null ? bulkSelfARSkg * densProd : null;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -502,7 +576,27 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
-            {/* ... resto header igual ... */}
+            <div
+              style={{
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                display: "grid",
+                gap: 4,
+                background: "rgba(255,255,255,0.02)",
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                ARS/kg: {bulkSelfARSkg === null ? "-" : bulkSelfARSkg.toFixed(2)}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                Dens g/ml: {densProd === null ? "-" : densProd.toFixed(4)}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                ARS/L: {bulkSelfARSl === null ? "-" : bulkSelfARSl.toFixed(2)}
+              </div>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
@@ -649,6 +743,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </table>
         </div>
 
+        {/* selector job */}
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Opciones (job)</div>
@@ -706,16 +801,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.75,
-                          maxWidth: 520,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
+                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
@@ -747,6 +833,99 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   <tr>
                     <td colSpan={6} style={{ padding: 10, opacity: 0.75 }}>
                       Sin opciones (revisar job / filtros).
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* selector bulks */}
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Bulks (productos formulados)</div>
+
+            <input
+              value={bulkSearch}
+              onChange={(e) => setBulkSearch(e.target.value)}
+              placeholder="buscar producto"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 260,
+              }}
+            />
+
+            <button
+              onClick={loadBulks}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Buscar bulks
+            </button>
+
+            {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {bulkRows.length}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Producto</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Dens (g/ml)</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS/kg</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS/L</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {bulkRows.slice(0, 50).map((b) => {
+                  const dens = b.densidad_producto_g_ml ?? null;
+                  const arsKg = b.ars_por_kg ?? null;
+                  const arsL = dens !== null && arsKg !== null ? arsKg * dens : null;
+                  return (
+                    <tr key={b.producto_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontWeight: 600 }}>{b.nombre}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>#{b.producto_id}</div>
+                      </td>
+                      <td style={{ padding: 10 }}>{dens === null ? "-" : dens.toFixed(4)}</td>
+                      <td style={{ padding: 10 }}>{arsKg === null ? "-" : arsKg.toFixed(2)}</td>
+                      <td style={{ padding: 10 }}>{arsL === null ? "-" : arsL.toFixed(2)}</td>
+                      <td style={{ padding: 10 }}>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await addLineaFromBulk(b.producto_id);
+                            } catch (err: any) {
+                              setError(err?.message || "error");
+                            }
+                          }}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.03)",
+                          }}
+                        >
+                          Agregar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!bulkRows.length ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                      Sin resultados. (Buscar bulks)
                     </td>
                   </tr>
                 ) : null}
