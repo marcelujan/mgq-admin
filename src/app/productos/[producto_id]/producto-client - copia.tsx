@@ -382,7 +382,6 @@ async function importInsumoFromItem() {
   setImpDensidad("");
   setImpPresentacion("");
 
-
 async function importInsumoFromBulk() {
   setError(null);
   const oferta_id = Number(bulkOfertaId);
