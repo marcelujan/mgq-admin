@@ -14,6 +14,12 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseNullableNumber(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // GET header fórmula v2 + costos de producción
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
@@ -81,10 +87,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
     const lote_ref_g = Number(body?.lote_ref_g ?? 1000);
     const lote_ref_g_ok = Number.isFinite(lote_ref_g) && lote_ref_g > 0 ? lote_ref_g : 1000;
 
-    // Sanitizar: NaN/Infinity => null
-    const lote_ref_kg = numOrNull(body?.lote_ref_kg);
-    const costo_fijo_por_lote_ars = numOrNull(body?.costo_fijo_por_lote_ars);
-    const costo_variable_por_kg_ars = numOrNull(body?.costo_variable_por_kg_ars);
+    // Normalización fuerte: si no es number finito -> null
+    let lote_ref_kg = parseNullableNumber(body?.lote_ref_kg);
+    let costo_fijo_por_lote_ars = parseNullableNumber(body?.costo_fijo_por_lote_ars);
+    let costo_variable_por_kg_ars = parseNullableNumber(body?.costo_variable_por_kg_ars);
+
+    // Validaciones mínimas (si invalida, se considera null)
+    if (lote_ref_kg !== null && lote_ref_kg <= 0) lote_ref_kg = null;
+    if (costo_fijo_por_lote_ars !== null && costo_fijo_por_lote_ars < 0) costo_fijo_por_lote_ars = null;
+    if (costo_variable_por_kg_ars !== null && costo_variable_por_kg_ars < 0) costo_variable_por_kg_ars = null;
 
     const sql = db();
 

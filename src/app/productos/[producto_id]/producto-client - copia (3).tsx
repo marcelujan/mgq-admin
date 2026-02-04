@@ -1,3 +1,4 @@
+// src/app/productos/[producto_id]/producto-client.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -115,13 +116,6 @@ function fmtMaybe(v: any, dec: number): string {
   return n === null ? "-" : n.toFixed(dec);
 }
 
-function parseBlurNumber(raw: string): number | null {
-  const t = raw.trim();
-  if (t === "") return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
 export default function ProductoClient({ productoId }: { productoId: number }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +159,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
         fetch(
-          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`,
+          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(
+            searchOpt
+          )}`,
           { cache: "no-store" }
         ),
       ]);
@@ -199,7 +195,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const optJ = await optR.json();
       if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
-
       const items = (optJ.item_options || []) as any[];
       for (const it of items) {
         it.presentacion = Number(it.presentacion);
@@ -218,7 +213,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setExtraOptions(extras as CostOptionExtra[]);
 
-      // Bulk del producto actual (info)
+      // Bulk del producto actual (info / endpoint)
       try {
         const r = await fetch(`/api/productos/${productoId}/costo-bulk`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
@@ -324,7 +319,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
       }
-
       const item_id = l.item_id ?? null;
       const pres = l.item_presentacion ?? null;
       if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
@@ -550,7 +544,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
     await addLineaFromCostOption(cost_option_id);
 
-    // limpiar form
     setManualNombre("");
     setManualCantidad("");
     setManualCostoARS("");
@@ -595,14 +588,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const densProd = numOrNull(producto?.densidad_producto_g_ml);
 
-  // Bulk info: mostrar dos valores (sin prod / con prod)
-  const bulkARSkg_sin = numOrNull(calc.arsPorKg);
-  const bulkARSkg_con = numOrNull(calc.arsPorKgConProd);
+  // Bulk calculado (desde fórmula actual) — explícito sin/ con prod
+  const bulkCalcARSkg_sin = numOrNull(calc.arsPorKg);
+  const bulkCalcARSkg_con = numOrNull(calc.arsPorKgConProd);
+  const bulkCalcARSl_sin = densProd !== null && bulkCalcARSkg_sin !== null ? bulkCalcARSkg_sin * densProd : null;
+  const bulkCalcARSl_con = densProd !== null && bulkCalcARSkg_con !== null ? bulkCalcARSkg_con * densProd : null;
 
-  const bulkARSl_sin = densProd !== null && bulkARSkg_sin !== null ? bulkARSkg_sin * densProd : null;
-  const bulkARSl_con = densProd !== null && bulkARSkg_con !== null ? bulkARSkg_con * densProd : null;
-
-  // (opcional) endpoint histórico bulk; solo info
+  // Bulk endpoint (referencia)
   const bulkEndpointARSkg = numOrNull(bulkSelf?.ars_por_kg);
   const bulkEndpointARSl = densProd !== null && bulkEndpointARSkg !== null ? bulkEndpointARSkg * densProd : null;
 
@@ -644,12 +636,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Lote ref (g)
               <input
-                type="number"
-                step="1"
                 defaultValue={String(loteRefG)}
                 onBlur={async (e) => {
                   const v = clamp(Number(e.target.value), 1, 1_000_000);
@@ -672,13 +662,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Densidad producto (g/ml)
               <input
-                type="number"
-                step="0.0001"
                 key={`dens-prod-${producto?.producto_id ?? "x"}-${producto?.densidad_producto_g_ml ?? ""}`}
                 defaultValue={String(producto?.densidad_producto_g_ml ?? "")}
                 placeholder="(opcional)"
                 onBlur={async (e) => {
-                  const v = parseBlurNumber(e.target.value);
+                  const raw = e.target.value.trim();
+                  const v = raw === "" ? null : Number(raw);
                   try {
                     await patchProducto({ densidad_producto_g_ml: v });
                   } catch (err: any) {
@@ -695,7 +684,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
-            {/* Costos de producción en header (editables) */}
+            {/* Costos de producción */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -707,19 +696,18 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 minWidth: 360,
               }}
             >
-              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción</div>
+              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción (bulk)</div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
                   Lote ref (kg)
                   <input
-                    type="number"
-                    step="0.0001"
                     key={`cp-lote-${costosProd?.lote_ref_kg ?? ""}`}
                     defaultValue={String(costosProd?.lote_ref_kg ?? "")}
                     placeholder="(opcional)"
                     onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
                       try {
                         await saveHeaderV2({ lote_ref_kg: v });
                       } catch (err: any) {
@@ -739,13 +727,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
                   Fijo por lote (ARS)
                   <input
-                    type="number"
-                    step="0.01"
                     key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
                     defaultValue={String(costosProd?.costo_fijo_por_lote_ars ?? "")}
                     placeholder="(opcional)"
                     onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
                       try {
                         await saveHeaderV2({ costo_fijo_por_lote_ars: v });
                       } catch (err: any) {
@@ -757,7 +744,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       borderRadius: 10,
                       border: "1px solid rgba(255,255,255,0.14)",
                       background: "rgba(255,255,255,0.03)",
-                      width: 170,
+                      width: 160,
                     }}
                   />
                 </label>
@@ -765,13 +752,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
                   Variable (ARS/kg)
                   <input
-                    type="number"
-                    step="0.01"
                     key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}`}
                     defaultValue={String(costosProd?.costo_variable_por_kg_ars ?? "")}
                     placeholder="(opcional)"
                     onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
                       try {
                         await saveHeaderV2({ costo_variable_por_kg_ars: v });
                       } catch (err: any) {
@@ -783,7 +769,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       borderRadius: 10,
                       border: "1px solid rgba(255,255,255,0.14)",
                       background: "rgba(255,255,255,0.03)",
-                      width: 170,
+                      width: 160,
                     }}
                   />
                 </label>
@@ -794,7 +780,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               </div>
             </div>
 
-            {/* Bulk info */}
+            {/* Bulk info explícito sin/ con prod */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -803,14 +789,19 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 display: "grid",
                 gap: 4,
                 background: "rgba(255,255,255,0.02)",
+                minWidth: 270,
               }}
             >
               <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (sin prod): {fmtMaybe(bulkARSkg_sin, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (con prod): {fmtMaybe(bulkARSkg_con, 2)}</div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (sin prod): {fmtMaybe(bulkCalcARSkg_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (con prod): {fmtMaybe(bulkCalcARSkg_con, 2)}</div>
+
               <div style={{ fontSize: 12, opacity: 0.85 }}>Dens g/ml: {fmtMaybe(densProd, 4)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (sin prod): {fmtMaybe(bulkARSl_sin, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (con prod): {fmtMaybe(bulkARSl_con, 2)}</div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (sin prod): {fmtMaybe(bulkCalcARSl_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (con prod): {fmtMaybe(bulkCalcARSl_con, 2)}</div>
+
               <div style={{ fontSize: 12, opacity: 0.65 }}>
                 endpoint ARS/kg: {fmtMaybe(bulkEndpointARSkg, 2)} · ARS/L: {fmtMaybe(bulkEndpointARSl, 2)}
               </div>
@@ -1019,7 +1010,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.75,
+                          maxWidth: 520,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
