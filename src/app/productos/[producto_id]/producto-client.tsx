@@ -1,3 +1,4 @@
+// src/app/productos/[producto_id]/producto-client.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -158,7 +159,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
         fetch(
-          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`,
+          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(
+            searchOpt
+          )}`,
           { cache: "no-store" }
         ),
       ]);
@@ -210,7 +213,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setExtraOptions(extras as CostOptionExtra[]);
 
-      // Bulk del producto actual (info)
+      // Bulk del producto actual (info / endpoint)
       try {
         const r = await fetch(`/api/productos/${productoId}/costo-bulk`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
@@ -541,7 +544,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
     await addLineaFromCostOption(cost_option_id);
 
-    // limpiar form
     setManualNombre("");
     setManualCantidad("");
     setManualCostoARS("");
@@ -585,8 +587,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }
 
   const densProd = numOrNull(producto?.densidad_producto_g_ml);
-  const bulkSelfARSkg = numOrNull(bulkSelf?.ars_por_kg);
-  const bulkSelfARSl = bulkSelfARSkg !== null && densProd !== null ? bulkSelfARSkg * densProd : null;
+
+  // Bulk calculado (desde fórmula actual) — explícito sin/ con prod
+  const bulkCalcARSkg_sin = numOrNull(calc.arsPorKg);
+  const bulkCalcARSkg_con = numOrNull(calc.arsPorKgConProd);
+  const bulkCalcARSl_sin = densProd !== null && bulkCalcARSkg_sin !== null ? bulkCalcARSkg_sin * densProd : null;
+  const bulkCalcARSl_con = densProd !== null && bulkCalcARSkg_con !== null ? bulkCalcARSkg_con * densProd : null;
+
+  // Bulk endpoint (referencia)
+  const bulkEndpointARSkg = numOrNull(bulkSelf?.ars_por_kg);
+  const bulkEndpointARSl = densProd !== null && bulkEndpointARSkg !== null ? bulkEndpointARSkg * densProd : null;
 
   const manualOptions = useMemo(() => {
     const q = manualSearch.trim().toLowerCase();
@@ -674,6 +684,103 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
+            {/* Costos de producción */}
+            <div
+              style={{
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                display: "grid",
+                gap: 10,
+                background: "rgba(255,255,255,0.02)",
+                minWidth: 360,
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción (bulk)</div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Lote ref (kg)
+                  <input
+                    key={`cp-lote-${costosProd?.lote_ref_kg ?? ""}`}
+                    defaultValue={String(costosProd?.lote_ref_kg ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
+                      try {
+                        await saveHeaderV2({ lote_ref_kg: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 130,
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Fijo por lote (ARS)
+                  <input
+                    key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
+                    defaultValue={String(costosProd?.costo_fijo_por_lote_ars ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
+                      try {
+                        await saveHeaderV2({ costo_fijo_por_lote_ars: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 160,
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Variable (ARS/kg)
+                  <input
+                    key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}`}
+                    defaultValue={String(costosProd?.costo_variable_por_kg_ars ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const raw = e.target.value.trim();
+                      const v = raw === "" ? null : Number(raw);
+                      try {
+                        await saveHeaderV2({ costo_variable_por_kg_ars: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 160,
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)} · ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}
+              </div>
+            </div>
+
+            {/* Bulk info explícito sin/ con prod */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -682,12 +789,22 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 display: "grid",
                 gap: 4,
                 background: "rgba(255,255,255,0.02)",
+                minWidth: 270,
               }}
             >
               <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg: {fmtMaybe(bulkSelfARSkg, 2)}</div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (sin prod): {fmtMaybe(bulkCalcARSkg_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (con prod): {fmtMaybe(bulkCalcARSkg_con, 2)}</div>
+
               <div style={{ fontSize: 12, opacity: 0.85 }}>Dens g/ml: {fmtMaybe(densProd, 4)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L: {fmtMaybe(bulkSelfARSl, 2)}</div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (sin prod): {fmtMaybe(bulkCalcARSl_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (con prod): {fmtMaybe(bulkCalcARSl_con, 2)}</div>
+
+              <div style={{ fontSize: 12, opacity: 0.65 }}>
+                endpoint ARS/kg: {fmtMaybe(bulkEndpointARSkg, 2)} · ARS/L: {fmtMaybe(bulkEndpointARSl, 2)}
+              </div>
             </div>
           </div>
 
@@ -893,7 +1010,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.75,
+                          maxWidth: 520,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
