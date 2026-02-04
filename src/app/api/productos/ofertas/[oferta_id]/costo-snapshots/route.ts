@@ -14,9 +14,12 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(req: NextRequest, { params }: { params: { oferta_id: string } }) {
+type Ctx = { params: Promise<{ oferta_id: string }> };
+
+export async function GET(req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
+    const { oferta_id: ofertaIdStr } = await params;
+    const oferta_id = Number(ofertaIdStr);
     if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const { searchParams } = new URL(req.url);
@@ -50,11 +53,12 @@ export async function GET(req: NextRequest, { params }: { params: { oferta_id: s
   }
 }
 
-export async function POST(req: NextRequest, { params }: { params: { oferta_id: string } }) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   const sql = db();
 
   try {
-    const oferta_id = Number(params.oferta_id);
+    const { oferta_id: ofertaIdStr } = await params;
+    const oferta_id = Number(ofertaIdStr);
     if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const body = await req.json().catch(() => ({} as any));
@@ -69,12 +73,18 @@ export async function POST(req: NextRequest, { params }: { params: { oferta_id: 
     if (bulk_ars_kg_con_prod === null || bulk_ars_kg_con_prod < 0) {
       return NextResponse.json({ ok: false, error: "bulk_ars_kg_con_prod inválido" }, { status: 422 });
     }
-    if (masa_total_g === null || masa_total_g <= 0) return NextResponse.json({ ok: false, error: "masa_total_g inválida" }, { status: 422 });
-    if (base_costo_ars === null || base_costo_ars < 0) return NextResponse.json({ ok: false, error: "base_costo_ars inválido" }, { status: 422 });
+    if (masa_total_g === null || masa_total_g <= 0) {
+      return NextResponse.json({ ok: false, error: "masa_total_g inválida" }, { status: 422 });
+    }
+    if (base_costo_ars === null || base_costo_ars < 0) {
+      return NextResponse.json({ ok: false, error: "base_costo_ars inválido" }, { status: 422 });
+    }
     if (packaging_costo_ars === null || packaging_costo_ars < 0) {
       return NextResponse.json({ ok: false, error: "packaging_costo_ars inválido" }, { status: 422 });
     }
-    if (total_costo_ars === null || total_costo_ars < 0) return NextResponse.json({ ok: false, error: "total_costo_ars inválido" }, { status: 422 });
+    if (total_costo_ars === null || total_costo_ars < 0) {
+      return NextResponse.json({ ok: false, error: "total_costo_ars inválido" }, { status: 422 });
+    }
 
     const packaging = Array.isArray(body?.packaging) ? body.packaging : [];
 
