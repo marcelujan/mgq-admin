@@ -100,6 +100,28 @@ type BulkRow = {
   ars_por_kg: number | null;
 };
 
+type PackagingItem = {
+  packaging_item_id: number;
+  nombre: string;
+  descripcion: string | null;
+  unidad: string; // en este MVP: "UN"
+  costo_unitario_ars: number;
+  activo: boolean;
+};
+
+type OfertaPackagingRow = {
+  oferta_packaging_id: number;
+  oferta_id: number;
+  packaging_item_id: number;
+  cantidad: number;
+  costo_unitario_override_ars: number | null;
+
+  // join
+  nombre: string;
+  unidad: string; // "UN"
+  costo_unitario_ars: number;
+};
+
 function numOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
@@ -113,6 +135,13 @@ function clamp(n: number, lo: number, hi: number) {
 function fmtMaybe(v: any, dec: number): string {
   const n = numOrNull(v);
   return n === null ? "-" : n.toFixed(dec);
+}
+
+function parseBlurNumber(raw: string): number | null {
+  const t = raw.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }
 
 export default function ProductoClient({ productoId }: { productoId: number }) {
@@ -148,6 +177,18 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [manualCostoARS, setManualCostoARS] = useState<string>("");
   const [manualDens, setManualDens] = useState<string>("");
 
+  // Packaging
+  const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
+  const [packagingByOferta, setPackagingByOferta] = useState<Record<number, OfertaPackagingRow[]>>({});
+  const [ofertaOpen, setOfertaOpen] = useState<Record<number, boolean>>({});
+  const [addPackItemByOferta, setAddPackItemByOferta] = useState<
+    Record<number, { packaging_item_id: string; cantidad: string }>
+  >({});
+
+  // Alta rápida catálogo packaging
+  const [newPackNombre, setNewPackNombre] = useState("");
+  const [newPackCosto, setNewPackCosto] = useState("");
+
   async function loadAll() {
     setLoading(true);
     setError(null);
@@ -158,7 +199,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
         fetch(
-          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`,
+          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(
+            searchOpt
+          )}`,
           { cache: "no-store" }
         ),
       ]);
@@ -171,7 +214,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const oJ = await oR.json();
       if (!oR.ok || !oJ?.ok) throw new Error(oJ?.error || `HTTP ${oR.status}`);
-      setOfertas(oJ.ofertas || []);
+      const ofertasList = (oJ.ofertas || []) as Oferta[];
+      setOfertas(ofertasList);
 
       const fJ = await fR.json();
       if (!fR.ok || !fJ?.ok) throw new Error(fJ?.error || `HTTP ${fR.status}`);
@@ -192,6 +236,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
       const optJ = await optR.json();
       if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
+
       const items = (optJ.item_options || []) as any[];
       for (const it of items) {
         it.presentacion = Number(it.presentacion);
@@ -249,6 +294,15 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       } else {
         setBulkCostByProducto({});
       }
+
+      // Packaging (catálogo + relaciones por oferta)
+      try {
+        await loadPackagingItems();
+        await loadPackagingAll(ofertasList);
+      } catch (e: any) {
+        // no bloquear editor si packaging falla
+        console.error(e);
+      }
     } catch (e: any) {
       setError(e?.message || "error");
     } finally {
@@ -277,6 +331,88 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     } finally {
       setBulkLoading(false);
     }
+  }
+
+  async function loadPackagingItems() {
+    const r = await fetch(`/api/packaging-items`, { cache: "no-store" });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+    const rows = (j.items || []) as any[];
+    for (const it of rows) {
+      it.packaging_item_id = Number(it.packaging_item_id);
+      it.costo_unitario_ars = Number(it.costo_unitario_ars);
+      it.activo = !!it.activo;
+      // MVP: el backend debería devolver unidad="UN"; si no, forzamos visualmente a UN sin romper.
+      if (!it.unidad) it.unidad = "UN";
+    }
+    setPackagingItems(rows as PackagingItem[]);
+  }
+
+  async function loadPackagingForOferta(oferta_id: number) {
+    const r = await fetch(`/api/productos/ofertas/${oferta_id}/packaging`, { cache: "no-store" });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+    const rows = (j.rows || []) as any[];
+    for (const x of rows) {
+      x.oferta_packaging_id = Number(x.oferta_packaging_id);
+      x.oferta_id = Number(x.oferta_id);
+      x.packaging_item_id = Number(x.packaging_item_id);
+      x.cantidad = Number(x.cantidad);
+      x.costo_unitario_override_ars = numOrNull(x.costo_unitario_override_ars);
+      x.costo_unitario_ars = Number(x.costo_unitario_ars);
+      if (!x.unidad) x.unidad = "UN";
+    }
+
+    setPackagingByOferta((prev) => ({ ...prev, [oferta_id]: rows as OfertaPackagingRow[] }));
+  }
+
+  async function loadPackagingAll(ofertasList: Oferta[]) {
+    await Promise.all(ofertasList.map((o) => loadPackagingForOferta(o.oferta_id)));
+  }
+
+  async function createPackagingItem(payload: { nombre: string; unidad: string; costo_unitario_ars: number }) {
+    const r = await fetch(`/api/packaging-items`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    await loadPackagingItems();
+    return j.packaging_item_id as number;
+  }
+
+  async function addOfertaPackaging(oferta_id: number, payload: { packaging_item_id: number; cantidad: number }) {
+    const r = await fetch(`/api/productos/ofertas/${oferta_id}/packaging`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    await loadPackagingForOferta(oferta_id);
+  }
+
+  async function patchOfertaPackaging(oferta_id: number, oferta_packaging_id: number, patch: any) {
+    const r = await fetch(`/api/productos/ofertas/${oferta_id}/packaging/${oferta_packaging_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    await loadPackagingForOferta(oferta_id);
+  }
+
+  async function deleteOfertaPackaging(oferta_id: number, oferta_packaging_id: number) {
+    const r = await fetch(`/api/productos/ofertas/${oferta_id}/packaging/${oferta_packaging_id}`, {
+      method: "DELETE",
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    await loadPackagingForOferta(oferta_id);
   }
 
   useEffect(() => {
@@ -316,6 +452,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
       }
+
       const item_id = l.item_id ?? null;
       const pres = l.item_presentacion ?? null;
       if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
@@ -579,14 +716,24 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${l.item_presentacion}`;
-    if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
+    if (l.tipo === "MANUAL_PRESENTACION")
+      return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
     return `Opción ${l.cost_option_id}`;
   }
 
   const densProd = numOrNull(producto?.densidad_producto_g_ml);
-  const bulkSelfARSkg = numOrNull(bulkSelf?.ars_por_kg);
-  const bulkSelfARSl = bulkSelfARSkg !== null && densProd !== null ? bulkSelfARSkg * densProd : null;
+
+  // Bulk info: mostrar dos valores (sin prod / con prod)
+  const bulkARSkg_sin = numOrNull(calc.arsPorKg);
+  const bulkARSkg_con = numOrNull(calc.arsPorKgConProd);
+
+  const bulkARSl_sin = densProd !== null && bulkARSkg_sin !== null ? bulkARSkg_sin * densProd : null;
+  const bulkARSl_con = densProd !== null && bulkARSkg_con !== null ? bulkARSkg_con * densProd : null;
+
+  // (opcional) endpoint histórico bulk; solo info
+  const bulkEndpointARSkg = numOrNull(bulkSelf?.ars_por_kg);
+  const bulkEndpointARSl = densProd !== null && bulkEndpointARSkg !== null ? bulkEndpointARSkg * densProd : null;
 
   const manualOptions = useMemo(() => {
     const q = manualSearch.trim().toLowerCase();
@@ -619,17 +766,27 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
+      <div
+        style={{
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 12,
+          padding: 12,
+          display: "grid",
+          gap: 12,
+        }}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Lote ref (g)
               <input
+                type="number"
+                step="1"
                 defaultValue={String(loteRefG)}
                 onBlur={async (e) => {
                   const v = clamp(Number(e.target.value), 1, 1_000_000);
@@ -652,12 +809,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Densidad producto (g/ml)
               <input
+                type="number"
+                step="0.0001"
                 key={`dens-prod-${producto?.producto_id ?? "x"}-${producto?.densidad_producto_g_ml ?? ""}`}
                 defaultValue={String(producto?.densidad_producto_g_ml ?? "")}
                 placeholder="(opcional)"
                 onBlur={async (e) => {
-                  const raw = e.target.value.trim();
-                  const v = raw === "" ? null : Number(raw);
+                  const v = parseBlurNumber(e.target.value);
                   try {
                     await patchProducto({ densidad_producto_g_ml: v });
                   } catch (err: any) {
@@ -674,6 +832,106 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
+            {/* Costos de producción en header (editables) */}
+            <div
+              style={{
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                display: "grid",
+                gap: 10,
+                background: "rgba(255,255,255,0.02)",
+                minWidth: 360,
+              }}
+            >
+              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción</div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Lote ref (kg)
+                  <input
+                    type="number"
+                    step="0.0001"
+                    key={`cp-lote-${costosProd?.lote_ref_kg ?? ""}`}
+                    defaultValue={String(costosProd?.lote_ref_kg ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const v = parseBlurNumber(e.target.value);
+                      try {
+                        await saveHeaderV2({ lote_ref_kg: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 130,
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Fijo por lote (ARS)
+                  <input
+                    type="number"
+                    step="0.01"
+                    key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
+                    defaultValue={String(costosProd?.costo_fijo_por_lote_ars ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const v = parseBlurNumber(e.target.value);
+                      try {
+                        await saveHeaderV2({ costo_fijo_por_lote_ars: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 170,
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  Variable (ARS/kg)
+                  <input
+                    type="number"
+                    step="0.01"
+                    key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}`}
+                    defaultValue={String(costosProd?.costo_variable_por_kg_ars ?? "")}
+                    placeholder="(opcional)"
+                    onBlur={async (e) => {
+                      const v = parseBlurNumber(e.target.value);
+                      try {
+                        await saveHeaderV2({ costo_variable_por_kg_ars: v });
+                      } catch (err: any) {
+                        setError(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                      width: 170,
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)} · ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}
+              </div>
+            </div>
+
+            {/* Bulk info */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -685,9 +943,14 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               }}
             >
               <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg: {fmtMaybe(bulkSelfARSkg, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (sin prod): {fmtMaybe(bulkARSkg_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (con prod): {fmtMaybe(bulkARSkg_con, 2)}</div>
               <div style={{ fontSize: 12, opacity: 0.85 }}>Dens g/ml: {fmtMaybe(densProd, 4)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L: {fmtMaybe(bulkSelfARSl, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (sin prod): {fmtMaybe(bulkARSl_sin, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (con prod): {fmtMaybe(bulkARSl_con, 2)}</div>
+              <div style={{ fontSize: 12, opacity: 0.65 }}>
+                endpoint ARS/kg: {fmtMaybe(bulkEndpointARSkg, 2)} · ARS/L: {fmtMaybe(bulkEndpointARSl, 2)}
+              </div>
             </div>
           </div>
 
@@ -893,7 +1156,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.75,
+                          maxWidth: 520,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
@@ -1210,34 +1482,401 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      {/* ofertas sin cambios */}
+      {/* ofertas + packaging */}
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>Sin cambios en esta etapa.</div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Costo oferta = bulk (ARS/kg con prod) × masa/volumen + Σ(packaging)</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+          <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Catálogo packaging</div>
+
+          <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            Nombre
+            <input
+              value={newPackNombre}
+              onChange={(e) => setNewPackNombre(e.target.value)}
+              placeholder="Ej: frasco 250ml"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 220,
+              }}
+            />
+          </label>
+
+          {/* MVP: UOM fijo UN */}
+          <div style={{ fontSize: 12, opacity: 0.75, paddingBottom: 2 }}>UOM: UN</div>
+
+          <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            Costo unit (ARS)
+            <input
+              value={newPackCosto}
+              onChange={(e) => setNewPackCosto(e.target.value)}
+              placeholder="0"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 140,
+              }}
+            />
+          </label>
+
+          <button
+            onClick={async () => {
+              try {
+                const nombre = newPackNombre.trim();
+                const costo = numOrNull(newPackCosto);
+                if (!nombre) throw new Error("packaging: falta nombre");
+                if (costo === null || costo < 0) throw new Error("packaging: costo inválido");
+
+                // MVP: unidad fija UN
+                await createPackagingItem({ nombre, unidad: "UN", costo_unitario_ars: costo });
+                setNewPackNombre("");
+                setNewPackCosto("");
+              } catch (err: any) {
+                setError(err?.message || "error");
+              }
+            }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.03)",
+            }}
+          >
+            Crear
+          </button>
+
+          <button
+            onClick={async () => {
+              try {
+                await loadPackagingItems();
+              } catch (err: any) {
+                setError(err?.message || "error");
+              }
+            }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.03)",
+            }}
+          >
+            Refrescar catálogo
+          </button>
+        </div>
 
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Bulk</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Activo</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Oferta</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Presentación</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Packaging</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Total</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
               </tr>
             </thead>
             <tbody>
-              {ofertas.map((o) => (
-                <tr key={o.oferta_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <td style={{ padding: 10 }}>
-                    <div style={{ fontWeight: 600 }}>{o.nombre}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>#{o.oferta_id}</div>
-                  </td>
-                  <td style={{ padding: 10 }}>{o.is_bulk ? "Sí" : "No"}</td>
-                  <td style={{ padding: 10 }}>{o.activo ? "Sí" : "No"}</td>
-                </tr>
-              ))}
+              {ofertas.map((o) => {
+                const dens = numOrNull(o.densidad_override_g_ml) ?? densProd;
+
+                const peso_neto_g = numOrNull(o.peso_neto_g);
+                const volumen_neto_ml = numOrNull(o.volumen_neto_ml);
+                const unidades_pack = numOrNull(o.unidades_pack);
+                const masa_por_unidad_g = numOrNull(o.masa_por_unidad_g);
+                const volumen_por_unidad_ml = numOrNull(o.volumen_por_unidad_ml);
+
+                let masaTotalG: number | null = null;
+                let volTotalML: number | null = null;
+
+                if (peso_neto_g !== null && peso_neto_g > 0) {
+                  masaTotalG = peso_neto_g;
+                } else if (volumen_neto_ml !== null && volumen_neto_ml > 0) {
+                  volTotalML = volumen_neto_ml;
+                  if (dens !== null && dens > 0) masaTotalG = volTotalML * dens;
+                } else if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0) {
+                  masaTotalG = unidades_pack * masa_por_unidad_g;
+                } else if (unidades_pack !== null && unidades_pack > 0 && volumen_por_unidad_ml !== null && volumen_por_unidad_ml > 0) {
+                  volTotalML = unidades_pack * volumen_por_unidad_ml;
+                  if (dens !== null && dens > 0) masaTotalG = volTotalML * dens;
+                }
+
+                const bulkKg = bulkARSkg_con;
+                const costoBase = bulkKg !== null && masaTotalG !== null ? (bulkKg * masaTotalG) / 1000 : null;
+
+                const packRows = packagingByOferta[o.oferta_id] || [];
+                const packSubtotal = packRows.reduce((acc, r) => {
+                  const unit = numOrNull(r.costo_unitario_override_ars) ?? numOrNull(r.costo_unitario_ars) ?? 0;
+                  return acc + Number(r.cantidad) * unit;
+                }, 0);
+
+                const total = costoBase === null ? null : costoBase + packSubtotal;
+                const isOpen = !!ofertaOpen[o.oferta_id];
+
+                const presLabel = (() => {
+                  if (peso_neto_g !== null && peso_neto_g > 0) return `${peso_neto_g} g`;
+                  if (volumen_neto_ml !== null && volumen_neto_ml > 0) return `${volumen_neto_ml} ml`;
+                  if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0)
+                    return `${unidades_pack} × ${masa_por_unidad_g} g`;
+                  if (unidades_pack !== null && unidades_pack > 0 && volumen_por_unidad_ml !== null && volumen_por_unidad_ml > 0)
+                    return `${unidades_pack} × ${volumen_por_unidad_ml} ml`;
+                  return "(sin datos)";
+                })();
+
+                return (
+                  <>
+                    <tr key={o.oferta_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontWeight: 600 }}>{o.nombre}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>
+                          #{o.oferta_id} · {o.activo ? "activa" : "inactiva"}
+                          {o.is_bulk ? " · bulk" : ""}
+                        </div>
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontSize: 12 }}>{presLabel}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>
+                          dens: {fmtMaybe(dens, 4)} · masa: {fmtMaybe(masaTotalG, 2)} g
+                        </div>
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontSize: 12 }}>Subtotal: {packRows.length ? packSubtotal.toFixed(2) : "0.00"} ARS</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>{packRows.length ? `${packRows.length} ítems` : "sin packaging"}</div>
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontSize: 12 }}>Base: {fmtMaybe(costoBase, 2)} ARS</div>
+                        <div style={{ fontSize: 12, fontWeight: 700 }}>Total: {fmtMaybe(total, 2)} ARS</div>
+                      </td>
+                      <td style={{ padding: 10 }}>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const next = !isOpen;
+                              setOfertaOpen((prev) => ({ ...prev, [o.oferta_id]: next }));
+                              if (next) await loadPackagingForOferta(o.oferta_id);
+                            } catch (err: any) {
+                              setError(err?.message || "error");
+                            }
+                          }}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.03)",
+                          }}
+                        >
+                          {isOpen ? "Cerrar" : "Packaging"}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {isOpen ? (
+                      <tr style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                        <td colSpan={5} style={{ padding: 10 }}>
+                          <div style={{ display: "grid", gap: 10 }}>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+                              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                                Item
+                                <select
+                                  value={addPackItemByOferta[o.oferta_id]?.packaging_item_id ?? ""}
+                                  onChange={(e) =>
+                                    setAddPackItemByOferta((prev) => ({
+                                      ...prev,
+                                      [o.oferta_id]: { packaging_item_id: e.target.value, cantidad: prev[o.oferta_id]?.cantidad ?? "1" },
+                                    }))
+                                  }
+                                  style={{
+                                    padding: "8px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(255,255,255,0.14)",
+                                    background: "rgba(255,255,255,0.03)",
+                                    width: 280,
+                                  }}
+                                >
+                                  <option value="">(seleccionar)</option>
+                                  {packagingItems
+                                    .filter((x) => x.activo)
+                                    .map((it) => (
+                                      <option key={it.packaging_item_id} value={String(it.packaging_item_id)}>
+                                        {it.nombre} · {it.costo_unitario_ars.toFixed(2)} ARS/UN
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
+
+                              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                                Cantidad
+                                <input
+                                  value={addPackItemByOferta[o.oferta_id]?.cantidad ?? "1"}
+                                  onChange={(e) =>
+                                    setAddPackItemByOferta((prev) => ({
+                                      ...prev,
+                                      [o.oferta_id]: { packaging_item_id: prev[o.oferta_id]?.packaging_item_id ?? "", cantidad: e.target.value },
+                                    }))
+                                  }
+                                  style={{
+                                    padding: "8px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(255,255,255,0.14)",
+                                    background: "rgba(255,255,255,0.03)",
+                                    width: 120,
+                                  }}
+                                />
+                              </label>
+
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    const st = addPackItemByOferta[o.oferta_id];
+                                    const pid = st?.packaging_item_id ? Number(st.packaging_item_id) : null;
+                                    const qty = numOrNull(st?.cantidad);
+                                    if (!pid || !Number.isFinite(pid)) throw new Error("packaging: seleccionar item");
+                                    if (!qty || qty <= 0) throw new Error("packaging: cantidad inválida");
+                                    await addOfertaPackaging(o.oferta_id, { packaging_item_id: pid, cantidad: qty });
+                                    setAddPackItemByOferta((prev) => ({ ...prev, [o.oferta_id]: { packaging_item_id: "", cantidad: "1" } }));
+                                  } catch (err: any) {
+                                    setError(err?.message || "error");
+                                  }
+                                }}
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid rgba(255,255,255,0.14)",
+                                  background: "rgba(255,255,255,0.03)",
+                                }}
+                              >
+                                Agregar
+                              </button>
+                            </div>
+
+                            <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                <thead>
+                                  <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                                    <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Item</th>
+                                    <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Cantidad</th>
+                                    <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Override ARS</th>
+                                    <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Subtotal</th>
+                                    <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(packagingByOferta[o.oferta_id] || []).map((r) => {
+                                    const unit = numOrNull(r.costo_unitario_override_ars) ?? numOrNull(r.costo_unitario_ars) ?? 0;
+                                    const sub = Number(r.cantidad) * unit;
+                                    return (
+                                      <tr key={r.oferta_packaging_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                                        <td style={{ padding: 10 }}>
+                                          <div style={{ fontWeight: 600 }}>{r.nombre}</div>
+                                          <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                            #{r.packaging_item_id} · {r.costo_unitario_ars.toFixed(2)} ARS/UN
+                                          </div>
+                                        </td>
+
+                                        <td style={{ padding: 10 }}>
+                                          <input
+                                            key={`qty-${r.oferta_packaging_id}-${r.cantidad}`}
+                                            defaultValue={String(r.cantidad)}
+                                            onBlur={async (e) => {
+                                              try {
+                                                const v = parseBlurNumber(e.target.value);
+                                                if (!v || v <= 0) throw new Error("cantidad inválida");
+                                                await patchOfertaPackaging(o.oferta_id, r.oferta_packaging_id, { cantidad: v });
+                                              } catch (err: any) {
+                                                setError(err?.message || "error");
+                                              }
+                                            }}
+                                            style={{
+                                              padding: "6px 8px",
+                                              borderRadius: 10,
+                                              border: "1px solid rgba(255,255,255,0.14)",
+                                              background: "rgba(255,255,255,0.03)",
+                                              width: 120,
+                                            }}
+                                          />
+                                        </td>
+
+                                        <td style={{ padding: 10 }}>
+                                          <input
+                                            key={`ov-${r.oferta_packaging_id}-${r.costo_unitario_override_ars ?? ""}`}
+                                            defaultValue={String(r.costo_unitario_override_ars ?? "")}
+                                            placeholder="(opcional)"
+                                            onBlur={async (e) => {
+                                              try {
+                                                const v = parseBlurNumber(e.target.value);
+                                                await patchOfertaPackaging(o.oferta_id, r.oferta_packaging_id, { costo_unitario_override_ars: v });
+                                              } catch (err: any) {
+                                                setError(err?.message || "error");
+                                              }
+                                            }}
+                                            style={{
+                                              padding: "6px 8px",
+                                              borderRadius: 10,
+                                              border: "1px solid rgba(255,255,255,0.14)",
+                                              background: "rgba(255,255,255,0.03)",
+                                              width: 140,
+                                            }}
+                                          />
+                                          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>unit: {unit.toFixed(2)}</div>
+                                        </td>
+
+                                        <td style={{ padding: 10, fontSize: 12 }}>{sub.toFixed(2)} ARS</td>
+
+                                        <td style={{ padding: 10 }}>
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                await deleteOfertaPackaging(o.oferta_id, r.oferta_packaging_id);
+                                              } catch (err: any) {
+                                                setError(err?.message || "error");
+                                              }
+                                            }}
+                                            style={{
+                                              padding: "6px 8px",
+                                              borderRadius: 10,
+                                              border: "1px solid rgba(255,255,255,0.14)",
+                                              background: "rgba(255,80,80,0.10)",
+                                            }}
+                                          >
+                                            Borrar
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+
+                                  {!(packagingByOferta[o.oferta_id] || []).length ? (
+                                    <tr>
+                                      <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                                        Sin packaging.
+                                      </td>
+                                    </tr>
+                                  ) : null}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div style={{ fontSize: 12, opacity: 0.85 }}>
+                              Subtotal packaging: {packSubtotal.toFixed(2)} ARS · Total oferta: {fmtMaybe(total, 2)} ARS
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </>
+                );
+              })}
+
               {!ofertas.length ? (
                 <tr>
-                  <td colSpan={3} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
                     Sin ofertas.
                   </td>
                 </tr>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 type Producto = {
   producto_id: number;
@@ -122,6 +122,18 @@ type OfertaPackagingRow = {
   costo_unitario_ars: number;
 };
 
+type SnapshotHead = {
+  snapshot_id: number;
+  oferta_id: number;
+  bulk_ars_kg_con_prod: number | null;
+  masa_total_g: number | null;
+  base_costo_ars: number | null;
+  packaging_costo_ars: number | null;
+  total_costo_ars: number | null;
+  densidad_usada_g_ml: number | null;
+  created_at: string;
+};
+
 function numOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
@@ -142,6 +154,23 @@ function parseBlurNumber(raw: string): number | null {
   if (t === "") return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
+}
+
+function nearlyEq(a: number | null, b: number | null, eps = 0.01) {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
+  return Math.abs(a - b) <= eps;
+}
+
+function fmtDateTimeMaybe(s: string | null | undefined): string {
+  if (!s) return "-";
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return String(s);
+    return d.toLocaleString();
+  } catch {
+    return String(s);
+  }
 }
 
 export default function ProductoClient({ productoId }: { productoId: number }) {
@@ -188,6 +217,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   // Alta rápida catálogo packaging
   const [newPackNombre, setNewPackNombre] = useState("");
   const [newPackCosto, setNewPackCosto] = useState("");
+
+  // Snapshots automáticos de costo por oferta
+  const [autoSnapshots, setAutoSnapshots] = useState(true);
+  const [latestSnapshotByOferta, setLatestSnapshotByOferta] = useState<Record<number, SnapshotHead | null>>({});
+  const snapshotInFlightRef = useRef<Record<number, boolean>>({});
 
   async function loadAll() {
     setLoading(true);
@@ -303,6 +337,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         // no bloquear editor si packaging falla
         console.error(e);
       }
+
+      // Snapshots (último por oferta; solo info UI + dedupe)
+      try {
+        await loadLatestSnapshotsAll(ofertasList);
+      } catch (e: any) {
+        console.error(e);
+      }
     } catch (e: any) {
       setError(e?.message || "error");
     } finally {
@@ -415,6 +456,154 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await loadPackagingForOferta(oferta_id);
   }
 
+  // ===== Snapshots (fetch último + creación automática) =====
+
+  async function loadLatestSnapshotForOferta(oferta_id: number) {
+    const r = await fetch(`/api/productos/ofertas/${oferta_id}/costo-snapshots?limit=1`, { cache: "no-store" });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+    const rows = (j.snapshots || []) as any[];
+    const head = rows?.[0] ?? null;
+    if (!head) {
+      setLatestSnapshotByOferta((prev) => ({ ...prev, [oferta_id]: null }));
+      return;
+    }
+
+    const normalized: SnapshotHead = {
+      snapshot_id: Number(head.snapshot_id),
+      oferta_id: Number(head.oferta_id),
+      bulk_ars_kg_con_prod: numOrNull(head.bulk_ars_kg_con_prod),
+      masa_total_g: numOrNull(head.masa_total_g),
+      base_costo_ars: numOrNull(head.base_costo_ars),
+      packaging_costo_ars: numOrNull(head.packaging_costo_ars),
+      total_costo_ars: numOrNull(head.total_costo_ars),
+      densidad_usada_g_ml: numOrNull(head.densidad_usada_g_ml),
+      created_at: String(head.created_at ?? ""),
+    };
+
+    setLatestSnapshotByOferta((prev) => ({ ...prev, [oferta_id]: normalized }));
+  }
+
+  async function loadLatestSnapshotsAll(ofertasList: Oferta[]) {
+    await Promise.all(ofertasList.map((o) => loadLatestSnapshotForOferta(o.oferta_id)));
+  }
+
+  function computeOfertaMasaTotalG(
+    o: Oferta,
+    densProd: number | null
+  ): { densUsada: number | null; masaTotalG: number | null } {
+    const densUsada = numOrNull(o.densidad_override_g_ml) ?? densProd;
+
+    const peso_neto_g = numOrNull(o.peso_neto_g);
+    const volumen_neto_ml = numOrNull(o.volumen_neto_ml);
+    const unidades_pack = numOrNull(o.unidades_pack);
+    const masa_por_unidad_g = numOrNull(o.masa_por_unidad_g);
+    const volumen_por_unidad_ml = numOrNull(o.volumen_por_unidad_ml);
+
+    let masaTotalG: number | null = null;
+
+    if (peso_neto_g !== null && peso_neto_g > 0) {
+      masaTotalG = peso_neto_g;
+    } else if (volumen_neto_ml !== null && volumen_neto_ml > 0) {
+      if (densUsada !== null && densUsada > 0) masaTotalG = volumen_neto_ml * densUsada;
+    } else if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0) {
+      masaTotalG = unidades_pack * masa_por_unidad_g;
+    } else if (
+      unidades_pack !== null &&
+      unidades_pack > 0 &&
+      volumen_por_unidad_ml !== null &&
+      volumen_por_unidad_ml > 0
+    ) {
+      if (densUsada !== null && densUsada > 0) masaTotalG = unidades_pack * volumen_por_unidad_ml * densUsada;
+    }
+
+    return { densUsada, masaTotalG };
+  }
+
+  function computeOfertaPackagingSubtotal(oferta_id: number) {
+    const packRows = packagingByOferta[oferta_id] || [];
+    const subtotal = packRows.reduce((acc, r) => {
+      const unit = numOrNull(r.costo_unitario_override_ars) ?? numOrNull(r.costo_unitario_ars) ?? 0;
+      return acc + Number(r.cantidad) * unit;
+    }, 0);
+    return { packRows, subtotal };
+  }
+
+  async function createSnapshotForOferta(o: Oferta, bulkARSkg_con_prod: number | null, densProd: number | null) {
+    const oferta_id = o.oferta_id;
+    if (snapshotInFlightRef.current[oferta_id]) return;
+
+    const { densUsada, masaTotalG } = computeOfertaMasaTotalG(o, densProd);
+    if (bulkARSkg_con_prod === null) return;
+    if (masaTotalG === null || masaTotalG <= 0) return;
+
+    const base_costo_ars = (bulkARSkg_con_prod * masaTotalG) / 1000;
+
+    const { packRows, subtotal: packaging_costo_ars } = computeOfertaPackagingSubtotal(oferta_id);
+    const total_costo_ars = base_costo_ars + packaging_costo_ars;
+
+    // Dedupe: si coincide con el último snapshot, no crear
+    const last = latestSnapshotByOferta[oferta_id] ?? null;
+    if (
+      last &&
+      nearlyEq(last.bulk_ars_kg_con_prod, bulkARSkg_con_prod) &&
+      nearlyEq(last.masa_total_g, masaTotalG) &&
+      nearlyEq(last.base_costo_ars, base_costo_ars) &&
+      nearlyEq(last.packaging_costo_ars, packaging_costo_ars) &&
+      nearlyEq(last.total_costo_ars, total_costo_ars) &&
+      nearlyEq(last.densidad_usada_g_ml, densUsada)
+    ) {
+      return;
+    }
+
+    snapshotInFlightRef.current[oferta_id] = true;
+    try {
+      const payload = {
+        bulk_ars_kg_con_prod: bulkARSkg_con_prod,
+        masa_total_g: masaTotalG,
+        base_costo_ars,
+        packaging_costo_ars,
+        total_costo_ars,
+        densidad_usada_g_ml: densUsada,
+        packaging: packRows.map((r) => {
+          const unit = numOrNull(r.costo_unitario_override_ars) ?? numOrNull(r.costo_unitario_ars) ?? 0;
+          return {
+            packaging_item_id: r.packaging_item_id,
+            nombre: r.nombre,
+            cantidad: r.cantidad,
+            costo_unitario_ars: unit,
+            subtotal_ars: unit * Number(r.cantidad),
+          };
+        }),
+      };
+
+      const r = await fetch(`/api/productos/ofertas/${oferta_id}/costo-snapshots`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => ({} as any));
+      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+      const snapshot_id = Number(j.snapshot_id);
+      const head: SnapshotHead = {
+        snapshot_id,
+        oferta_id,
+        bulk_ars_kg_con_prod: bulkARSkg_con_prod,
+        masa_total_g: masaTotalG,
+        base_costo_ars,
+        packaging_costo_ars,
+        total_costo_ars,
+        densidad_usada_g_ml: densUsada,
+        created_at: new Date().toISOString(),
+      };
+      setLatestSnapshotByOferta((prev) => ({ ...prev, [oferta_id]: head }));
+    } finally {
+      snapshotInFlightRef.current[oferta_id] = false;
+    }
+  }
+
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,7 +636,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
   }
 
-  function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
+
+
+    function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
     if (l.tipo === "ITEM_PRESENTACION") {
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
@@ -678,7 +869,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
     await addLineaFromCostOption(cost_option_id);
 
-    // limpiar form
     setManualNombre("");
     setManualCantidad("");
     setManualCostoARS("");
@@ -724,14 +914,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const densProd = numOrNull(producto?.densidad_producto_g_ml);
 
-  // Bulk info: mostrar dos valores (sin prod / con prod)
   const bulkARSkg_sin = numOrNull(calc.arsPorKg);
   const bulkARSkg_con = numOrNull(calc.arsPorKgConProd);
 
   const bulkARSl_sin = densProd !== null && bulkARSkg_sin !== null ? bulkARSkg_sin * densProd : null;
   const bulkARSl_con = densProd !== null && bulkARSkg_con !== null ? bulkARSkg_con * densProd : null;
 
-  // (opcional) endpoint histórico bulk; solo info
   const bulkEndpointARSkg = numOrNull(bulkSelf?.ars_por_kg);
   const bulkEndpointARSl = densProd !== null && bulkEndpointARSkg !== null ? bulkEndpointARSkg * densProd : null;
 
@@ -741,6 +929,21 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     if (!q) return rows;
     return rows.filter((x) => (x.manual_nombre ?? "").toLowerCase().includes(q));
   }, [extraOptions, manualSearch]);
+
+  // Auto-snapshot cuando cambian inputs relevantes (bulk/kg total, densidad producto, packaging, ofertas)
+  useEffect(() => {
+    if (!autoSnapshots) return;
+    if (!ofertas.length) return;
+    if (bulkARSkg_con === null) return;
+
+    for (const o of ofertas) {
+      // no bloquear UI por errores: cada create maneja sus validaciones y dedupe
+      createSnapshotForOferta(o, bulkARSkg_con, densProd).catch((e: any) => {
+        console.error(e);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSnapshots, ofertas, bulkARSkg_con, densProd, packagingByOferta]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -752,6 +955,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
           {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
+
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
+            <input type="checkbox" checked={autoSnapshots} onChange={(e) => setAutoSnapshots(e.target.checked)} />
+            snapshots automáticos
+          </label>
+
           <button
             onClick={loadAll}
             style={{
@@ -766,7 +975,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      <div
+
+
+            <div
         style={{
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 12,
@@ -832,7 +1043,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
-            {/* Costos de producción en header (editables) */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -931,7 +1141,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               </div>
             </div>
 
-            {/* Bulk info */}
             <div
               style={{
                 border: "1px solid rgba(255,255,255,0.12)",
@@ -1303,7 +1512,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Componentes manuales</div>
 
-          {/* Crear manual */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Nombre
@@ -1407,7 +1615,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             </button>
           </div>
 
-          {/* Reusar manuales */}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700 }}>Reusar manual existente</div>
             <input
@@ -1482,11 +1689,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      {/* ofertas + packaging */}
+      {/* ofertas + packaging + snapshot último */}
       <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Ofertas</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Costo oferta = bulk (ARS/kg con prod) × masa/volumen + Σ(packaging)</div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            Costo oferta = bulk (ARS/kg con prod) × masa/volumen + Σ(packaging)
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
@@ -1508,7 +1717,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             />
           </label>
 
-          {/* MVP: UOM fijo UN */}
           <div style={{ fontSize: 12, opacity: 0.75, paddingBottom: 2 }}>UOM: UN</div>
 
           <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
@@ -1535,7 +1743,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 if (!nombre) throw new Error("packaging: falta nombre");
                 if (costo === null || costo < 0) throw new Error("packaging: costo inválido");
 
-                // MVP: unidad fija UN
                 await createPackagingItem({ nombre, unidad: "UN", costo_unitario_ars: costo });
                 setNewPackNombre("");
                 setNewPackCosto("");
@@ -1580,6 +1787,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Presentación</th>
                 <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Packaging</th>
                 <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Total</th>
+                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Snapshot</th>
                 <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
               </tr>
             </thead>
@@ -1630,9 +1838,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   return "(sin datos)";
                 })();
 
+                const snap = latestSnapshotByOferta[o.oferta_id] ?? null;
+
                 return (
-                  <>
-                    <tr key={o.oferta_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <Fragment key={o.oferta_id}>
+                    <tr style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontWeight: 600 }}>{o.nombre}</div>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>
@@ -1647,14 +1857,28 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         </div>
                       </td>
                       <td style={{ padding: 10 }}>
-                        <div style={{ fontSize: 12 }}>Subtotal: {packRows.length ? packSubtotal.toFixed(2) : "0.00"} ARS</div>
+                        <div style={{ fontSize: 12 }}>
+                          Subtotal: {packRows.length ? packSubtotal.toFixed(2) : "0.00"} ARS
+                        </div>
                         <div style={{ fontSize: 12, opacity: 0.75 }}>{packRows.length ? `${packRows.length} ítems` : "sin packaging"}</div>
                       </td>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontSize: 12 }}>Base: {fmtMaybe(costoBase, 2)} ARS</div>
                         <div style={{ fontSize: 12, fontWeight: 700 }}>Total: {fmtMaybe(total, 2)} ARS</div>
                       </td>
+
                       <td style={{ padding: 10 }}>
+                        {!snap ? (
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>—</div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <div style={{ fontSize: 12, opacity: 0.85 }}>{snap.created_at}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtMaybe(snap.total_costo_ars, 2)} ARS</div>
+                          </div>
+                        )}
+                      </td>
+
+                      <td style={{ padding: 10, display: "flex", gap: 8, alignItems: "center" }}>
                         <button
                           onClick={async () => {
                             try {
@@ -1674,12 +1898,31 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         >
                           {isOpen ? "Cerrar" : "Packaging"}
                         </button>
+
+                        <button
+                          onClick={async () => {
+                            try {
+                              if (bulkARSkg_con === null) throw new Error("bulk ARS/kg (con prod) no disponible");
+                              await createSnapshotForOferta(o, bulkARSkg_con, densProd);
+                            } catch (err: any) {
+                              setError(err?.message || "error");
+                            }
+                          }}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.03)",
+                          }}
+                        >
+                          Snapshot
+                        </button>
                       </td>
                     </tr>
 
                     {isOpen ? (
                       <tr style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                        <td colSpan={5} style={{ padding: 10 }}>
+                        <td colSpan={6} style={{ padding: 10 }}>
                           <div style={{ display: "grid", gap: 10 }}>
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
                               <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
@@ -1870,13 +2113,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         </td>
                       </tr>
                     ) : null}
-                  </>
+                  </Fragment>
                 );
               })}
 
               {!ofertas.length ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={6} style={{ padding: 10, opacity: 0.75 }}>
                     Sin ofertas.
                   </td>
                 </tr>
