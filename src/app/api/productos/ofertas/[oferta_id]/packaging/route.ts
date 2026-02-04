@@ -14,10 +14,15 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { oferta_id: string } }) {
+type Ctx = { params: Promise<{ oferta_id: string }> };
+
+export async function GET(_req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    const { oferta_id: ofertaIdStr } = await params;
+    const oferta_id = Number(ofertaIdStr);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const sql = db();
     const r: any = await sql.query(
@@ -45,10 +50,13 @@ export async function GET(_req: NextRequest, { params }: { params: { oferta_id: 
   }
 }
 
-export async function POST(req: NextRequest, { params }: { params: { oferta_id: string } }) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    const { oferta_id: ofertaIdStr } = await params;
+    const oferta_id = Number(ofertaIdStr);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const body = await req.json().catch(() => ({} as any));
     const packaging_item_id = Number(body?.packaging_item_id);
@@ -58,7 +66,9 @@ export async function POST(req: NextRequest, { params }: { params: { oferta_id: 
     if (!Number.isFinite(packaging_item_id)) {
       return NextResponse.json({ ok: false, error: "packaging_item_id inválido" }, { status: 400 });
     }
-    if (cantidad === null || cantidad <= 0) return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
+    if (cantidad === null || cantidad <= 0) {
+      return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
+    }
     if (costo_unitario_override_ars !== null && costo_unitario_override_ars < 0) {
       return NextResponse.json({ ok: false, error: "override inválido" }, { status: 422 });
     }
