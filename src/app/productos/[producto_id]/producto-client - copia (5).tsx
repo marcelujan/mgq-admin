@@ -104,7 +104,7 @@ type PackagingItem = {
   packaging_item_id: number;
   nombre: string;
   descripcion: string | null;
-  unidad: string; // en este MVP: "UN"
+  unidad: string;
   costo_unitario_ars: number;
   activo: boolean;
 };
@@ -118,9 +118,10 @@ type OfertaPackagingRow = {
 
   // join
   nombre: string;
-  unidad: string; // "UN"
+  unidad: string;
   costo_unitario_ars: number;
 };
+
 
 function numOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
@@ -181,13 +182,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
   const [packagingByOferta, setPackagingByOferta] = useState<Record<number, OfertaPackagingRow[]>>({});
   const [ofertaOpen, setOfertaOpen] = useState<Record<number, boolean>>({});
-  const [addPackItemByOferta, setAddPackItemByOferta] = useState<
-    Record<number, { packaging_item_id: string; cantidad: string }>
-  >({});
+  const [addPackItemByOferta, setAddPackItemByOferta] = useState<Record<number, { packaging_item_id: string; cantidad: string }>>({});
 
   // Alta rápida catálogo packaging
   const [newPackNombre, setNewPackNombre] = useState("");
+  const [newPackUnidad, setNewPackUnidad] = useState("unidad");
   const [newPackCosto, setNewPackCosto] = useState("");
+
 
   async function loadAll() {
     setLoading(true);
@@ -199,9 +200,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
         fetch(
-          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(
-            searchOpt
-          )}`,
+          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(searchOpt)}`,
           { cache: "no-store" }
         ),
       ]);
@@ -343,8 +342,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       it.packaging_item_id = Number(it.packaging_item_id);
       it.costo_unitario_ars = Number(it.costo_unitario_ars);
       it.activo = !!it.activo;
-      // MVP: el backend debería devolver unidad="UN"; si no, forzamos visualmente a UN sin romper.
-      if (!it.unidad) it.unidad = "UN";
     }
     setPackagingItems(rows as PackagingItem[]);
   }
@@ -362,7 +359,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       x.cantidad = Number(x.cantidad);
       x.costo_unitario_override_ars = numOrNull(x.costo_unitario_override_ars);
       x.costo_unitario_ars = Number(x.costo_unitario_ars);
-      if (!x.unidad) x.unidad = "UN";
     }
 
     setPackagingByOferta((prev) => ({ ...prev, [oferta_id]: rows as OfertaPackagingRow[] }));
@@ -414,6 +410,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
     await loadPackagingForOferta(oferta_id);
   }
+
 
   useEffect(() => {
     loadAll();
@@ -716,8 +713,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${l.item_presentacion}`;
-    if (l.tipo === "MANUAL_PRESENTACION")
-      return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
+    if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
     return `Opción ${l.cost_option_id}`;
   }
@@ -766,15 +762,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      <div
-        style={{
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 12,
-          padding: 12,
-          display: "grid",
-          gap: 12,
-        }}
-      >
+      <div style={{ border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2</div>
           <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
@@ -1156,16 +1144,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     </td>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.75,
-                          maxWidth: 520,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
+                      <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {x.url_original || x.url_canonica}
                       </div>
                     </td>
@@ -1508,8 +1487,21 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             />
           </label>
 
-          {/* MVP: UOM fijo UN */}
-          <div style={{ fontSize: 12, opacity: 0.75, paddingBottom: 2 }}>UOM: UN</div>
+          <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+            Unidad
+            <input
+              value={newPackUnidad}
+              onChange={(e) => setNewPackUnidad(e.target.value)}
+              placeholder="unidad"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 120,
+              }}
+            />
+          </label>
 
           <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
             Costo unit (ARS)
@@ -1531,12 +1523,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             onClick={async () => {
               try {
                 const nombre = newPackNombre.trim();
+                const unidad = (newPackUnidad.trim() || "unidad").slice(0, 40);
                 const costo = numOrNull(newPackCosto);
                 if (!nombre) throw new Error("packaging: falta nombre");
                 if (costo === null || costo < 0) throw new Error("packaging: costo inválido");
-
-                // MVP: unidad fija UN
-                await createPackagingItem({ nombre, unidad: "UN", costo_unitario_ars: costo });
+                await createPackagingItem({ nombre, unidad, costo_unitario_ars: costo });
                 setNewPackNombre("");
                 setNewPackCosto("");
               } catch (err: any) {
@@ -1635,16 +1626,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     <tr key={o.oferta_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontWeight: 600 }}>{o.nombre}</div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          #{o.oferta_id} · {o.activo ? "activa" : "inactiva"}
-                          {o.is_bulk ? " · bulk" : ""}
-                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>#{o.oferta_id} · {o.activo ? "activa" : "inactiva"}{o.is_bulk ? " · bulk" : ""}</div>
                       </td>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontSize: 12 }}>{presLabel}</div>
-                        <div style={{ fontSize: 12, opacity: 0.75 }}>
-                          dens: {fmtMaybe(dens, 4)} · masa: {fmtMaybe(masaTotalG, 2)} g
-                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>dens: {fmtMaybe(dens, 4)} · masa: {fmtMaybe(masaTotalG, 2)} g</div>
                       </td>
                       <td style={{ padding: 10 }}>
                         <div style={{ fontSize: 12 }}>Subtotal: {packRows.length ? packSubtotal.toFixed(2) : "0.00"} ARS</div>
@@ -1705,7 +1691,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                     .filter((x) => x.activo)
                                     .map((it) => (
                                       <option key={it.packaging_item_id} value={String(it.packaging_item_id)}>
-                                        {it.nombre} · {it.costo_unitario_ars.toFixed(2)} ARS/UN
+                                        {it.nombre} · {it.costo_unitario_ars.toFixed(2)} ARS/{it.unidad}
                                       </option>
                                     ))}
                                 </select>
@@ -1776,7 +1762,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                         <td style={{ padding: 10 }}>
                                           <div style={{ fontWeight: 600 }}>{r.nombre}</div>
                                           <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                            #{r.packaging_item_id} · {r.costo_unitario_ars.toFixed(2)} ARS/UN
+                                            #{r.packaging_item_id} · {r.costo_unitario_ars.toFixed(2)} ARS/{r.unidad}
                                           </div>
                                         </td>
 
