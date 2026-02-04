@@ -1,3 +1,4 @@
+// src/app/api/packaging-items/[packaging_item_id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -14,9 +15,13 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { packaging_item_id: string } }) {
+type Ctx = { params: Promise<{ packaging_item_id: string }> };
+
+export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
-    const packaging_item_id = Number(params.packaging_item_id);
+    const { packaging_item_id: pidStr } = await params;
+    const packaging_item_id = Number(pidStr);
+
     if (!Number.isFinite(packaging_item_id)) {
       return NextResponse.json({ ok: false, error: "packaging_item_id inválido" }, { status: 400 });
     }
@@ -67,9 +72,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { packaging_
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: { packaging_item_id: string } }) {
+export async function DELETE(_req: NextRequest, { params }: Ctx) {
   try {
-    const packaging_item_id = Number(params.packaging_item_id);
+    const { packaging_item_id: pidStr } = await params;
+    const packaging_item_id = Number(pidStr);
+
     if (!Number.isFinite(packaging_item_id)) {
       return NextResponse.json({ ok: false, error: "packaging_item_id inválido" }, { status: 400 });
     }
