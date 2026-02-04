@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { createAutoOfertaCostoSnapshot } from "@/lib/ofertaSnapshots";
 
 function normalizeQueryResult(res: any): any[] {
   if (!res) return [];
@@ -14,17 +15,13 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-type Ctx = { params: Promise<{ oferta_id: string }> };
-
-export async function GET(req: NextRequest, { params }: Ctx) {
+export async function GET(_req: NextRequest, context: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const { oferta_id: ofertaIdStr } = await params;
-    const oferta_id = Number(ofertaIdStr);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
-
-    const { searchParams } = new URL(req.url);
-    const limitRaw = Number(searchParams.get("limit") ?? 30);
-    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 30;
+    const { oferta_id: ofertaIdRaw } = await context.params;
+    const oferta_id = Number(ofertaIdRaw);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const sql = db();
     const r: any = await sql.query(
@@ -42,7 +39,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       FROM app.producto_oferta_costo_snapshot
       WHERE oferta_id = $1
       ORDER BY snapshot_id DESC
-      LIMIT ${Number(limit)}
+      LIMIT 60
       `,
       [oferta_id]
     );
@@ -53,15 +50,33 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 }
 
-export async function POST(req: NextRequest, { params }: Ctx) {
-  const sql = db();
-
+export async function POST(req: NextRequest, context: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const { oferta_id: ofertaIdStr } = await params;
-    const oferta_id = Number(ofertaIdStr);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    const { oferta_id: ofertaIdRaw } = await context.params;
+    const oferta_id = Number(ofertaIdRaw);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const body = await req.json().catch(() => ({} as any));
+
+    // AUTO (default): si body.auto === true o si no vienen campos numéricos esperados
+    const wantsAuto =
+      body?.auto === true ||
+      (body?.bulk_ars_kg_con_prod === undefined &&
+        body?.masa_total_g === undefined &&
+        body?.base_costo_ars === undefined &&
+        body?.packaging_costo_ars === undefined &&
+        body?.total_costo_ars === undefined);
+
+    if (wantsAuto) {
+      const origin = req.nextUrl.origin;
+      const snap = await createAutoOfertaCostoSnapshot({ oferta_id, origin });
+      return NextResponse.json({ ok: true, mode: "auto", snapshot_id: snap.snapshot_id }, { status: 201 });
+    }
+
+    // MANUAL (compat con lo anterior)
+    const sql = db();
 
     const bulk_ars_kg_con_prod = numOrNull(body?.bulk_ars_kg_con_prod);
     const masa_total_g = numOrNull(body?.masa_total_g);
@@ -90,48 +105,51 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
     await sql.query("BEGIN");
 
-    const snapRes: any = await sql.query(
-      `
-      INSERT INTO app.producto_oferta_costo_snapshot
-        (oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
-      RETURNING snapshot_id
-      `,
-      [oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml]
-    );
-
-    const snapshot_id = Number(normalizeQueryResult(snapRes)?.[0]?.snapshot_id);
-    if (!Number.isFinite(snapshot_id)) throw new Error("snapshot_id inválido");
-
-    for (const p of packaging) {
-      const packaging_item_id = numOrNull(p?.packaging_item_id);
-      const nombre = typeof p?.nombre === "string" ? p.nombre.trim() : "";
-      const cantidad = numOrNull(p?.cantidad);
-      const costo_unitario_ars = numOrNull(p?.costo_unitario_ars);
-      const subtotal_ars = numOrNull(p?.subtotal_ars);
-
-      if (!nombre) continue;
-      if (cantidad === null || cantidad <= 0) continue;
-      if (costo_unitario_ars === null || costo_unitario_ars < 0) continue;
-      if (subtotal_ars === null || subtotal_ars < 0) continue;
-
-      await sql.query(
-        `
-        INSERT INTO app.producto_oferta_costo_snapshot_packaging
-          (snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        `,
-        [snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars]
-      );
-    }
-
-    await sql.query("COMMIT");
-
-    return NextResponse.json({ ok: true, snapshot_id }, { status: 201 });
-  } catch (e: any) {
     try {
-      await sql.query("ROLLBACK");
-    } catch {}
+      const snapRes: any = await sql.query(
+        `
+        INSERT INTO app.producto_oferta_costo_snapshot
+          (oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING snapshot_id
+        `,
+        [oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml]
+      );
+
+      const snapshot_id = Number(normalizeQueryResult(snapRes)?.[0]?.snapshot_id);
+      if (!Number.isFinite(snapshot_id)) throw new Error("snapshot_id inválido");
+
+      for (const p of packaging) {
+        const packaging_item_id = numOrNull(p?.packaging_item_id);
+        const nombre = typeof p?.nombre === "string" ? p.nombre.trim() : "";
+        const cantidad = numOrNull(p?.cantidad);
+        const costo_unitario_ars = numOrNull(p?.costo_unitario_ars);
+        const subtotal_ars = numOrNull(p?.subtotal_ars);
+
+        if (!nombre) continue;
+        if (cantidad === null || cantidad <= 0) continue;
+        if (costo_unitario_ars === null || costo_unitario_ars < 0) continue;
+        if (subtotal_ars === null || subtotal_ars < 0) continue;
+
+        await sql.query(
+          `
+          INSERT INTO app.producto_oferta_costo_snapshot_packaging
+            (snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          `,
+          [snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars]
+        );
+      }
+
+      await sql.query("COMMIT");
+      return NextResponse.json({ ok: true, mode: "manual", snapshot_id }, { status: 201 });
+    } catch (e) {
+      try {
+        await sql.query("ROLLBACK");
+      } catch {}
+      throw e;
+    }
+  } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
