@@ -14,13 +14,14 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { oferta_id: string; oferta_packaging_id: string } }
-) {
+type Ctx = { params: Promise<{ oferta_id: string; oferta_packaging_id: string }> };
+
+export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
-    const oferta_packaging_id = Number(params.oferta_packaging_id);
+    const { oferta_id: ofertaIdStr, oferta_packaging_id: ofertaPackagingIdStr } = await params;
+
+    const oferta_id = Number(ofertaIdStr);
+    const oferta_packaging_id = Number(ofertaPackagingIdStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(oferta_packaging_id)) {
       return NextResponse.json({ ok: false, error: "ids inválidos" }, { status: 400 });
     }
@@ -29,7 +30,9 @@ export async function PATCH(
 
     const hasCantidad = Object.prototype.hasOwnProperty.call(body, "cantidad");
     const cantidad = numOrNull(body?.cantidad);
-    if (hasCantidad && (cantidad === null || cantidad <= 0)) return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
+    if (hasCantidad && (cantidad === null || cantidad <= 0)) {
+      return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
+    }
 
     const hasOverride = Object.prototype.hasOwnProperty.call(body, "costo_unitario_override_ars");
     const costo_unitario_override_ars = hasOverride ? numOrNull(body?.costo_unitario_override_ars) : null;
@@ -61,22 +64,21 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { oferta_id: string; oferta_packaging_id: string } }
-) {
+export async function DELETE(_req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
-    const oferta_packaging_id = Number(params.oferta_packaging_id);
+    const { oferta_id: ofertaIdStr, oferta_packaging_id: ofertaPackagingIdStr } = await params;
+
+    const oferta_id = Number(ofertaIdStr);
+    const oferta_packaging_id = Number(ofertaPackagingIdStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(oferta_packaging_id)) {
       return NextResponse.json({ ok: false, error: "ids inválidos" }, { status: 400 });
     }
 
     const sql = db();
-    await sql.query(`DELETE FROM app.producto_oferta_packaging WHERE oferta_packaging_id = $1 AND oferta_id = $2`, [
-      oferta_packaging_id,
-      oferta_id,
-    ]);
+    await sql.query(
+      `DELETE FROM app.producto_oferta_packaging WHERE oferta_packaging_id = $1 AND oferta_id = $2`,
+      [oferta_packaging_id, oferta_id]
+    );
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
