@@ -1,3 +1,4 @@
+// src/app/api/productos/ofertas/[oferta_id]/costo-snapshots/[snapshot_id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -8,13 +9,14 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { oferta_id: string; snapshot_id: string } }
-) {
+type Ctx = { params: Promise<{ oferta_id: string; snapshot_id: string }> };
+
+export async function GET(_req: NextRequest, { params }: Ctx) {
   try {
-    const oferta_id = Number(params.oferta_id);
-    const snapshot_id = Number(params.snapshot_id);
+    const { oferta_id: ofertaIdStr, snapshot_id: snapshotIdStr } = await params;
+
+    const oferta_id = Number(ofertaIdStr);
+    const snapshot_id = Number(snapshotIdStr);
     if (!Number.isFinite(oferta_id) || !Number.isFinite(snapshot_id)) {
       return NextResponse.json({ ok: false, error: "ids inválidos" }, { status: 400 });
     }
