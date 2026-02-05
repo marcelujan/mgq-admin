@@ -9,3 +9,6 @@ export function db() {
   if (!_sql) _sql = neon(url);
   return _sql;
 }
+
+// Compat: algunos archivos podrían estar usando default import.
+export default db;
