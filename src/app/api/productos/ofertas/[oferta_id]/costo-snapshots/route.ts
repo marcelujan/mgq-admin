@@ -4,9 +4,8 @@ import { db } from "@/lib/db";
 import { createAutoOfertaCostoSnapshot } from "@/lib/ofertaSnapshots";
 
 function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
   if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
+  if (res && Array.isArray((res as any).rows)) return (res as any).rows;
   return [];
 }
 
@@ -16,58 +15,98 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(_req: NextRequest, context: { params: Promise<{ oferta_id: string }> }) {
+export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const { oferta_id: ofertaIdRaw } = await context.params;
-    const oferta_id = Number(ofertaIdRaw);
-    if (!Number.isFinite(oferta_id)) {
-      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
-    }
+    const { oferta_id } = await ctx.params;
+    const ofertaId = Number(oferta_id);
+    if (!Number.isFinite(ofertaId)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const sql = db();
 
-    const r: any = await sql.query(
-      `
+    const r = await sql`
       SELECT
         snapshot_id,
         oferta_id,
         created_at,
-        bulk_ars_kg_con_prod::float8 as bulk_ars_kg_con_prod,
-        densidad_usada_g_ml::float8 as densidad_usada_g_ml,
-        masa_total_g::float8 as masa_total_g,
-        costo_base_ars::float8 as costo_base_ars,
-        packaging_subtotal_ars::float8 as packaging_subtotal_ars,
-        total_ars::float8 as total_ars
-      FROM app.oferta_costo_snapshot
-      WHERE oferta_id = $1
-      ORDER BY created_at DESC, snapshot_id DESC
-      LIMIT 60
-      `,
-      [oferta_id]
-    );
+        bulk_ars_kg_con_prod,
+        masa_total_g,
+        volumen_total_ml,
+        densidad_usada_g_ml,
+        costo_base_ars,
+        packaging_subtotal_ars,
+        total_ars,
+        fuente,
+        origin
+      FROM app.producto_oferta_costo_snapshot
+      WHERE oferta_id = ${ofertaId}
+      ORDER BY created_at DESC
+      LIMIT 120
+    `;
+    const snapshots = normalizeQueryResult(r).map((x: any) => ({
+      snapshot_id: Number(x.snapshot_id),
+      oferta_id: Number(x.oferta_id),
+      created_at: x.created_at,
+      bulk_ars_kg_con_prod: numOrNull(x.bulk_ars_kg_con_prod),
+      masa_total_g: numOrNull(x.masa_total_g),
+      volumen_total_ml: numOrNull(x.volumen_total_ml),
+      densidad_usada_g_ml: numOrNull(x.densidad_usada_g_ml),
+      costo_base_ars: numOrNull(x.costo_base_ars),
+      packaging_subtotal_ars: numOrNull(x.packaging_subtotal_ars),
+      total_ars: numOrNull(x.total_ars),
+      fuente: x.fuente,
+      origin: x.origin,
+    }));
 
-    return NextResponse.json({ ok: true, snapshots: normalizeQueryResult(r) });
+    const snapIds = snapshots.map((s: any) => s.snapshot_id).filter((x: any) => Number.isFinite(x));
+    let packaging: Record<number, any[]> = {};
+
+    if (snapIds.length) {
+      const rp = await sql`
+        SELECT
+          snapshot_id,
+          oferta_packaging_id,
+          cantidad,
+          costo_unitario_ars
+        FROM app.producto_oferta_costo_snapshot_packaging
+        WHERE snapshot_id = ANY(${snapIds})
+        ORDER BY snapshot_id DESC, oferta_packaging_id ASC
+      `;
+      const rows = normalizeQueryResult(rp);
+      for (const row of rows) {
+        const sid = Number(row.snapshot_id);
+        if (!packaging[sid]) packaging[sid] = [];
+        packaging[sid].push({
+          snapshot_id: sid,
+          oferta_packaging_id: Number(row.oferta_packaging_id),
+          cantidad: numOrNull(row.cantidad),
+          costo_unitario_ars: numOrNull(row.costo_unitario_ars),
+        });
+      }
+    }
+
+    return NextResponse.json({ ok: true, snapshots, packaging });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });
   }
 }
 
-export async function POST(_req: NextRequest, context: { params: Promise<{ oferta_id: string }> }) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const { oferta_id: ofertaIdRaw } = await context.params;
-    const oferta_id = Number(ofertaIdRaw);
-    if (!Number.isFinite(oferta_id)) {
-      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
-    }
+    const { oferta_id } = await ctx.params;
+    const ofertaId = Number(oferta_id);
+    if (!Number.isFinite(ofertaId)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
-    await createAutoOfertaCostoSnapshot({
-      oferta_id,
-      fuente: "FORMULA_V2_SAVE",
-      origin: "api/productos/ofertas/[oferta_id]/costo-snapshots",
+    const origin = req.nextUrl.origin;
+
+    const r = await createAutoOfertaCostoSnapshot({
+      oferta_id: ofertaId,
+      fuente: "MANUAL",
+      origin,
     });
 
+    if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 500 });
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });
   }
 }
