@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+// src/app/api/productos/ofertas/[oferta_id]/costo-snapshots/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createAutoOfertaCostoSnapshot } from "@/lib/ofertaSnapshots";
 
@@ -15,17 +16,30 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ ofertaId: string }> }) {
+type Ctx = { params: Promise<{ oferta_id: string }> };
+
+export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    const { ofertaId } = await ctx.params;
-    const oferta_id = Number(ofertaId);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "ofertaId inválido" }, { status: 400 });
+    const { oferta_id: oferta_id_raw } = await ctx.params;
+    const oferta_id = Number(oferta_id_raw);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const sql = db();
+
     const headRes: any = await sql.query(
       `
-      SELECT snapshot_id, oferta_id, created_at,
-             bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml
+      SELECT
+        snapshot_id,
+        oferta_id,
+        created_at,
+        bulk_ars_kg_con_prod,
+        masa_total_g,
+        base_costo_ars,
+        packaging_costo_ars,
+        total_costo_ars,
+        densidad_usada_g_ml
       FROM app.producto_oferta_costo_snapshot
       WHERE oferta_id = $1
       ORDER BY snapshot_id DESC
@@ -46,7 +60,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ ofertaId: stri
       densidad_usada_g_ml: numOrNull(r.densidad_usada_g_ml),
     }));
 
-    if (!snapshots.length) return NextResponse.json({ ok: true, snapshots, packaging: {} });
+    if (!snapshots.length) {
+      return NextResponse.json({ ok: true, snapshots, packaging: {} });
+    }
 
     const snapshotIds = snapshots.map((s: any) => s.snapshot_id);
 
@@ -87,15 +103,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ ofertaId: stri
   }
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ ofertaId: string }> }) {
+export async function POST(req: NextRequest, ctx: Ctx) {
   try {
-    const { ofertaId } = await ctx.params;
-    const oferta_id = Number(ofertaId);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "ofertaId inválido" }, { status: 400 });
+    const { oferta_id: oferta_id_raw } = await ctx.params;
+    const oferta_id = Number(oferta_id_raw);
+    if (!Number.isFinite(oferta_id)) {
+      return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    }
 
     const body = (await req.json().catch(() => ({} as any))) as any;
     const origin = String(body?.origin ?? "").trim();
-    if (!origin) return NextResponse.json({ ok: false, error: "origin requerido" }, { status: 400 });
+    if (!origin) {
+      return NextResponse.json({ ok: false, error: "origin requerido" }, { status: 400 });
+    }
 
     const snapshot_id = await createAutoOfertaCostoSnapshot({ oferta_id, origin });
 
