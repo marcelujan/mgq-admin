@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
-import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
+
+function normalizeQueryResult(res: any): any[] {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+}
+
+function numOrNull(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function bool(v: any): boolean {
+  return v === true || v === "true" || v === 1 || v === "1";
+}
 
 // GET líneas v2 (incluye job_price_ars / job_as_of_date para ITEM_PRESENTACION)
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
@@ -27,6 +42,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
         co.bulk_producto_id,
         co.densidad_g_ml,
 
+        -- precio latest del job para ITEM_PRESENTACION
         ip.price_ars::float8 as job_price_ars,
         lr.max_date::text as job_as_of_date
 
@@ -51,7 +67,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
   }
 }
 
-// POST crear línea
+// POST crear línea (igual que antes)
 export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
     const { producto_id: productoIdStr } = await ctx.params;
@@ -83,9 +99,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
     );
     const rows = normalizeQueryResult(r);
     const linea_id = rows?.[0]?.linea_id;
-
-    // snapshots automáticos
-    await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_CREATE" });
 
     return NextResponse.json({ ok: true, linea_id });
   } catch (e: any) {

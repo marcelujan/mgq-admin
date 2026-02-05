@@ -1,31 +1,24 @@
-import "server-only";
+// src/lib/ofertaSnapshots.ts
 import { db } from "@/lib/db";
+import { normalizeQueryResult, numOrNull } from "@/lib/api";
 
-/** Normaliza respuesta de drivers tipo { rows } o array directo */
-function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
-  if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
-  return [];
+type TipoLinea = "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
+
+function asTipo(v: any): TipoLinea {
+  const s = String(v ?? "");
+  if (s === "ITEM_PRESENTACION" || s === "MANUAL_PRESENTACION" || s === "BULK_PRODUCTO") return s;
+  throw new Error(`tipo cost_option inválido: ${s}`);
 }
 
-function numOrNull(v: any): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-type LineaV2 = {
+type Linea = {
   linea_id: number;
   cost_option_id: number;
   pct_peso: number | null;
   is_csp: boolean;
 
-  tipo: "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
+  tipo: TipoLinea;
   item_id: number | null;
   item_presentacion: number | null;
-
-  job_price_ars: number | null;
 
   manual_uom: "GR" | "ML" | "UN" | null;
   manual_cantidad: number | null;
@@ -36,331 +29,382 @@ type LineaV2 = {
   densidad_g_ml: number | null;
 };
 
-type ItemOption = {
-  tipo: "ITEM_PRESENTACION";
-  item_id: number;
-  presentacion: number;
-  price_ars: number;
+type BulkCost = {
+  ars_por_kg: number;
+  ars_por_g: number;
+  lote_ref_g: number;
+  prod_ars_por_kg: number;
+  material_ars_por_kg: number;
 };
 
-function clamp(n: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, n));
+function keyItem(item_id: number, pres: number) {
+  return `${item_id}::${pres}`;
 }
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url, { cache: "no-store" });
-  const j = await r.json().catch(() => ({} as any));
-  if (!r.ok || !j?.ok) {
-    throw new Error(j?.error || `HTTP ${r.status} (${url})`);
+async function arsPorGramoDeLinea(
+  sql: any,
+  linea: Linea,
+  itemPriceByKey: Map<string, number>,
+  bulkResolver: (bulk_producto_id: number) => Promise<BulkCost>
+): Promise<{ ok: true; arsPorG: number } | { ok: false; err: string }> {
+  if (linea.tipo === "ITEM_PRESENTACION") {
+    const item_id = linea.item_id ?? null;
+    const pres = linea.item_presentacion ?? null;
+    if (!item_id || !pres || pres <= 0) return { ok: false, err: "item/presentación inválidos" };
+
+    const price = itemPriceByKey.get(keyItem(item_id, pres));
+    if (price === undefined) return { ok: false, err: "precio job no encontrado" };
+
+    // presentacion = gramos
+    return { ok: true, arsPorG: price / pres };
   }
-  return j as T;
+
+  if (linea.tipo === "MANUAL_PRESENTACION") {
+    const u = linea.manual_uom ?? null;
+    const qty = linea.manual_cantidad ?? null;
+    const costo = linea.manual_costo_ars ?? null;
+
+    if (!u || !qty || qty <= 0) return { ok: false, err: "manual: falta uom/cantidad" };
+    if (costo === null || costo < 0) return { ok: false, err: "manual: falta costo" };
+
+    if (u === "GR") return { ok: true, arsPorG: costo / qty };
+
+    if (u === "ML") {
+      const dens = linea.densidad_g_ml ?? null;
+      if (!dens || dens <= 0) return { ok: false, err: "manual: falta densidad (ML→GR)" };
+      const gramos = qty * dens;
+      if (gramos <= 0) return { ok: false, err: "manual: conversión inválida" };
+      return { ok: true, arsPorG: costo / gramos };
+    }
+
+    if (u === "UN") return { ok: false, err: "manual: UN no convertible a gramos" };
+    return { ok: false, err: "manual: uom inválida" };
+  }
+
+  if (linea.tipo === "BULK_PRODUCTO") {
+    const bp = linea.bulk_producto_id ?? null;
+    if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
+    const bc = await bulkResolver(bp);
+    const arsKg = Number(bc.ars_por_kg);
+    if (!Number.isFinite(arsKg)) return { ok: false, err: "bulk: ars_por_kg inválido" };
+    return { ok: true, arsPorG: arsKg / 1000 };
+  }
+
+  return { ok: false, err: "tipo no soportado" };
 }
 
-/**
- * Crea snapshot automático para una oferta.
- * - Lee oferta y producto desde DB (para evitar dependencia de un endpoint puntual)
- * - Usa endpoints existentes para fórmula/lineas/cost-options/bulk de bulks anidados
- * - Lee packaging desde DB
- * - Inserta snapshot + detalle packaging en una transacción
- */
-export async function createAutoOfertaCostoSnapshot(args: { oferta_id: number; origin: string }) {
-  const { oferta_id, origin } = args;
+async function computeBulkCost(sql: any, producto_id: number, stack: number[], depth: number): Promise<BulkCost> {
+  if (depth > 10) throw new Error("bulk: profundidad máxima excedida");
+  if (stack.includes(producto_id)) throw new Error("bulk: ciclo detectado");
+  const nextStack = [...stack, producto_id];
+
+  const fRes: any = await sql.query(
+    `SELECT producto_id, lote_ref_g
+     FROM app.producto_formula_v2
+     WHERE producto_id=$1`,
+    [producto_id]
+  );
+  const fRows = normalizeQueryResult(fRes);
+  const lote_ref_g = fRows?.[0]?.lote_ref_g ? Number(fRows[0].lote_ref_g) : 1000;
+  if (!Number.isFinite(lote_ref_g) || lote_ref_g <= 0) throw new Error("lote_ref_g inválido");
+
+  const lRes: any = await sql.query(
+    `
+    SELECT
+      l.linea_id,
+      l.cost_option_id,
+      l.pct_peso,
+      l.is_csp,
+      co.tipo,
+      co.item_id,
+      co.item_presentacion,
+      co.manual_uom,
+      co.manual_cantidad,
+      co.manual_costo_ars,
+      co.bulk_producto_id,
+      co.densidad_g_ml
+    FROM app.producto_formula_linea_v2 l
+    JOIN app.cost_option co ON co.cost_option_id = l.cost_option_id
+    WHERE l.producto_id=$1
+    ORDER BY l.orden ASC, l.linea_id ASC
+    `,
+    [producto_id]
+  );
+
+  const lineas: Linea[] = normalizeQueryResult(lRes).map((r: any) => ({
+    linea_id: Number(r.linea_id),
+    cost_option_id: Number(r.cost_option_id),
+    pct_peso: numOrNull(r.pct_peso),
+    is_csp: !!r.is_csp,
+
+    tipo: asTipo(r.tipo),
+
+    item_id: r.item_id === null ? null : Number(r.item_id),
+    item_presentacion: r.item_presentacion === null ? null : Number(r.item_presentacion),
+
+    manual_uom: (r.manual_uom ?? null) as "GR" | "ML" | "UN" | null,
+    manual_cantidad: numOrNull(r.manual_cantidad),
+    manual_costo_ars: numOrNull(r.manual_costo_ars),
+
+    bulk_producto_id: r.bulk_producto_id === null ? null : Number(r.bulk_producto_id),
+
+    densidad_g_ml: numOrNull(r.densidad_g_ml),
+  }));
+
+  const csp = lineas.filter((x) => x.is_csp);
+  if (csp.length > 1) throw new Error("CSP: más de una línea marcada");
+  const pctFijos = lineas.filter((x) => !x.is_csp).reduce((acc, x) => acc + (x.pct_peso ?? 0), 0);
+  const pctCsp = csp.length === 1 ? 100 - pctFijos : null;
+  if (pctCsp !== null && pctCsp < 0) throw new Error("CSP negativo: fijos > 100%");
+
+  const itemPairs = lineas
+    .filter((l) => l.tipo === "ITEM_PRESENTACION" && l.item_id && l.item_presentacion)
+    .map((l) => ({ item_id: l.item_id as number, pres: l.item_presentacion as number }));
+
+  const itemPriceByKey = new Map<string, number>();
+
+  if (itemPairs.length) {
+    const ids = [...new Set(itemPairs.map((x) => x.item_id))];
+    const pres = [...new Set(itemPairs.map((x) => x.pres))];
+
+    const r: any = await sql.query(
+      `
+      WITH last_rows AS (
+        SELECT item_id, presentacion, max(as_of_date) as max_date
+        FROM app.item_price_daily_pres
+        WHERE item_id = ANY($1) AND presentacion = ANY($2)
+        GROUP BY item_id, presentacion
+      )
+      SELECT lr.item_id, lr.presentacion::float8 as presentacion, ip.price_ars::float8 as price_ars
+      FROM last_rows lr
+      JOIN app.item_price_daily_pres ip
+        ON ip.item_id = lr.item_id AND ip.presentacion = lr.presentacion AND ip.as_of_date = lr.max_date
+      `,
+      [ids, pres]
+    );
+    for (const row of normalizeQueryResult(r)) {
+      itemPriceByKey.set(keyItem(Number(row.item_id), Number(row.presentacion)), Number(row.price_ars));
+    }
+  }
+
+  const bulkResolver = async (bulk_producto_id: number) => {
+    return await computeBulkCost(sql, bulk_producto_id, nextStack, depth + 1);
+  };
+
+  let totalMaterialARS = 0;
+
+  for (const l of lineas) {
+    const pct = l.is_csp ? pctCsp : l.pct_peso;
+    if (pct === null || pct === undefined) throw new Error(`línea ${l.linea_id}: falta % p/p`);
+    const masa_g = (lote_ref_g * pct) / 100;
+
+    const arsG = await arsPorGramoDeLinea(sql, l, itemPriceByKey, bulkResolver);
+    if (!arsG.ok) throw new Error(`línea ${l.linea_id}: ${arsG.err}`);
+
+    totalMaterialARS += masa_g * arsG.arsPorG;
+  }
+
+  const material_ars_por_kg = (totalMaterialARS / lote_ref_g) * 1000;
+
+  const cRes: any = await sql.query(
+    `SELECT lote_ref_kg, costo_fijo_por_lote_ars, costo_variable_por_kg_ars
+     FROM app.producto_costos_produccion
+     WHERE producto_id=$1`,
+    [producto_id]
+  );
+  const cRows = normalizeQueryResult(cRes);
+  const c = cRows[0] ?? null;
+
+  const lote_ref_kg = c ? numOrNull(c.lote_ref_kg) : null;
+  const fijo = c ? numOrNull(c.costo_fijo_por_lote_ars) : null;
+  const variable = c ? numOrNull(c.costo_variable_por_kg_ars) : null;
+
+  let prod_ars_por_kg = 0;
+  if (variable !== null) prod_ars_por_kg += variable;
+  if (lote_ref_kg && fijo !== null) prod_ars_por_kg += fijo / lote_ref_kg;
+
+  const ars_por_kg = material_ars_por_kg + prod_ars_por_kg;
+
+  return {
+    ars_por_kg,
+    ars_por_g: ars_por_kg / 1000,
+    lote_ref_g,
+    prod_ars_por_kg,
+    material_ars_por_kg,
+  };
+}
+
+function computeMasaTotalG(params: {
+  peso_neto_g: number | null;
+  volumen_neto_ml: number | null;
+  unidades_pack: number | null;
+  masa_por_unidad_g: number | null;
+  volumen_por_unidad_ml: number | null;
+  densidad_g_ml: number | null;
+}): { masa_total_g: number | null } {
+  const peso_neto_g = params.peso_neto_g;
+  const volumen_neto_ml = params.volumen_neto_ml;
+  const unidades_pack = params.unidades_pack;
+  const masa_por_unidad_g = params.masa_por_unidad_g;
+  const volumen_por_unidad_ml = params.volumen_por_unidad_ml;
+  const dens = params.densidad_g_ml;
+
+  let masaTotalG: number | null = null;
+  let volTotalML: number | null = null;
+
+  if (peso_neto_g !== null && peso_neto_g > 0) {
+    masaTotalG = peso_neto_g;
+  } else if (volumen_neto_ml !== null && volumen_neto_ml > 0) {
+    volTotalML = volumen_neto_ml;
+    if (dens !== null && dens > 0) masaTotalG = volTotalML * dens;
+  } else if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0) {
+    masaTotalG = unidades_pack * masa_por_unidad_g;
+  } else if (unidades_pack !== null && unidades_pack > 0 && volumen_por_unidad_ml !== null && volumen_por_unidad_ml > 0) {
+    volTotalML = unidades_pack * volumen_por_unidad_ml;
+    if (dens !== null && dens > 0) masaTotalG = volTotalML * dens;
+  }
+
+  return { masa_total_g: masaTotalG };
+}
+
+export async function recalcAndInsertSnapshotsForProducto(producto_id: number) {
   const sql = db();
 
-  // 1) Traer oferta (mínimo necesario)
-  const ofertaRes: any = await sql.query(
+  if (!Number.isFinite(producto_id)) throw new Error("producto_id inválido");
+
+  // densidad producto (fallback para ofertas por volumen)
+  const pRes: any = await sql.query(`SELECT densidad_producto_g_ml::float8 as dens FROM app.producto WHERE producto_id=$1`, [
+    producto_id,
+  ]);
+  const pRow = normalizeQueryResult(pRes)?.[0] ?? null;
+  const densProd = pRow ? numOrNull(pRow.dens) : null;
+
+  // costo bulk del producto (ARS/kg con prod)
+  const bulk = await computeBulkCost(sql, producto_id, [], 0);
+  const bulk_ars_kg_con_prod = Number(bulk.ars_por_kg);
+  if (!Number.isFinite(bulk_ars_kg_con_prod)) throw new Error("bulk ars_por_kg inválido");
+
+  // ofertas del producto
+  const oRes: any = await sql.query(
     `
     SELECT
       oferta_id,
       producto_id,
+      densidad_override_g_ml::float8 as densidad_override_g_ml,
       peso_neto_g::float8 as peso_neto_g,
       volumen_neto_ml::float8 as volumen_neto_ml,
       unidades_pack::float8 as unidades_pack,
       masa_por_unidad_g::float8 as masa_por_unidad_g,
-      volumen_por_unidad_ml::float8 as volumen_por_unidad_ml,
-      densidad_override_g_ml::float8 as densidad_override_g_ml
+      volumen_por_unidad_ml::float8 as volumen_por_unidad_ml
     FROM app.producto_oferta
-    WHERE oferta_id = $1
-    `,
-    [oferta_id]
-  );
-
-  const oferta = normalizeQueryResult(ofertaRes)?.[0];
-  if (!oferta) throw new Error("oferta no encontrada");
-
-  const producto_id = Number(oferta.producto_id);
-  if (!Number.isFinite(producto_id)) throw new Error("producto_id inválido en oferta");
-
-  // 2) Densidad producto (para cálculos por volumen si aplica)
-  const prodRes: any = await sql.query(
-    `
-    SELECT densidad_producto_g_ml::float8 as densidad_producto_g_ml
-    FROM app.producto
-    WHERE producto_id = $1
+    WHERE producto_id=$1
     `,
     [producto_id]
   );
-  const densProd = numOrNull(normalizeQueryResult(prodRes)?.[0]?.densidad_producto_g_ml);
+  const ofertas = normalizeQueryResult(oRes).map((r: any) => ({
+    oferta_id: Number(r.oferta_id),
+    densidad_override_g_ml: numOrNull(r.densidad_override_g_ml),
+    peso_neto_g: numOrNull(r.peso_neto_g),
+    volumen_neto_ml: numOrNull(r.volumen_neto_ml),
+    unidades_pack: numOrNull(r.unidades_pack),
+    masa_por_unidad_g: numOrNull(r.masa_por_unidad_g),
+    volumen_por_unidad_ml: numOrNull(r.volumen_por_unidad_ml),
+  }));
 
-  // 3) Traer fórmula header + líneas (ya lo tenés funcionando)
-  const fJ = await fetchJSON<{
-    ok: true;
-    formula: { producto_id: number; lote_ref_g: number } | null;
-    costos_produccion: {
-      lote_ref_kg: number | null;
-      costo_fijo_por_lote_ars: number | null;
-      costo_variable_por_kg_ars: number | null;
-    } | null;
-  }>(`${origin}/api/productos/${producto_id}/formula-v2`);
+  const inserted: { oferta_id: number; snapshot_id: number }[] = [];
 
-  const lJ = await fetchJSON<{ ok: true; lineas: LineaV2[] }>(`${origin}/api/productos/${producto_id}/formula-v2/lineas`);
-
-  const formula = fJ.formula;
-  const costosProd = fJ.costos_produccion;
-  const lineas = (lJ.lineas || []).map((l: any) => ({
-    ...l,
-    pct_peso: numOrNull(l.pct_peso),
-    densidad_g_ml: numOrNull(l.densidad_g_ml),
-    job_price_ars: numOrNull(l.job_price_ars),
-    manual_cantidad: numOrNull(l.manual_cantidad),
-    manual_costo_ars: numOrNull(l.manual_costo_ars),
-    bulk_producto_id: numOrNull(l.bulk_producto_id),
-    item_presentacion: numOrNull(l.item_presentacion),
-    item_id: numOrNull(l.item_id),
-  })) as LineaV2[];
-
-  const loteRefG = numOrNull(formula?.lote_ref_g) ?? 1000;
-
-  // 4) Cost-options item_options para fallback cuando job_price_ars viene null
-  const optJ = await fetchJSON<{
-    ok: true;
-    item_options: ItemOption[];
-  }>(`${origin}/api/cost-options?limit=400&solo_seleccionados=true&search=`);
-
-  const itemOptions = (optJ.item_options || []).map((x: any) => ({
-    ...x,
-    presentacion: Number(x.presentacion),
-    price_ars: Number(x.price_ars),
-  })) as ItemOption[];
-
-  // 5) Prefetch costos de bulks usados como componentes (igual a UI)
-  const bulkIds = Array.from(
-    new Set(
-      lineas
-        .filter((x) => x.tipo === "BULK_PRODUCTO" && x.bulk_producto_id)
-        .map((x) => Number(x.bulk_producto_id))
-        .filter((x) => Number.isFinite(x))
-    )
-  );
-
-  const bulkCostByProducto: Record<number, number> = {};
-  for (const id of bulkIds) {
-    const bJ = await fetchJSON<{ ok: true; ars_por_kg: number | null }>(`${origin}/api/productos/${id}/costo-bulk`);
-    const arsKg = numOrNull(bJ.ars_por_kg);
-    if (arsKg !== null) bulkCostByProducto[id] = arsKg;
-  }
-
-  // 6) Recalcular bulk ARS/kg con prod (misma lógica conceptual del UI)
-  const cspLinea = lineas.find((l) => !!l.is_csp) ?? null;
-  const pctFijos = lineas.filter((l) => !l.is_csp).reduce((acc, l) => acc + (numOrNull(l.pct_peso) ?? 0), 0);
-  const pctCsp = cspLinea ? 100 - pctFijos : null;
-
-  function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
-    if (l.tipo === "ITEM_PRESENTACION") {
-      if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
-        return { ok: true, ars: Number(l.job_price_ars) };
-      }
-      const item_id = l.item_id ?? null;
-      const pres = l.item_presentacion ?? null;
-      if (!item_id || !pres) return { ok: false, err: "item/presentación incompletos" };
-      const found = itemOptions.find((x) => x.item_id === item_id && Number(x.presentacion) === Number(pres));
-      if (!found) return { ok: false, err: "precio no encontrado (job)" };
-      return { ok: true, ars: Number(found.price_ars) };
-    }
-
-    if (l.tipo === "MANUAL_PRESENTACION") {
-      if (l.manual_costo_ars === null || l.manual_costo_ars === undefined) return { ok: false, err: "falta costo manual" };
-      return { ok: true, ars: Number(l.manual_costo_ars) };
-    }
-
-    if (l.tipo === "BULK_PRODUCTO") {
-      const bp = l.bulk_producto_id ?? null;
-      if (!bp) return { ok: false, err: "bulk_producto_id faltante" };
-      const arsKg = bulkCostByProducto[bp];
-      if (arsKg === undefined) return { ok: false, err: "bulk: costo no cargado" };
-      return { ok: true, ars: arsKg }; // ARS/kg
-    }
-
-    return { ok: false, err: "tipo no soportado" };
-  }
-
-  function getARSporGramo(l: LineaV2): { ok: true; arsPorG: number } | { ok: false; err: string } {
-    const c = getCostoOptionARSporUnidad(l);
-    if (!c.ok) return c;
-
-    if (l.tipo === "ITEM_PRESENTACION") {
-      const pres = l.item_presentacion ?? null;
-      if (!pres || pres <= 0) return { ok: false, err: "presentación inválida" };
-      return { ok: true, arsPorG: c.ars / pres };
-    }
-
-    if (l.tipo === "MANUAL_PRESENTACION") {
-      const u = l.manual_uom;
-      const qty = l.manual_cantidad ?? null;
-      if (!u || !qty || qty <= 0) return { ok: false, err: "manual: falta uom/cantidad" };
-
-      if (u === "GR") return { ok: true, arsPorG: c.ars / qty };
-
-      if (u === "ML") {
-        const dens = numOrNull(l.densidad_g_ml);
-        if (!dens || dens <= 0) return { ok: false, err: "manual: falta densidad para convertir ML→GR" };
-        const gramos = qty * dens;
-        if (gramos <= 0) return { ok: false, err: "manual: conversión inválida" };
-        return { ok: true, arsPorG: c.ars / gramos };
-      }
-
-      return { ok: false, err: "manual: UN no convertible a gramos" };
-    }
-
-    if (l.tipo === "BULK_PRODUCTO") {
-      return { ok: true, arsPorG: c.ars / 1000 };
-    }
-
-    return { ok: false, err: "conversión no soportada" };
-  }
-
-  const rows = lineas.map((l) => {
-    const pct = l.is_csp ? pctCsp : numOrNull(l.pct_peso);
-    const masa_g = pct === null ? null : (loteRefG * pct) / 100;
-    const arsG = getARSporGramo(l);
-    const costo_linea = masa_g !== null && arsG.ok ? masa_g * arsG.arsPorG : null;
-    return { pct, masa_g, costo_linea, arsG_ok: arsG.ok };
-  });
-
-  const totalARS = rows.reduce((acc, r) => acc + (r.costo_linea ?? 0), 0);
-  const arsPorKg = loteRefG > 0 ? (totalARS / loteRefG) * 1000 : null;
-
-  const lote_ref_kg = numOrNull(costosProd?.lote_ref_kg);
-  const fijo = numOrNull(costosProd?.costo_fijo_por_lote_ars);
-  const variable = numOrNull(costosProd?.costo_variable_por_kg_ars);
-  const prodARSporKg = lote_ref_kg && fijo !== null ? fijo / lote_ref_kg + (variable ?? 0) : variable ?? null;
-
-  const bulk_ars_kg_con_prod = arsPorKg !== null ? arsPorKg + (prodARSporKg ?? 0) : null;
-  if (bulk_ars_kg_con_prod === null) throw new Error("no se pudo calcular bulk ARS/kg con prod (revisar fórmula)");
-
-  // 7) Calcular masa_total_g según oferta (misma lógica de UI)
-  const densUsada = numOrNull(oferta.densidad_override_g_ml) ?? densProd;
-
-  const peso_neto_g = numOrNull(oferta.peso_neto_g);
-  const volumen_neto_ml = numOrNull(oferta.volumen_neto_ml);
-  const unidades_pack = numOrNull(oferta.unidades_pack);
-  const masa_por_unidad_g = numOrNull(oferta.masa_por_unidad_g);
-  const volumen_por_unidad_ml = numOrNull(oferta.volumen_por_unidad_ml);
-
-  let masa_total_g: number | null = null;
-
-  if (peso_neto_g !== null && peso_neto_g > 0) {
-    masa_total_g = peso_neto_g;
-  } else if (volumen_neto_ml !== null && volumen_neto_ml > 0) {
-    if (densUsada !== null && densUsada > 0) masa_total_g = volumen_neto_ml * densUsada;
-  } else if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0) {
-    masa_total_g = unidades_pack * masa_por_unidad_g;
-  } else if (unidades_pack !== null && unidades_pack > 0 && volumen_por_unidad_ml !== null && volumen_por_unidad_ml > 0) {
-    if (densUsada !== null && densUsada > 0) masa_total_g = unidades_pack * volumen_por_unidad_ml * densUsada;
-  }
-
-  if (masa_total_g === null || masa_total_g <= 0) {
-    throw new Error("oferta: no se pudo determinar masa_total_g (faltan datos de presentación/densidad)");
-  }
-
-  const base_costo_ars = (bulk_ars_kg_con_prod * masa_total_g) / 1000;
-
-  // 8) Packaging desde DB + subtotal
-  const packRes: any = await sql.query(
-    `
-    SELECT
-      op.oferta_packaging_id,
-      op.packaging_item_id,
-      op.cantidad::float8 as cantidad,
-      op.costo_unitario_override_ars::float8 as costo_unitario_override_ars,
-      pi.nombre,
-      pi.costo_unitario_ars::float8 as costo_unitario_ars
-    FROM app.producto_oferta_packaging op
-    JOIN app.packaging_item pi ON pi.packaging_item_id = op.packaging_item_id
-    WHERE op.oferta_id = $1
-    ORDER BY op.oferta_packaging_id ASC
-    `,
-    [oferta_id]
-  );
-
-  const packRows = normalizeQueryResult(packRes).map((r: any) => {
-    const cantidad = Number(r.cantidad);
-    const unit = numOrNull(r.costo_unitario_override_ars) ?? numOrNull(r.costo_unitario_ars) ?? 0;
-    const subtotal = cantidad * unit;
-    return {
-      packaging_item_id: Number(r.packaging_item_id),
-      nombre: String(r.nombre ?? ""),
-      cantidad,
-      costo_unitario_ars: unit,
-      subtotal_ars: subtotal,
-    };
-  });
-
-  const packaging_costo_ars = packRows.reduce((acc, r) => acc + (numOrNull(r.subtotal_ars) ?? 0), 0);
-  const total_costo_ars = base_costo_ars + packaging_costo_ars;
-
-  // 9) Insert snapshot + detalle en transacción
   await sql.query("BEGIN");
-
   try {
-    const snapRes: any = await sql.query(
-      `
-      INSERT INTO app.producto_oferta_costo_snapshot
-        (oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
-      RETURNING snapshot_id
-      `,
-      [
-        oferta_id,
-        bulk_ars_kg_con_prod,
-        masa_total_g,
-        base_costo_ars,
-        packaging_costo_ars,
-        total_costo_ars,
-        densUsada,
-      ]
-    );
+    for (const o of ofertas) {
+      const dens = o.densidad_override_g_ml ?? densProd ?? null;
 
-    const snapshot_id = Number(normalizeQueryResult(snapRes)?.[0]?.snapshot_id);
-    if (!Number.isFinite(snapshot_id)) throw new Error("snapshot_id inválido");
+      const { masa_total_g } = computeMasaTotalG({
+        peso_neto_g: o.peso_neto_g,
+        volumen_neto_ml: o.volumen_neto_ml,
+        unidades_pack: o.unidades_pack,
+        masa_por_unidad_g: o.masa_por_unidad_g,
+        volumen_por_unidad_ml: o.volumen_por_unidad_ml,
+        densidad_g_ml: dens,
+      });
 
-    for (const p of packRows) {
-      await sql.query(
+      const base_costo_ars =
+        masa_total_g !== null ? (Number(bulk_ars_kg_con_prod) * Number(masa_total_g)) / 1000 : null;
+
+      // packaging rows
+      const pkRes: any = await sql.query(
         `
-        INSERT INTO app.producto_oferta_costo_snapshot_packaging
-          (snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars)
-        VALUES ($1,$2,$3,$4,$5,$6)
+        SELECT
+          op.packaging_item_id,
+          pi.nombre,
+          op.cantidad::float8 as cantidad,
+          op.costo_unitario_override_ars::float8 as override_ars,
+          pi.costo_unitario_ars::float8 as base_ars
+        FROM app.producto_oferta_packaging op
+        JOIN app.packaging_item pi ON pi.packaging_item_id = op.packaging_item_id
+        WHERE op.oferta_id = $1
+        ORDER BY pi.nombre ASC, op.oferta_packaging_id ASC
         `,
-        [snapshot_id, p.packaging_item_id, p.nombre, p.cantidad, p.costo_unitario_ars, p.subtotal_ars]
+        [o.oferta_id]
       );
+
+      const pkRows = normalizeQueryResult(pkRes).map((r: any) => {
+        const cantidad = Number(r.cantidad ?? 0);
+        const unit = numOrNull(r.override_ars) ?? numOrNull(r.base_ars) ?? 0;
+        const subtotal = cantidad * unit;
+        return {
+          packaging_item_id: Number(r.packaging_item_id),
+          nombre: String(r.nombre ?? ""),
+          cantidad,
+          costo_unitario_ars: unit,
+          subtotal_ars: subtotal,
+        };
+      });
+
+      const packaging_costo_ars = pkRows.reduce((acc: number, x: any) => acc + Number(x.subtotal_ars ?? 0), 0);
+      const total_costo_ars = base_costo_ars === null ? null : Number(base_costo_ars) + Number(packaging_costo_ars);
+
+      const snapRes: any = await sql.query(
+        `
+        INSERT INTO app.producto_oferta_costo_snapshot
+          (oferta_id, bulk_ars_kg_con_prod, masa_total_g, base_costo_ars, packaging_costo_ars, total_costo_ars, densidad_usada_g_ml)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING snapshot_id
+        `,
+        [
+          o.oferta_id,
+          bulk_ars_kg_con_prod,
+          masa_total_g,
+          base_costo_ars,
+          packaging_costo_ars,
+          total_costo_ars,
+          dens,
+        ]
+      );
+
+      const snapshot_id = Number(normalizeQueryResult(snapRes)?.[0]?.snapshot_id);
+      if (!Number.isFinite(snapshot_id)) throw new Error("snapshot_id inválido");
+
+      for (const p of pkRows) {
+        if (!p.nombre) continue;
+        if (!Number.isFinite(p.cantidad) || p.cantidad <= 0) continue;
+
+        await sql.query(
+          `
+          INSERT INTO app.producto_oferta_costo_snapshot_packaging
+            (snapshot_id, packaging_item_id, nombre, cantidad, costo_unitario_ars, subtotal_ars)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          `,
+          [snapshot_id, p.packaging_item_id, p.nombre, p.cantidad, p.costo_unitario_ars, p.subtotal_ars]
+        );
+      }
+
+      inserted.push({ oferta_id: o.oferta_id, snapshot_id });
     }
 
     await sql.query("COMMIT");
-
-    return {
-      snapshot_id,
-      oferta_id,
-      bulk_ars_kg_con_prod,
-      masa_total_g,
-      base_costo_ars,
-      packaging_costo_ars,
-      total_costo_ars,
-      densidad_usada_g_ml: densUsada,
-    };
+    return { ok: true as const, producto_id, inserted_count: inserted.length, inserted };
   } catch (e) {
-    try {
-      await sql.query("ROLLBACK");
-    } catch {}
+    await sql.query("ROLLBACK");
     throw e;
   }
 }

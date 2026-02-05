@@ -1,39 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
+import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
 
-function normalizeQueryResult(res: any): any[] {
-  if (!res) return [];
-  if (Array.isArray(res)) return res;
-  if (Array.isArray(res.rows)) return res.rows;
-  return [];
-}
-
-function numOrNull(v: any): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function bool(v: any): boolean {
-  return v === true || v === "true" || v === 1 || v === "1";
-}
-
-// PATCH update línea
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
     const { producto_id: productoIdStr, linea_id: lineaIdStr } = await ctx.params;
     const producto_id = Number(productoIdStr);
     const linea_id = Number(lineaIdStr);
-    if (!Number.isFinite(producto_id) || !Number.isFinite(linea_id)) {
-      return NextResponse.json({ ok: false, error: "ids inválidos" }, { status: 400 });
-    }
+    if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
+    if (!Number.isFinite(linea_id)) return NextResponse.json({ ok: false, error: "linea_id inválido" }, { status: 400 });
 
     const body = await req.json().catch(() => ({} as any));
 
-    const pct_peso = body?.pct_peso === undefined ? undefined : numOrNull(body?.pct_peso);
-    const is_csp = body?.is_csp === undefined ? undefined : bool(body?.is_csp);
-    const orden = body?.orden === undefined ? undefined : Number(body?.orden);
-    const cost_option_id = body?.cost_option_id === undefined ? undefined : Number(body?.cost_option_id);
+    const pct_peso = body.hasOwnProperty("pct_peso") ? numOrNull(body?.pct_peso) : undefined;
+    const is_csp = body.hasOwnProperty("is_csp") ? bool(body?.is_csp) : undefined;
+    const orden = body.hasOwnProperty("orden") ? Number(body?.orden) : undefined;
 
     const sql = db();
 
@@ -41,39 +23,30 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_
       await sql.query(`UPDATE app.producto_formula_linea_v2 SET is_csp=false WHERE producto_id=$1`, [producto_id]);
     }
 
-    const sets: string[] = [];
-    const values: any[] = [];
-    let p = 1;
-
-    if (pct_peso !== undefined) {
-      sets.push(`pct_peso=$${p++}`);
-      values.push(pct_peso);
-    }
-    if (is_csp !== undefined) {
-      sets.push(`is_csp=$${p++}`);
-      values.push(is_csp);
-    }
-    if (orden !== undefined && Number.isFinite(orden)) {
-      sets.push(`orden=$${p++}`);
-      values.push(orden);
-    }
-    if (cost_option_id !== undefined && Number.isFinite(cost_option_id)) {
-      sets.push(`cost_option_id=$${p++}`);
-      values.push(cost_option_id);
-    }
-
-    if (!sets.length) return NextResponse.json({ ok: true });
-
-    values.push(producto_id, linea_id);
-
-    await sql.query(
+    const r: any = await sql.query(
       `
       UPDATE app.producto_formula_linea_v2
-      SET ${sets.join(", ")}, updated_at=now()
-      WHERE producto_id=$${p++} AND linea_id=$${p++}
+      SET
+        pct_peso = COALESCE($3, pct_peso),
+        is_csp   = COALESCE($4, is_csp),
+        orden    = COALESCE($5, orden)
+      WHERE producto_id=$1 AND linea_id=$2
+      RETURNING linea_id
       `,
-      values
+      [
+        producto_id,
+        linea_id,
+        pct_peso === undefined ? null : pct_peso,
+        is_csp === undefined ? null : is_csp,
+        orden === undefined || !Number.isFinite(orden) ? null : orden,
+      ]
     );
+
+    const rows = normalizeQueryResult(r);
+    if (!rows?.length) return NextResponse.json({ ok: false, error: "línea no encontrada" }, { status: 404 });
+
+    // snapshots automáticos
+    await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_PATCH" });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
@@ -81,18 +54,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_
   }
 }
 
-// DELETE línea
 export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
     const { producto_id: productoIdStr, linea_id: lineaIdStr } = await ctx.params;
     const producto_id = Number(productoIdStr);
     const linea_id = Number(lineaIdStr);
-    if (!Number.isFinite(producto_id) || !Number.isFinite(linea_id)) {
-      return NextResponse.json({ ok: false, error: "ids inválidos" }, { status: 400 });
-    }
+    if (!Number.isFinite(producto_id)) return NextResponse.json({ ok: false, error: "producto_id inválido" }, { status: 400 });
+    if (!Number.isFinite(linea_id)) return NextResponse.json({ ok: false, error: "linea_id inválido" }, { status: 400 });
 
     const sql = db();
-    await sql.query(`DELETE FROM app.producto_formula_linea_v2 WHERE producto_id=$1 AND linea_id=$2`, [producto_id, linea_id]);
+
+    const r: any = await sql.query(
+      `
+      DELETE FROM app.producto_formula_linea_v2
+      WHERE producto_id=$1 AND linea_id=$2
+      RETURNING linea_id
+      `,
+      [producto_id, linea_id]
+    );
+    const rows = normalizeQueryResult(r);
+    if (!rows?.length) return NextResponse.json({ ok: false, error: "línea no encontrada" }, { status: 404 });
+
+    // snapshots automáticos
+    await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_DELETE" });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
