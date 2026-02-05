@@ -1,85 +1,142 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { recalcAndInsertOfertaSnapshot } from "@/lib/ofertaSnapshots";
+
+function numOrNull(v: any): number | null {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function normalizeQueryResult(res: any): any[] {
   if (!res) return [];
+  // neon(serverless) suele devolver { rows: [...] }
   if (Array.isArray(res)) return res;
   if (Array.isArray(res.rows)) return res.rows;
   return [];
 }
 
-export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
-    const { oferta_id: oferta_idStr } = await ctx.params;
+    const { oferta_id } = await ctx.params;
+    const ofertaId = Number(oferta_id);
+    if (!Number.isFinite(ofertaId)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const sql = db();
-    const oferta_id = Number(oferta_idStr);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
-
-    const oRes: any = await sql.query(
-      `SELECT oferta_id, producto_id, nombre,
-              peso_neto_g, volumen_neto_ml, unidades_pack,
-              masa_por_unidad_g, volumen_por_unidad_ml,
-              densidad_override_g_ml, merma_pct, is_bulk, activo, created_at, updated_at
-       FROM app.producto_oferta
-       WHERE oferta_id=$1
-       LIMIT 1`,
-      [oferta_id]
+    const r: any = await sql.query(
+      `
+      SELECT
+        oferta_id,
+        producto_id,
+        nombre,
+        activo,
+        is_bulk,
+        peso_neto_g,
+        volumen_neto_ml,
+        unidades_pack,
+        masa_por_unidad_g,
+        volumen_por_unidad_ml,
+        densidad_override_g_ml
+      FROM app.producto_oferta
+      WHERE oferta_id = $1
+      `,
+      [ofertaId]
     );
-    const oferta = normalizeQueryResult(oRes)?.[0];
-    if (!oferta) return NextResponse.json({ ok: false, error: "no encontrada" }, { status: 404 });
 
-    const eRes: any = await sql.query(
-      `SELECT extra_id, oferta_id, tipo, insumo_id, cantidad, concepto, costo_ars, orden
-       FROM app.producto_oferta_extra
-       WHERE oferta_id=$1
-       ORDER BY orden ASC, extra_id ASC`,
-      [oferta_id]
-    );
-    const extras = normalizeQueryResult(eRes);
+    const rows = normalizeQueryResult(r);
+    const oferta = rows[0] ?? null;
+    if (!oferta) return NextResponse.json({ ok: false, error: "Oferta no encontrada" }, { status: 404 });
 
-    return NextResponse.json({ ok: true, oferta, extras });
+    return NextResponse.json({ ok: true, oferta });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
-    
-    const { oferta_id: oferta_idStr } = await ctx.params;
-const sql = db();
-    const oferta_id = Number(oferta_idStr);
-    if (!Number.isFinite(oferta_id)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
+    const { oferta_id } = await ctx.params;
+    const ofertaId = Number(oferta_id);
+    if (!Number.isFinite(ofertaId)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
     const body = await req.json().catch(() => ({} as any));
+
+    // Campos permitidos
+    const patch: any = {};
+
+    if ("nombre" in body) patch.nombre = String(body.nombre ?? "").trim();
+    if ("activo" in body) patch.activo = !!body.activo;
+    if ("is_bulk" in body) patch.is_bulk = !!body.is_bulk;
+
+    if ("peso_neto_g" in body) patch.peso_neto_g = numOrNull(body.peso_neto_g);
+    if ("volumen_neto_ml" in body) patch.volumen_neto_ml = numOrNull(body.volumen_neto_ml);
+    if ("unidades_pack" in body) patch.unidades_pack = numOrNull(body.unidades_pack);
+    if ("masa_por_unidad_g" in body) patch.masa_por_unidad_g = numOrNull(body.masa_por_unidad_g);
+    if ("volumen_por_unidad_ml" in body) patch.volumen_por_unidad_ml = numOrNull(body.volumen_por_unidad_ml);
+    if ("densidad_override_g_ml" in body) patch.densidad_override_g_ml = numOrNull(body.densidad_override_g_ml);
+
+    // Si no hay nada para actualizar
+    const keys = Object.keys(patch);
+    if (!keys.length) return NextResponse.json({ ok: true, skipped: true });
+
+    // Validaciones mínimas (no romper MVP)
+    if ("nombre" in patch && !patch.nombre) return NextResponse.json({ ok: false, error: "nombre inválido" }, { status: 400 });
+
+    for (const k of [
+      "peso_neto_g",
+      "volumen_neto_ml",
+      "unidades_pack",
+      "masa_por_unidad_g",
+      "volumen_por_unidad_ml",
+      "densidad_override_g_ml",
+    ] as const) {
+      if (k in patch && patch[k] !== null && patch[k] < 0) {
+        return NextResponse.json({ ok: false, error: `${k} no puede ser negativo` }, { status: 400 });
+      }
+    }
+
+    const sql = db();
+
+    // UPDATE dinámico con placeholders
     const sets: string[] = [];
-    const params: any[] = [];
-    const pushSet = (frag: string, v: any) => {
-      params.push(v);
-      sets.push(frag.replace("?", `$${params.length}`));
-    };
+    const values: any[] = [];
+    let idx = 1;
 
-    if (typeof body?.nombre === "string") pushSet("nombre = ?", body.nombre.trim());
-    if (body?.activo !== undefined) pushSet("activo = ?", body.activo === true);
+    for (const k of keys) {
+      sets.push(`${k} = $${idx++}`);
+      values.push(patch[k]);
+    }
 
-    const pick = (v: any) => (v === null || v === undefined || v === "" ? null : Number(v));
-    if (body?.peso_neto_g !== undefined) pushSet("peso_neto_g = ?", pick(body.peso_neto_g));
-    if (body?.volumen_neto_ml !== undefined) pushSet("volumen_neto_ml = ?", pick(body.volumen_neto_ml));
-    if (body?.unidades_pack !== undefined) pushSet("unidades_pack = ?", pick(body.unidades_pack));
-    if (body?.masa_por_unidad_g !== undefined) pushSet("masa_por_unidad_g = ?", pick(body.masa_por_unidad_g));
-    if (body?.volumen_por_unidad_ml !== undefined) pushSet("volumen_por_unidad_ml = ?", pick(body.volumen_por_unidad_ml));
-    if (body?.densidad_override_g_ml !== undefined) pushSet("densidad_override_g_ml = ?", pick(body.densidad_override_g_ml));
-    if (body?.merma_pct !== undefined) pushSet("merma_pct = ?", pick(body.merma_pct));
+    values.push(ofertaId);
 
-    if (!sets.length) return NextResponse.json({ ok: false, error: "sin cambios" }, { status: 400 });
-    sets.push("updated_at = now()");
+    const upd: any = await sql.query(
+      `
+      UPDATE app.producto_oferta
+      SET ${sets.join(", ")}
+      WHERE oferta_id = $${idx}
+      RETURNING
+        oferta_id,
+        producto_id,
+        nombre,
+        activo,
+        is_bulk,
+        peso_neto_g,
+        volumen_neto_ml,
+        unidades_pack,
+        masa_por_unidad_g,
+        volumen_por_unidad_ml,
+        densidad_override_g_ml
+      `,
+      values
+    );
 
-    params.push(oferta_id);
-    const q = `UPDATE app.producto_oferta SET ${sets.join(", ")} WHERE oferta_id = $${params.length}`;
-    await sql.query(q, params);
-    return NextResponse.json({ ok: true });
+    const oferta = normalizeQueryResult(upd)[0] ?? null;
+
+    // ✅ Snapshot automático por cambio de oferta
+    await recalcAndInsertOfertaSnapshot({ oferta_id: ofertaId, fuente: "OFERTA_CHANGE" });
+
+    return NextResponse.json({ ok: true, oferta });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });
   }
 }

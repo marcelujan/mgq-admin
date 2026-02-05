@@ -1,4 +1,3 @@
-// src/app/api/productos/ofertas/[oferta_id]/costo-snapshots/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { createAutoOfertaCostoSnapshot } from "@/lib/ofertaSnapshots";
@@ -15,7 +14,8 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
+// /api/productos/ofertas/[oferta_id]/costo-snapshots
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ oferta_id: string }> }) {
   try {
     const { oferta_id } = await ctx.params;
     const ofertaId = Number(oferta_id);
@@ -23,65 +23,66 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ oferta_id: st
 
     const sql = db();
 
-    const r = await sql`
-      SELECT
-        snapshot_id,
-        oferta_id,
-        created_at,
-        bulk_ars_kg_con_prod,
-        masa_total_g,
-        volumen_total_ml,
-        densidad_usada_g_ml,
-        costo_base_ars,
-        packaging_subtotal_ars,
-        total_ars,
-        fuente,
-        origin
-      FROM app.producto_oferta_costo_snapshot
-      WHERE oferta_id = ${ofertaId}
-      ORDER BY created_at DESC
-      LIMIT 120
-    `;
-    const snapshots = normalizeQueryResult(r).map((x: any) => ({
-      snapshot_id: Number(x.snapshot_id),
-      oferta_id: Number(x.oferta_id),
-      created_at: x.created_at,
-      bulk_ars_kg_con_prod: numOrNull(x.bulk_ars_kg_con_prod),
-      masa_total_g: numOrNull(x.masa_total_g),
-      volumen_total_ml: numOrNull(x.volumen_total_ml),
-      densidad_usada_g_ml: numOrNull(x.densidad_usada_g_ml),
-      costo_base_ars: numOrNull(x.costo_base_ars),
-      packaging_subtotal_ars: numOrNull(x.packaging_subtotal_ars),
-      total_ars: numOrNull(x.total_ars),
-      fuente: x.fuente,
-      origin: x.origin,
-    }));
-
-    const snapIds = snapshots.map((s: any) => s.snapshot_id).filter((x: any) => Number.isFinite(x));
-    let packaging: Record<number, any[]> = {};
-
-    if (snapIds.length) {
-      const rp = await sql`
+    const snapRows = normalizeQueryResult(
+      await sql`
         SELECT
           snapshot_id,
-          oferta_packaging_id,
-          cantidad,
-          costo_unitario_ars
-        FROM app.producto_oferta_costo_snapshot_packaging
-        WHERE snapshot_id = ANY(${snapIds})
-        ORDER BY snapshot_id DESC, oferta_packaging_id ASC
-      `;
-      const rows = normalizeQueryResult(rp);
-      for (const row of rows) {
-        const sid = Number(row.snapshot_id);
-        if (!packaging[sid]) packaging[sid] = [];
-        packaging[sid].push({
-          snapshot_id: sid,
-          oferta_packaging_id: Number(row.oferta_packaging_id),
-          cantidad: numOrNull(row.cantidad),
-          costo_unitario_ars: numOrNull(row.costo_unitario_ars),
-        });
-      }
+          oferta_id,
+          created_at,
+          bulk_ars_kg_con_prod,
+          base_costo_ars,
+          packaging_costo_ars,
+          total_costo_ars,
+          masa_total_g,
+          densidad_usada_g_ml
+        FROM app.producto_oferta_costo_snapshot
+        WHERE oferta_id = ${ofertaId}
+        ORDER BY created_at DESC, snapshot_id DESC
+        LIMIT 30
+      `
+    );
+
+    const snapshots = snapRows.map((r: any) => ({
+      snapshot_id: Number(r.snapshot_id),
+      oferta_id: Number(r.oferta_id),
+      created_at: r.created_at,
+      bulk_ars_kg_con_prod: numOrNull(r.bulk_ars_kg_con_prod),
+      base_costo_ars: numOrNull(r.base_costo_ars),
+      packaging_costo_ars: numOrNull(r.packaging_costo_ars),
+      total_costo_ars: numOrNull(r.total_costo_ars),
+      masa_total_g: numOrNull(r.masa_total_g),
+      densidad_usada_g_ml: numOrNull(r.densidad_usada_g_ml),
+    }));
+
+    // detalle packaging solo para el snapshot más reciente (si existe)
+    let packaging: Record<number, any[]> = {};
+    if (snapshots.length) {
+      const sid = snapshots[0].snapshot_id;
+      const packRows = normalizeQueryResult(
+        await sql`
+          SELECT
+            snapshot_id,
+            packaging_item_id,
+            nombre,
+            cantidad,
+            costo_unitario_ars,
+            subtotal_ars
+          FROM app.producto_oferta_costo_snapshot_packaging
+          WHERE snapshot_id = ${sid}
+          ORDER BY snapshot_packaging_id ASC
+        `
+      );
+
+      packaging = {
+        [sid]: packRows.map((r: any) => ({
+          snapshot_id: Number(r.snapshot_id),
+          packaging_item_id: Number(r.packaging_item_id),
+          nombre: String(r.nombre ?? ""),
+          cantidad: Number(r.cantidad ?? 0),
+          costo_unitario_ars: numOrNull(r.costo_unitario_ars) ?? 0,
+          subtotal_ars: numOrNull(r.subtotal_ars) ?? 0,
+        })),
+      };
     }
 
     return NextResponse.json({ ok: true, snapshots, packaging });
@@ -96,16 +97,54 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ oferta_id:
     const ofertaId = Number(oferta_id);
     if (!Number.isFinite(ofertaId)) return NextResponse.json({ ok: false, error: "oferta_id inválido" }, { status: 400 });
 
-    const origin = req.nextUrl.origin;
+    const body = (await req.json().catch(() => ({} as any))) as any;
+    const forceAuto = body?.force_auto === true;
 
-    const r = await createAutoOfertaCostoSnapshot({
-      oferta_id: ofertaId,
-      fuente: "MANUAL",
-      origin,
-    });
+    if (forceAuto || Object.keys(body || {}).length === 0) {
+      const snapshot_id = await createAutoOfertaCostoSnapshot({
+        oferta_id: ofertaId,
+        fuente: "OFERTA_CHANGE",
+        origin: "api/productos/ofertas/[oferta_id]/costo-snapshots:POST",
+      });
+      return NextResponse.json({ ok: true, snapshot_id });
+    }
 
-    if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 500 });
-    return NextResponse.json({ ok: true });
+    // Manual insert (compat)
+    const bulk_ars_kg_con_prod = numOrNull(body.bulk_ars_kg_con_prod);
+    const base_costo_ars = numOrNull(body.base_costo_ars);
+    const packaging_costo_ars = numOrNull(body.packaging_costo_ars);
+    const total_costo_ars = numOrNull(body.total_costo_ars);
+    const masa_total_g = numOrNull(body.masa_total_g);
+    const densidad_usada_g_ml = numOrNull(body.densidad_usada_g_ml);
+
+    const sql = db();
+    const ins = normalizeQueryResult(
+      await sql`
+        INSERT INTO app.producto_oferta_costo_snapshot (
+          oferta_id,
+          bulk_ars_kg_con_prod,
+          base_costo_ars,
+          packaging_costo_ars,
+          total_costo_ars,
+          masa_total_g,
+          densidad_usada_g_ml
+        )
+        VALUES (
+          ${ofertaId},
+          ${bulk_ars_kg_con_prod},
+          ${base_costo_ars},
+          ${packaging_costo_ars},
+          ${total_costo_ars},
+          ${masa_total_g},
+          ${densidad_usada_g_ml}
+        )
+        RETURNING snapshot_id
+      `
+    );
+
+    const snapshot_id = Number(ins?.[0]?.snapshot_id);
+    if (!Number.isFinite(snapshot_id)) throw new Error("snapshot_id inválido");
+    return NextResponse.json({ ok: true, snapshot_id });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "error" }, { status: 500 });
   }
