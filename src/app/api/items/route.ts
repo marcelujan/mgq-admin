@@ -99,7 +99,6 @@ export async function GET(req: NextRequest) {
             $3::text is null
             or coalesce(p.nombre,'') ilike $3::text
             or coalesce(o.nombre,'') ilike $3::text
-            or coalesce(p.codigo,'') ilike $3::text
           )
       ),
       all_items as (
