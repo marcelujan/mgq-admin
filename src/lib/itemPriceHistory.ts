@@ -10,14 +10,16 @@ export type PriceSeries = {
 };
 
 export type PriceHistoryResponse = {
-  item_id: number;
-  kind: "PROVEEDOR" | "MANUAL" | "FORMULADO";
-  series: PriceSeries[];
+  item_key: string;
+  kind: "PROVEEDOR" | "FORMULADO";
+  rows?: Array<{ as_of_date: string; presentacion: number; price_ars: number }>;
+  series?: PriceSeries[];
 };
 
 function normalizeQueryResult(res: any): any[] {
+  if (!res) return [];
   if (Array.isArray(res)) return res;
-  if (res && Array.isArray((res as any).rows)) return (res as any).rows;
+  if (Array.isArray(res.rows)) return res.rows;
   return [];
 }
 
@@ -27,23 +29,33 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Intenta resolver el id numérico como un item_formulado_id.
- * Si existe, devuelve metadata básica del item formulado.
- */
-export async function tryGetItemFormuladoMeta(item_formulado_id: number): Promise<
-  | null
-  | {
-      item_formulado_id: number;
-      tipo: string;
-      producto_id: number | null;
-      oferta_id: number | null;
-    }
-> {
+export async function getProveedorPriceHistory(item_id: number): Promise<PriceHistoryResponse> {
+  const sql = db();
+  const q: any = await sql.query(
+    `
+      select
+        as_of_date::text as as_of_date,
+        presentacion::float8 as presentacion,
+        price_ars::float8 as price_ars
+      from app.item_price_daily_pres
+      where item_id = $1
+      order by as_of_date asc, presentacion asc;
+    `,
+    [item_id]
+  );
+
+  return {
+    item_key: `p:${item_id}`,
+    kind: "PROVEEDOR",
+    rows: normalizeQueryResult(q),
+  };
+}
+
+async function getItemFormuladoMeta(item_formulado_id: number): Promise<null | { tipo: string; producto_id: number | null; oferta_id: number | null }> {
   const sql = db();
   const r: any = await sql.query(
     `
-      select item_formulado_id, tipo, producto_id, oferta_id
+      select tipo, producto_id, oferta_id
       from app.item_formulado
       where item_formulado_id = $1
         and activo = true
@@ -51,12 +63,9 @@ export async function tryGetItemFormuladoMeta(item_formulado_id: number): Promis
     `,
     [item_formulado_id]
   );
-
   const row = normalizeQueryResult(r)[0];
   if (!row) return null;
-
   return {
-    item_formulado_id: Number(row.item_formulado_id),
     tipo: String(row.tipo ?? ""),
     producto_id: numOrNull(row.producto_id),
     oferta_id: numOrNull(row.oferta_id),
@@ -87,7 +96,6 @@ async function loadItemFormuladoSnapshotSeries(
   unit: PriceSeries["unit"]
 ): Promise<PriceSeries> {
   const sql = db();
-
   const r: any = await sql.query(
     `
       select
@@ -99,14 +107,13 @@ async function loadItemFormuladoSnapshotSeries(
     `,
     [item_formulado_id]
   );
-  const rows = normalizeQueryResult(r);
 
-  const points: PricePoint[] = rows
+  const points = normalizeQueryResult(r)
     .map((x: any) => ({ date: String(x.date ?? ""), value: Number(x.value) }))
-    .filter((p) => p.date && Number.isFinite(p.value));
+    .filter((p: any) => p.date && Number.isFinite(p.value));
 
   return {
-    id: `item_formulado:${item_formulado_id}`,
+    id: `f:${item_formulado_id}:snap`,
     label,
     unit,
     points,
@@ -115,7 +122,6 @@ async function loadItemFormuladoSnapshotSeries(
 
 async function loadOfertaCostoSnapshotSeries(oferta_id: number, label: string): Promise<PriceSeries> {
   const sql = db();
-
   const r: any = await sql.query(
     `
       select
@@ -127,14 +133,13 @@ async function loadOfertaCostoSnapshotSeries(oferta_id: number, label: string): 
     `,
     [oferta_id]
   );
-  const rows = normalizeQueryResult(r);
 
-  const points: PricePoint[] = rows
+  const points = normalizeQueryResult(r)
     .map((x: any) => ({ date: String(x.date ?? ""), value: Number(x.value) }))
-    .filter((p) => p.date && Number.isFinite(p.value));
+    .filter((p: any) => p.date && Number.isFinite(p.value));
 
   return {
-    id: `oferta:${oferta_id}`,
+    id: `oferta:${oferta_id}:snap`,
     label,
     unit: "ARS",
     points,
@@ -154,47 +159,40 @@ async function listPresentacionesForProducto(producto_id: number): Promise<Array
     `,
     [producto_id]
   );
-  const rows = normalizeQueryResult(r);
-  return rows
+
+  return normalizeQueryResult(r)
     .map((x: any) => ({ oferta_id: Number(x.oferta_id), nombre: String(x.nombre ?? "") }))
-    .filter((x) => Number.isFinite(x.oferta_id) && x.oferta_id > 0);
+    .filter((x: any) => Number.isFinite(x.oferta_id) && x.oferta_id > 0);
 }
 
-/**
- * Historial unificado para items formulados (bulk + presentaciones).
- * Nota: si el id no es item_formulado, devuelve null (para permitir fallback proveedor).
- */
-export async function getPriceHistoryForItemFormulado(id: number): Promise<PriceHistoryResponse | null> {
-  const meta = await tryGetItemFormuladoMeta(id);
-  if (!meta) return null;
+export async function getFormuladoPriceHistory(item_formulado_id: number): Promise<PriceHistoryResponse> {
+  const meta = await getItemFormuladoMeta(item_formulado_id);
+  if (!meta) {
+    return { item_key: `f:${item_formulado_id}`, kind: "FORMULADO", series: [] };
+  }
 
   const series: PriceSeries[] = [];
 
-  const producto_id = meta.producto_id;
-
-  // Siempre intentamos incluir el bulk si existe.
-  if (producto_id) {
-    const bulkId = await getBulkItemFormuladoIdForProducto(producto_id);
+  // incluir bulk (si se puede resolver por producto)
+  if (meta.producto_id) {
+    const bulkId = await getBulkItemFormuladoIdForProducto(meta.producto_id);
     if (bulkId) {
       series.push(await loadItemFormuladoSnapshotSeries(bulkId, "Bulk", "ARS/kg"));
     }
   }
 
-  // Si este item_formulado es una presentación concreta, incluimos solo esa (y el bulk si lo pudimos resolver).
   if (meta.tipo === "PRESENTACION" && meta.oferta_id) {
     series.push(await loadOfertaCostoSnapshotSeries(meta.oferta_id, "Presentación"));
-    return { item_id: id, kind: "FORMULADO", series };
+    return { item_key: `f:${item_formulado_id}`, kind: "FORMULADO", series };
   }
 
-  // Si es bulk, incluimos todas las presentaciones del producto.
-  if (meta.tipo === "BULK" && producto_id) {
-    const pres = await listPresentacionesForProducto(producto_id);
+  if (meta.tipo === "BULK" && meta.producto_id) {
+    const pres = await listPresentacionesForProducto(meta.producto_id);
     for (const p of pres) {
       series.push(await loadOfertaCostoSnapshotSeries(p.oferta_id, p.nombre || `Oferta ${p.oferta_id}`));
     }
-    return { item_id: id, kind: "FORMULADO", series };
+    return { item_key: `f:${item_formulado_id}`, kind: "FORMULADO", series };
   }
 
-  // Tipo desconocido: devolvemos lo que haya.
-  return { item_id: id, kind: "FORMULADO", series };
+  return { item_key: `f:${item_formulado_id}`, kind: "FORMULADO", series };
 }

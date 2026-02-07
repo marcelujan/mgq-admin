@@ -4,8 +4,14 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 
+type ItemKind = "PROVEEDOR" | "FORMULADO" | string;
+
 type ItemRow = {
+  item_key: string; // p:<item_id> | f:<item_formulado_id>
+  kind: ItemKind;
   item_id: string | number;
+
+  // proveedor
   proveedor_codigo: string;
   proveedor_nombre: string;
   url_original: string;
@@ -15,10 +21,13 @@ type ItemRow = {
   created_at?: string;
   updated_at?: string;
 
-  // opcional (no se muestra como columna en la lista minimalista)
-  mensaje_error?: string | null;
+  // formulado
+  producto_nombre?: string | null;
+  oferta_nombre?: string | null;
+  tipo_formulado?: string | null; // BULK | PRESENTACION
 
-  // si el GET pudo traer job:
+  // opcional
+  mensaje_error?: string | null;
   ultimo_job_id?: string | number | null;
   ultimo_job_estado?: string | null;
 };
@@ -30,6 +39,62 @@ function qs(params: Record<string, any>) {
     sp.set(k, String(v));
   });
   return sp.toString();
+}
+
+function productTitleFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const last = (u.pathname.split("/").filter(Boolean).pop() || "").trim();
+    if (!last) return u.hostname;
+    const decoded = decodeURIComponent(last)
+      .replace(/\.(html|htm|php)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return decoded || u.hostname;
+  } catch {
+    return url;
+  }
+}
+
+function hostFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function badgeStyle(estado: string): CSSProperties {
+  const s = (estado || "").toUpperCase();
+  const base: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    padding: "2px 10px",
+    fontSize: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.03)",
+    whiteSpace: "nowrap",
+  };
+
+  if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.10)" };
+  if (s === "FORMULADO")
+    return { ...base, borderColor: "rgba(59,130,246,0.45)", background: "rgba(59,130,246,0.10)" };
+  if (s.includes("ERROR"))
+    return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
+  if (s.includes("WAIT") || s.includes("PENDING"))
+    return { ...base, borderColor: "rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.10)" };
+
+  return base;
+}
+
+function labelTipoFormulado(tipo?: string | null): string {
+  const t = String(tipo ?? "").toUpperCase();
+  if (t === "BULK") return "Bulk";
+  if (t === "PRESENTACION") return "Presentación";
+  return t || "Formulado";
 }
 
 export default function ItemsClient() {
@@ -100,45 +165,6 @@ export default function ItemsClient() {
     };
   }, []);
 
-  function productTitleFromUrl(url: string): string {
-    try {
-      const u = new URL(url);
-      const last = (u.pathname.split("/").filter(Boolean).pop() || "").trim();
-      if (!last) return u.hostname;
-      const decoded = decodeURIComponent(last)
-        .replace(/\.(html|htm|php)$/i, "")
-        .replace(/[-_]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      return decoded || u.hostname;
-    } catch {
-      return url;
-    }
-  }
-
-  function badgeStyle(estado: string): CSSProperties {
-    const s = (estado || "").toUpperCase();
-    const base: CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      borderRadius: 999,
-      padding: "2px 10px",
-      fontSize: 12,
-      border: "1px solid rgba(255,255,255,0.14)",
-      background: "rgba(255,255,255,0.03)",
-      whiteSpace: "nowrap",
-    };
-
-    if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.10)" };
-    if (s.includes("ERROR"))
-      return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
-    if (s.includes("WAIT") || s.includes("PENDING"))
-      return { ...base, borderColor: "rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.10)" };
-
-    return base;
-  }
-
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <style jsx global>{`
@@ -169,7 +195,7 @@ export default function ItemsClient() {
               setOffset(0);
               setSearch(e.target.value);
             }}
-            placeholder="url / proveedor / id"
+            placeholder="url / proveedor / producto"
           />
         </div>
 
@@ -192,6 +218,7 @@ export default function ItemsClient() {
             }}
           >
             <option value="">(todos)</option>
+            <option value="FORMULADO">FORMULADO</option>
             <option value="PENDING_SCRAPE">PENDING_SCRAPE</option>
             <option value="WAITING_REVIEW">WAITING_REVIEW</option>
             <option value="OK">OK</option>
@@ -283,7 +310,7 @@ export default function ItemsClient() {
         <table style={{ minWidth: 980, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
-              <th style={{ padding: 10, width: 90 }}>ID</th>
+              <th style={{ padding: 10, width: 120 }}>ID</th>
               <th style={{ padding: 10, minWidth: 360 }}>Producto</th>
               <th style={{ padding: 10, width: 220 }}>Proveedor</th>
               <th style={{ padding: 10, width: 160 }}>Estado</th>
@@ -297,59 +324,92 @@ export default function ItemsClient() {
             </tr>
           </thead>
           <tbody>
-            {items.map((it) => (
-              <tr key={String(it.item_id)} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.9 }}>{String(it.item_id)}</td>
-                <td style={{ padding: 10 }}>
-                  <div
-                    style={{ fontWeight: 700, opacity: 0.95, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}
-                    title={it.url_canonica || it.url_original}
-                  >
-                    {productTitleFromUrl(it.url_canonica || it.url_original)}
-                  </div>
-                  <div style={{ fontSize: 12, opacity: 0.65, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}>
-                    {(() => {
-                      try {
-                        return new URL(it.url_canonica || it.url_original).hostname;
-                      } catch {
-                        return "";
-                      }
-                    })()}
-                  </div>
-                </td>
-                <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                  <div style={{ fontWeight: 700, opacity: 0.95 }}>{it.proveedor_codigo}</div>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>{it.proveedor_nombre}</div>
-                </td>
-                <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                  <span style={badgeStyle(it.estado)} title={it.mensaje_error ?? undefined}>
-                    {it.estado}
-                    {it.mensaje_error ? <span style={{ opacity: 0.9 }}>⚠︎</span> : null}
-                  </span>
-                </td>
-                <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at)}</td>
-                <td style={{ padding: 10, textAlign: "center" }}>
-                  {it.url_canonica ? (
-                    <a
-                      href={it.url_canonica}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={it.url_canonica}
-                      style={{ opacity: 0.9 }}
+            {items.map((it) => {
+              const isProv = (it.kind || "").toUpperCase() === "PROVEEDOR";
+              const isFor = (it.kind || "").toUpperCase() === "FORMULADO";
+
+              const url = (it.url_canonica || it.url_original || "").trim();
+              const showUrl = isProv && !!url;
+
+              const productoTitle = isProv
+                ? productTitleFromUrl(url)
+                : isFor
+                  ? `${labelTipoFormulado(it.tipo_formulado)} · ${String(it.producto_nombre ?? "").trim() || "Producto"}` +
+                    (String(it.oferta_nombre ?? "").trim() ? ` · ${String(it.oferta_nombre ?? "").trim()}` : "")
+                  : `Item ${String(it.item_id)}`;
+
+              const productoSub = isProv ? hostFromUrl(url) : isFor ? "" : "";
+
+              return (
+                <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.9 }}>
+                    <div style={{ fontWeight: 700 }}>{String(it.item_id)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>{it.kind}</div>
+                  </td>
+                  <td style={{ padding: 10 }}>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        opacity: 0.95,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 520,
+                      }}
+                      title={isProv ? url : productoTitle}
                     >
-                      🔗
-                    </a>
-                  ) : (
-                    <span style={{ opacity: 0.3 }}>🔗</span>
-                  )}
-                </td>
-                <td style={{ padding: 10, textAlign: "center" }}>
-                  <Link href={`/items/${String(it.item_id)}`} title="Ver detalle" style={{ opacity: 0.9 }}>
-                    🔍
-                  </Link>
-                </td>
-              </tr>
-            ))}
+                      {productoTitle}
+                    </div>
+                    {productoSub ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.65,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: 520,
+                        }}
+                      >
+                        {productoSub}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    {isProv ? (
+                      <>
+                        <div style={{ fontWeight: 700, opacity: 0.95 }}>{it.proveedor_codigo}</div>
+                        <div style={{ fontSize: 12, opacity: 0.7 }}>{it.proveedor_nombre}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, opacity: 0.6 }}>—</div>
+                    )}
+                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <span style={badgeStyle(it.estado)} title={it.mensaje_error ?? undefined}>
+                      {it.estado}
+                      {it.mensaje_error ? <span style={{ opacity: 0.9 }}>⚠︎</span> : null}
+                    </span>
+                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at)}</td>
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    {showUrl ? (
+                      <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9 }}>
+                        🔗
+                      </a>
+                    ) : (
+                      <span style={{ opacity: 0.3 }}>🔗</span>
+                    )}
+                  </td>
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    <Link href={`/items/${encodeURIComponent(it.item_key)}`} title="Ver detalle" style={{ opacity: 0.9 }}>
+                      🔍
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
+
             {!loading && items.length === 0 ? (
               <tr>
                 <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={7}>
