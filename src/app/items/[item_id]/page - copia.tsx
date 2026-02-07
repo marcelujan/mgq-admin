@@ -34,7 +34,11 @@ function titleFromUrl(urlStr: string): string | null {
   }
 }
 
-export default async function ItemPage({ params }: { params: ItemParams | Promise<ItemParams> }) {
+export default async function ItemPage({
+  params,
+}: {
+  params: ItemParams | Promise<ItemParams>;
+}) {
   const p = await Promise.resolve(params);
 
   const raw = p?.item_id;
@@ -53,7 +57,6 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
 
   let productTitle = `Item ${itemId}`;
   let itemUrl: string | null = null;
-  let itemKind: "PROVEEDOR" | "FORMULADO" | "DESCONOCIDO" = "DESCONOCIDO";
 
   try {
     const sql = db();
@@ -67,57 +70,12 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
     const row = normalizeQueryResult(res)[0] ?? null;
     itemUrl = (row?.url_original || row?.url_canonica || null) as string | null;
 
-    if (itemUrl) itemKind = "PROVEEDOR";
-
     if (itemUrl) {
       const t = titleFromUrl(itemUrl);
       if (t) productTitle = t;
     }
   } catch {
     // si falla la DB, queda el fallback "Item {id}"
-  }
-
-  // Fallback: si no es proveedor, intentar tratarlo como item_formulado (id = item_formulado_id)
-  if (!itemUrl) {
-    try {
-      const sql = db();
-      const r: any = await sql.query(
-        `
-          select
-            i.item_formulado_id,
-            i.tipo,
-            i.producto_id,
-            i.oferta_id,
-            p.nombre as producto_nombre,
-            o.nombre as oferta_nombre
-          from app.item_formulado i
-          left join app.producto p on p.producto_id = i.producto_id
-          left join app.producto_oferta o on o.oferta_id = i.oferta_id
-          where i.item_formulado_id = $1
-            and i.activo = true
-          limit 1;
-        `,
-        [itemId]
-      );
-      const row = normalizeQueryResult(r)[0] ?? null;
-      if (row) {
-        itemKind = "FORMULADO";
-        const tipo = String(row.tipo ?? "");
-        const prodName = String(row.producto_nombre ?? "").trim();
-        const ofertaName = String(row.oferta_nombre ?? "").trim();
-
-        if (tipo === "BULK") {
-          productTitle = prodName ? `Bulk · ${prodName}` : `Bulk ${itemId}`;
-        } else if (tipo === "PRESENTACION") {
-          const base = prodName ? prodName : "Producto";
-          productTitle = ofertaName ? `${base} · ${ofertaName}` : `${base} · Presentación`;
-        } else {
-          productTitle = prodName ? `Item formulado · ${prodName}` : `Item formulado ${itemId}`;
-        }
-      }
-    } catch {
-      // fallback simple
-    }
   }
 
   return (
@@ -138,18 +96,7 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
       </div>
 
       <div style={{ fontSize: 14, opacity: 0.85 }}>
-        {itemKind === "PROVEEDOR" ? (
-          <>
-            Histórico diario por presentación (tabla: <code>app.item_price_daily_pres</code>)
-          </>
-        ) : itemKind === "FORMULADO" ? (
-          <>
-            Histórico desde snapshots automáticos (tablas: <code>app.item_formulado_snapshot</code> /{" "}
-            <code>app.producto_oferta_costo_snapshot</code>)
-          </>
-        ) : (
-          <>Histórico</>
-        )}
+        Histórico diario por presentación (tabla: <code>app.item_price_daily_pres</code>)
       </div>
 
       <PriceHistoryChart itemId={itemId} />

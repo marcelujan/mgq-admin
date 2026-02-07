@@ -4,8 +4,6 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Row = { as_of_date: string; presentacion: number; price_ars: number };
-type SeriesPoint = { date: string; value: number };
-type Series = { id: string; label: string; unit: string; points: SeriesPoint[] };
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
@@ -129,6 +127,7 @@ function SparkLineChart({
     const ratio = svg.W / rect.width;
     const xv = x * ratio;
 
+    // FIX tipado: guardamos best sin dist en el objeto
     let best: { s: number; i: number } | null = null;
     let bestDist = Infinity;
 
@@ -309,14 +308,12 @@ function SparkLineChart({
 
 export default function PriceHistoryChart({ itemId }: { itemId: number }) {
   const [rows, setRows] = useState<Row[]>([]);
-  const [series, setSeries] = useState<Series[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30"); // DEFAULT: 30
 
   useEffect(() => {
     (async () => {
       setErr(null);
-      setSeries(null);
       const res = await fetch(`/api/items/${itemId}/price-history`, { cache: "no-store" });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -324,28 +321,6 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
         return;
       }
       const j = await res.json();
-
-      // Nuevo contrato (items formulados): { ok, item_id, kind, series: [...] }
-      if (Array.isArray(j?.series)) {
-        const s = (j.series as any[])
-          .map((x) => ({
-            id: String(x?.id ?? ""),
-            label: String(x?.label ?? ""),
-            unit: String(x?.unit ?? ""),
-            points: Array.isArray(x?.points)
-              ? (x.points as any[])
-                  .map((p) => ({ date: String(p?.date ?? ""), value: Number(p?.value) }))
-                  .filter((p) => p.date && Number.isFinite(p.value))
-              : [],
-          }))
-          .filter((x) => x.id && x.points.length);
-
-        setSeries(s);
-        setRows([]);
-        return;
-      }
-
-      // Compat proveedor: { ok, item_id, kind, rows: [...] }
       const r = Array.isArray(j?.rows) ? (j.rows as Row[]) : [];
       setRows(r);
     })();
@@ -374,17 +349,9 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
   }, [rows]);
 
   const maxDate = useMemo(() => {
-    if (series && series.length) {
-      const d = series
-        .flatMap((s) => s.points.map((p) => p.date))
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b));
-      return d.length ? d[d.length - 1] : null;
-    }
-
     const d = rows.map((r) => r.as_of_date).filter(Boolean).sort((a, b) => a.localeCompare(b));
     return d.length ? d[d.length - 1] : null;
-  }, [rows, series]);
+  }, [rows]);
 
   const cutoffIso = useMemo(() => {
     if (!maxDate) return null;
@@ -427,81 +394,7 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
   }, [filteredRows, presList]);
 
   if (err) return <div style={{ color: "#ff6b6b", fontSize: 14 }}>Error: {err}</div>;
-  if ((!series || series.length === 0) && rows.length === 0) {
-    return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
-  }
-
-  // Render para items formulados (series)
-  if (series && series.length) {
-    const cutoff = cutoffIso;
-
-    const byUnit = new Map<string, Series[]>();
-    for (const s of series) {
-      const unit = s.unit || "ARS";
-      if (!byUnit.has(unit)) byUnit.set(unit, []);
-      byUnit.get(unit)!.push(s);
-    }
-
-    const charts = Array.from(byUnit.entries()).map(([unit, list]) => {
-      const ser = list.map((s) => ({
-        name: s.label || s.id,
-        points: (cutoff ? s.points.filter((p) => p.date >= cutoff) : s.points).map((p) => ({ d: p.date, y: p.value })),
-      }));
-
-      const fmtY = (v: number) => {
-        if (unit === "ARS") return fmtArs.format(v);
-        if (unit === "ARS/kg") return `${fmtArs.format(v)}/kg`;
-        if (unit === "ARS/L") return `${fmtArs.format(v)}/L`;
-        if (unit === "ARS/u") return `${fmtArs.format(v)}/u`;
-        return fmtArs.format(v);
-      };
-
-      const title = unit === "ARS" ? "Histórico (ARS)" : `Histórico (${unit})`;
-
-      return <SparkLineChart key={unit} title={title} series={ser} fmtY={fmtY} fmtX={fmtDate} />;
-    });
-
-    return (
-      <div style={{ display: "grid", gap: 14 }}>
-        <style jsx global>{`
-          .ph_range {
-            color-scheme: dark;
-          }
-          .ph_range option {
-            background: #0b0b0b;
-            color: #ffffff;
-          }
-        `}</style>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>Intervalo</div>
-          <select
-            className="ph_range"
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeKey)}
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 8,
-              padding: "6px 10px",
-              background: "rgba(255,255,255,0.04)",
-              color: "rgba(255,255,255,0.88)",
-              fontSize: 13,
-              outline: "none",
-            }}
-          >
-            <option value="30">30 días</option>
-            <option value="60">60 días</option>
-            <option value="100">100 días</option>
-            <option value="180">180 días</option>
-            <option value="365">365 días</option>
-            <option value="all">Todo</option>
-          </select>
-        </div>
-
-        {charts}
-      </div>
-    );
-  }
+  if (rows.length === 0) return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -558,8 +451,8 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
         {chartsByPres.map((c) => (
           <SparkLineChart
             key={c.pres}
-            title={`Precio total · Presentación ${c.pres} u`}
-            series={[{ name: `${c.pres} u`, points: c.points }]}
+            title={`Precio total · Presentación ${c.pres}`}
+            series={[{ name: `${c.pres}`, points: c.points }]}
             fmtY={(v) => fmtArs.format(Math.round(v))}
             fmtX={fmtDate}
           />

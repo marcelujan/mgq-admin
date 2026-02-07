@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { Pool } from "pg";
+import { db } from "@/lib/db";
+import { getPriceHistoryForItemFormulado } from "@/lib/itemPriceHistory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 1,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 10_000,
-});
+function normalizeQueryResult(res: any): any[] {
+  if (Array.isArray(res)) return res;
+  if (res && Array.isArray((res as any).rows)) return (res as any).rows;
+  return [];
+}
 
-export async function GET(
-  _req: NextRequest,
-  context: { params: Promise<{ item_id: string }> }
-) {
+export async function GET(_req: NextRequest, context: { params: Promise<{ item_id: string }> }) {
   const { item_id } = await context.params;
 
   const itemId = Number(item_id);
@@ -23,10 +20,17 @@ export async function GET(
     return NextResponse.json({ error: "invalid_item_id" }, { status: 400 });
   }
 
-  const client = await pool.connect();
-  try {
-    const q = await client.query(
-      `
+  // 1) Si el id corresponde a un item_formulado, devolvemos series unificadas.
+  //    (bulk + presentaciones) leyendo snapshots existentes.
+  const formulado = await getPriceHistoryForItemFormulado(itemId);
+  if (formulado) {
+    return NextResponse.json({ ok: true, ...formulado }, { status: 200 });
+  }
+
+  // 2) Fallback proveedor (histórico diario por presentación) - compat con UI actual.
+  const sql = db();
+  const q: any = await sql.query(
+    `
       select
         as_of_date::text as as_of_date,
         presentacion::float8 as presentacion,
@@ -34,12 +38,10 @@ export async function GET(
       from app.item_price_daily_pres
       where item_id = $1
       order by as_of_date asc, presentacion asc;
-      `,
-      [itemId]
-    );
+    `,
+    [itemId]
+  );
 
-    return NextResponse.json({ item_id: itemId, rows: q.rows }, { status: 200 });
-  } finally {
-    client.release();
-  }
+  const rows = normalizeQueryResult(q);
+  return NextResponse.json({ ok: true, item_id: itemId, kind: "PROVEEDOR", rows }, { status: 200 });
 }
