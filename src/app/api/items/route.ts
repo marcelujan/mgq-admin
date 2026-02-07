@@ -11,11 +11,9 @@ function normalizeQueryResult(res: any): any[] {
 /**
  * API unificada de Items.
  *
- * Devuelve rows con `item_key` estable:
+ * item_key estable:
  *  - Proveedor:  p:<item_id>
  *  - Formulado:  f:<item_formulado_id>
- *
- * No recalcula nada. Solo lista.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -27,7 +25,7 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
-    const estado = (searchParams.get("estado") ?? "").trim(); // "" o algún estado proveedor o "FORMULADO"
+    const estado = (searchParams.get("estado") ?? "").trim(); // "" o estado proveedor o "FORMULADO"
     const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
     const search = (searchParams.get("search") ?? "").trim();
 
@@ -47,7 +45,7 @@ export async function GET(req: NextRequest) {
           ('p:' || i.item_id::text) as item_key,
           'PROVEEDOR'::text as kind,
           i.item_id::text as item_id,
-          coalesce(pr.codigo, '') as proveedor_codigo,
+          ''::text as proveedor_codigo,
           coalesce(pr.nombre, '') as proveedor_nombre,
           i.url_original,
           i.url_canonica,
@@ -68,7 +66,6 @@ export async function GET(req: NextRequest) {
           and (
             $3::text is null
             or coalesce(pr.nombre,'') ilike $3::text
-            or coalesce(pr.codigo,'') ilike $3::text
             or coalesce(i.url_original,'') ilike $3::text
             or coalesce(i.url_canonica,'') ilike $3::text
           )
