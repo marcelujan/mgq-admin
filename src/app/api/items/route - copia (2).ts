@@ -27,17 +27,70 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
-    const estado = (searchParams.get("estado") ?? "").trim(); // "" o algún estado proveedor o "FORMULADO"
-    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
     const search = (searchParams.get("search") ?? "").trim();
+    const estado = (searchParams.get("estado") ?? "").trim();
+    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
 
     let seleccionado: boolean | null = null;
     if (seleccionadoRaw === "true") seleccionado = true;
     if (seleccionadoRaw === "false") seleccionado = false;
 
-    const searchLike = search ? `%${search}%` : null;
-
     const sql = db();
+
+    // --- WHERE proveedor (item_seguimiento)
+    const wProv: string[] = [];
+    const vProv: any[] = [];
+    let pProv = 1;
+
+    if (estado) {
+      wProv.push(`i.estado = $${pProv++}`);
+      vProv.push(estado);
+    }
+
+    if (seleccionado !== null) {
+      wProv.push(`i.seleccionado = $${pProv++}`);
+      vProv.push(seleccionado);
+    }
+
+    if (search) {
+      wProv.push(`(
+        coalesce(pr.nombre,'') ilike $${pProv} OR
+        coalesce(pr.codigo,'') ilike $${pProv} OR
+        coalesce(i.url_original,'') ilike $${pProv} OR
+        coalesce(i.url_canonica,'') ilike $${pProv}
+      )`);
+      vProv.push(`%${search}%`);
+      pProv++;
+    }
+
+    const whereProvSql = wProv.length ? `WHERE ${wProv.join(" AND ")}` : "";
+
+    // --- WHERE formulado (item_formulado)
+    const wFor: string[] = [`f.activo = true`];
+    const vFor: any[] = [];
+    let pFor = 1;
+
+    // filtro estado: solo soporta "FORMULADO" para incluir formulados.
+    if (estado && estado !== "FORMULADO") {
+      wFor.push("1=0");
+    }
+
+    // filtro seleccionado: por ahora los formulados no tienen flag; se tratan como false.
+    if (seleccionado === true) {
+      wFor.push("1=0");
+    }
+
+    if (search) {
+      wFor.push(`(
+        coalesce(p.nombre,'') ilike $${pFor} OR
+        coalesce(o.nombre,'') ilike $${pFor} OR
+        coalesce(p.codigo,'') ilike $${pFor}
+      )`);
+      vFor.push(`%${search}%`);
+      pFor++;
+    }
+
+    const whereForSql = wFor.length ? `WHERE ${wFor.join(" AND ")}` : "";
 
     const r: any = await sql.query(
       `
@@ -52,7 +105,7 @@ export async function GET(req: NextRequest) {
           i.url_original,
           i.url_canonica,
           i.seleccionado,
-          i.estado::text as estado,
+          i.estado,
           i.created_at,
           i.updated_at,
           null::text as producto_nombre,
@@ -62,16 +115,7 @@ export async function GET(req: NextRequest) {
           0::int as sort_kind
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
-        where
-          ($1::text = '' or i.estado::text = $1::text)
-          and ($2::boolean is null or i.seleccionado = $2::boolean)
-          and (
-            $3::text is null
-            or coalesce(pr.nombre,'') ilike $3::text
-            or coalesce(pr.codigo,'') ilike $3::text
-            or coalesce(i.url_original,'') ilike $3::text
-            or coalesce(i.url_canonica,'') ilike $3::text
-          )
+        ${whereProvSql}
       ),
       formulado as (
         select
@@ -94,16 +138,7 @@ export async function GET(req: NextRequest) {
         from app.item_formulado f
         left join app.producto p on p.producto_id = f.producto_id
         left join app.producto_oferta o on o.oferta_id = f.oferta_id
-        where
-          f.activo = true
-          and ($1::text = '' or $1::text = 'FORMULADO')
-          and ($2::boolean is null or $2::boolean = false)
-          and (
-            $3::text is null
-            or coalesce(p.nombre,'') ilike $3::text
-            or coalesce(o.nombre,'') ilike $3::text
-            or coalesce(p.codigo,'') ilike $3::text
-          )
+        ${whereForSql}
       ),
       all_items as (
         select * from proveedor
@@ -127,9 +162,9 @@ export async function GET(req: NextRequest) {
         tipo_formulado
       from all_items
       order by sort_kind asc, sort_id desc
-      limit $4 offset $5;
+      limit $1 offset $2;
       `,
-      [estado, seleccionado, searchLike, limit, offset]
+      [limit, offset]
     );
 
     const rows = normalizeQueryResult(r);
