@@ -10,14 +10,20 @@ function normalizeQueryResult(res: any): any[] {
 
 /**
  * Unificación de Items:
- * - PROVEEDOR: app.item_seguimiento
- * - FORMULADO (virtual): producto con fórmula v2 (por header o por líneas)
+ * - PROVEEDOR: app.item_seguimiento (scrape)
+ * - FORMULADO (virtual): app.producto_formula_v2 (uno por producto con fórmula v2)
  * - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
  *
  * item_key:
  * - p:<item_id>
  * - fprod:<producto_id>
  * - mopt:<cost_option_id>
+ *
+ * Filtros:
+ * - tipo: "" | "PROVEEDOR" | "MANUAL" | "FORMULADO"
+ * - estado: solo aplica a PROVEEDOR (scrape)
+ * - seleccionado: solo aplica a PROVEEDOR
+ * - search: aplica a cada fuente en sus campos relevantes
  */
 export async function GET(req: NextRequest) {
   try {
@@ -81,17 +87,6 @@ export async function GET(req: NextRequest) {
           )
       ),
 
-      -- productos con fórmula v2: por header (producto_formula_v2) o por líneas (producto_formula_linea_v2)
-      productos_formulados_v2 as (
-        select distinct producto_id
-        from (
-          select producto_id from app.producto_formula_v2
-          union
-          select producto_id from app.producto_formula_linea_v2
-        ) x
-        where producto_id is not null
-      ),
-
       formulado_virtual as (
         select
           ('fprod:' || pf.producto_id::text) as item_key,
@@ -114,7 +109,7 @@ export async function GET(req: NextRequest) {
           null::numeric as manual_costo_ars,
           pf.producto_id::bigint as sort_id,
           1::int as sort_kind
-        from productos_formulados_v2 pf
+        from app.producto_formula_v2 pf
         left join app.producto p on p.producto_id = pf.producto_id
         where
           ($1::text = '' or $1::text = 'FORMULADO')
@@ -151,6 +146,7 @@ export async function GET(req: NextRequest) {
           c.activo = true
           and c.tipo = 'MANUAL_PRESENTACION'
           and ($1::text = '' or $1::text = 'MANUAL')
+          -- estado/seleccionado no aplican
           and (
             $4::text is null
             or coalesce(c.manual_nombre,'') ilike $4::text
