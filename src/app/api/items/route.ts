@@ -13,14 +13,14 @@ function normalizeQueryResult(res: any): any[] {
  *
  * Filtros:
  * - tipo: "" | "PROVEEDOR" | "MANUAL" | "FORMULADO"
- * - estado: estados de scraping de proveedor (PENDING_SCRAPE | WAITING_REVIEW | OK | ERROR_SCRAPE | ...)
- *           (no aplica a MANUAL ni a FORMULADO)
- * - seleccionado: true/false
+ * - estado: estados de scrape de proveedor (solo aplica a PROVEEDOR)
+ * - seleccionado: true/false (solo aplica a proveedor)
  * - search: texto libre
  *
- * item_key estable:
- *  - Proveedor/Manual:  p:<item_id>
- *  - Formulado:         f:<item_formulado_id>
+ * item_key:
+ * - Proveedor/Manual: p:<item_id>
+ * - Formulado (persistido): f:<item_formulado_id>
+ * - Formulado (virtual por fórmula v2): fprod:<producto_id>
  */
 export async function GET(req: NextRequest) {
   try {
@@ -69,13 +69,11 @@ export async function GET(req: NextRequest) {
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
         where
-          -- tipo: incluir o excluir manuales
           (
             $1::text = '' OR
             ($1::text = 'PROVEEDOR' AND i.estado::text <> 'MANUAL_OVERRIDE') OR
             ($1::text = 'MANUAL' AND i.estado::text = 'MANUAL_OVERRIDE')
           )
-          -- estado: SOLO aplica a proveedor (no a manual). Si tipo='' también aplica, pero solo sobre proveedor.
           and (
             $2::text = '' OR
             (
@@ -83,9 +81,7 @@ export async function GET(req: NextRequest) {
               and i.estado::text = $2::text
             )
           )
-          -- seleccionado
           and ($3::boolean is null or i.seleccionado = $3::boolean)
-          -- search
           and (
             $4::text is null
             or coalesce(pr.nombre,'') ilike $4::text
@@ -93,7 +89,9 @@ export async function GET(req: NextRequest) {
             or coalesce(i.url_canonica,'') ilike $4::text
           )
       ),
-      formulado as (
+
+      -- Formulado persistido (si existe data). En tu DB hoy está vacío, pero lo dejamos.
+      formulado_persistido as (
         select
           ('f:' || f.item_formulado_id::text) as item_key,
           'FORMULADO'::text as kind,
@@ -107,27 +105,56 @@ export async function GET(req: NextRequest) {
           null::timestamptz as created_at,
           null::timestamptz as updated_at,
           coalesce(p.nombre, '') as producto_nombre,
-          coalesce(o.nombre, '') as oferta_nombre,
+          ''::text as oferta_nombre,
           f.tipo::text as tipo_formulado,
           f.item_formulado_id::bigint as sort_id,
           1::int as sort_kind
         from app.item_formulado f
         left join app.producto p on p.producto_id = f.producto_id
-        left join app.producto_oferta o on o.oferta_id = f.oferta_id
         where
           f.activo = true
           and ($1::text = '' or $1::text = 'FORMULADO')
-          -- estado no aplica a formulado
           and (
             $4::text is null
             or coalesce(p.nombre,'') ilike $4::text
-            or coalesce(o.nombre,'') ilike $4::text
           )
       ),
+
+      -- Formulado virtual: producto con fórmula v2 (tu caso actual).
+      formulado_virtual as (
+        select
+          ('fprod:' || pf.producto_id::text) as item_key,
+          'FORMULADO'::text as kind,
+          pf.producto_id::text as item_id,
+          ''::text as proveedor_codigo,
+          ''::text as proveedor_nombre,
+          ''::text as url_original,
+          ''::text as url_canonica,
+          false as seleccionado,
+          'FORMULADO'::text as estado,
+          null::timestamptz as created_at,
+          null::timestamptz as updated_at,
+          coalesce(p.nombre, '') as producto_nombre,
+          ''::text as oferta_nombre,
+          'BULK'::text as tipo_formulado,
+          pf.producto_id::bigint as sort_id,
+          1::int as sort_kind
+        from app.producto_formula_v2 pf
+        left join app.producto p on p.producto_id = pf.producto_id
+        where
+          ($1::text = '' or $1::text = 'FORMULADO')
+          and (
+            $4::text is null
+            or coalesce(p.nombre,'') ilike $4::text
+          )
+      ),
+
       all_items as (
         select * from proveedor
         union all
-        select * from formulado
+        select * from formulado_persistido
+        union all
+        select * from formulado_virtual
       )
       select
         item_key,
