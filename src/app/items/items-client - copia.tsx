@@ -8,26 +8,22 @@ type TipoFiltro = "" | "PROVEEDOR" | "MANUAL" | "FORMULADO";
 type EstadoProveedorFiltro = "" | "PENDING_SCRAPE" | "WAITING_REVIEW" | "OK" | "ERROR_SCRAPE";
 
 type ItemRow = {
-  item_key: string;
+  item_key: string; // p:<item_id> | f:<item_formulado_id>
   kind: "PROVEEDOR" | "MANUAL" | "FORMULADO" | string;
   item_id: string | number;
 
+  proveedor_codigo: string;
   proveedor_nombre: string;
   url_original: string;
   url_canonica: string;
   seleccionado: boolean;
   estado: string;
+  created_at?: string | null;
   updated_at?: string | null;
 
   producto_nombre?: string | null;
   oferta_nombre?: string | null;
-  tipo_formulado?: string | null;
-
-  manual_nombre?: string | null;
-  manual_uom?: string | null;
-  manual_cantidad?: number | null;
-  manual_costo_ars?: number | null;
-
+  tipo_formulado?: string | null; // BULK | PRESENTACION
   mensaje_error?: string | null;
 };
 
@@ -80,7 +76,7 @@ function badgeStyle(estado: string): CSSProperties {
 
   if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.10)" };
   if (s === "FORMULADO") return { ...base, borderColor: "rgba(59,130,246,0.45)", background: "rgba(59,130,246,0.10)" };
-  if (s === "MANUAL") return { ...base, borderColor: "rgba(245,158,11,0.45)", background: "rgba(245,158,11,0.10)" };
+  if (s === "MANUAL_OVERRIDE") return { ...base, borderColor: "rgba(245,158,11,0.45)", background: "rgba(245,158,11,0.10)" };
   if (s.includes("ERROR")) return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
   if (s.includes("WAIT") || s.includes("PENDING"))
     return { ...base, borderColor: "rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.10)" };
@@ -92,8 +88,7 @@ function labelTipoFormulado(tipo?: string | null): string {
   const t = String(tipo ?? "").toUpperCase();
   if (t === "BULK") return "Bulk";
   if (t === "PRESENTACION") return "Presentación";
-  if (t === "MANUAL_PRESENTACION") return "Manual";
-  return t || "";
+  return t || "Formulado";
 }
 
 export default function ItemsClient() {
@@ -102,14 +97,17 @@ export default function ItemsClient() {
   const [error, setError] = useState<string>("");
 
   const [search, setSearch] = useState("");
-  const [tipo, setTipo] = useState<TipoFiltro>("");
-  const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>("");
+  const [tipo, setTipo] = useState<TipoFiltro>(""); // default: todos
+  const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>(""); // default: todos (solo proveedor)
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
 
+  // Si el usuario elige MANUAL o FORMULADO, el estado de scraping no aplica
   useEffect(() => {
-    if (tipo === "MANUAL" || tipo === "FORMULADO") setEstadoProv("");
+    if (tipo === "MANUAL" || tipo === "FORMULADO") {
+      setEstadoProv("");
+    }
   }, [tipo]);
 
   const query = useMemo(
@@ -137,16 +135,17 @@ export default function ItemsClient() {
         return j.items as ItemRow[];
       })
       .then((rows) => {
-        if (!cancelled) setItems(rows);
+        if (cancelled) return;
+        setItems(rows);
       })
       .catch((e: any) => {
-        if (!cancelled) {
-          setError(e?.message ?? "error");
-          setItems([]);
-        }
+        if (cancelled) return;
+        setError(e?.message ?? "error");
+        setItems([]);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
       });
 
     return () => {
@@ -168,16 +167,6 @@ export default function ItemsClient() {
       return Number.isFinite(d.getTime()) ? f.format(d) : iso;
     };
   }, []);
-
-  const fmtArs = useMemo(
-    () =>
-      new Intl.NumberFormat("es-AR", {
-        style: "currency",
-        currency: "ARS",
-        maximumFractionDigits: 0,
-      }),
-    []
-  );
 
   const estadoDisabled = tipo === "MANUAL" || tipo === "FORMULADO";
 
@@ -211,7 +200,7 @@ export default function ItemsClient() {
               setOffset(0);
               setSearch(e.target.value);
             }}
-            placeholder="url / proveedor / producto / manual"
+            placeholder="url / proveedor / producto"
           />
         </div>
 
@@ -356,35 +345,35 @@ export default function ItemsClient() {
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
               <th style={{ padding: 10, width: 120 }}>ID</th>
-              <th style={{ padding: 10, minWidth: 360 }}>Item</th>
-              <th style={{ padding: 10, width: 220 }}>Fuente</th>
+              <th style={{ padding: 10, minWidth: 360 }}>Producto</th>
+              <th style={{ padding: 10, width: 220 }}>Proveedor</th>
               <th style={{ padding: 10, width: 160 }}>Estado</th>
               <th style={{ padding: 10, width: 150 }}>Actualizado</th>
-              <th style={{ padding: 10, width: 44 }}>🔗</th>
-              <th style={{ padding: 10, width: 44 }}>🔍</th>
+              <th style={{ padding: 10, width: 44 }} title="Abrir URL">
+                🔗
+              </th>
+              <th style={{ padding: 10, width: 44 }} title="Ver detalle">
+                🔍
+              </th>
             </tr>
           </thead>
           <tbody>
             {items.map((it) => {
               const kind = (it.kind || "").toUpperCase();
-              const isProv = kind === "PROVEEDOR";
+              const isProv = kind === "PROVEEDOR" || kind === "MANUAL";
               const isFor = kind === "FORMULADO";
-              const isMan = kind === "MANUAL";
 
               const url = (it.url_canonica || it.url_original || "").trim();
               const showUrl = isProv && !!url;
 
-              const title = isProv
+              const productoTitle = isProv
                 ? (url ? productTitleFromUrl(url) : `Item ${String(it.item_id)}`)
                 : isFor
-                  ? `Bulk · ${String(it.producto_nombre ?? "").trim() || `Producto ${String(it.item_id)}`}`
-                  : isMan
-                    ? String(it.manual_nombre ?? "").trim() || `Manual ${String(it.item_id)}`
-                    : `Item ${String(it.item_id)}`;
+                  ? `${labelTipoFormulado(it.tipo_formulado)} · ${String(it.producto_nombre ?? "").trim() || "Producto"}` +
+                    (String(it.oferta_nombre ?? "").trim() ? ` · ${String(it.oferta_nombre ?? "").trim()}` : "")
+                  : `Item ${String(it.item_id)}`;
 
-              const sub = isProv && url ? hostFromUrl(url) : isMan ? `${String(it.manual_cantidad ?? "")} ${String(it.manual_uom ?? "").trim()}` : "";
-
-              const fuente = isProv ? (it.proveedor_nombre || "Proveedor") : isFor ? "Fórmula v2" : isMan ? "Cost option" : "—";
+              const productoSub = isProv && url ? hostFromUrl(url) : "";
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -402,20 +391,40 @@ export default function ItemsClient() {
                         whiteSpace: "nowrap",
                         maxWidth: 520,
                       }}
-                      title={isProv ? url : title}
+                      title={isProv ? url : productoTitle}
                     >
-                      {title}
+                      {productoTitle}
                     </div>
-                    {sub ? (
-                      <div style={{ fontSize: 12, opacity: 0.65, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}>
-                        {sub}
-                        {isMan && it.manual_costo_ars != null ? ` · ${fmtArs.format(Number(it.manual_costo_ars))}` : ""}
+                    {productoSub ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.65,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: 520,
+                        }}
+                      >
+                        {productoSub}
                       </div>
                     ) : null}
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fuente}</td>
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                    <span style={badgeStyle(it.estado)}>{it.estado}</span>
+                    {isProv ? (
+                      <>
+                        <div style={{ fontWeight: 700, opacity: 0.95 }}>{it.proveedor_codigo}</div>
+                        <div style={{ fontSize: 12, opacity: 0.7 }}>{it.proveedor_nombre}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, opacity: 0.6 }}>—</div>
+                    )}
+                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    <span style={badgeStyle(it.estado)} title={it.mensaje_error ?? undefined}>
+                      {it.estado}
+                      {it.mensaje_error ? <span style={{ opacity: 0.9 }}>⚠︎</span> : null}
+                    </span>
                   </td>
                   <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at ?? null)}</td>
                   <td style={{ padding: 10, textAlign: "center" }}>
