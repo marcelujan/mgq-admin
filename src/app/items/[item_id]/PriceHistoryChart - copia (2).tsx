@@ -222,16 +222,19 @@ function SparkLineChart({
           <div
             style={{
               position: "absolute",
-              right: 10,
-              top: 10,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "rgba(0,0,0,0.35)",
-              backdropFilter: "blur(6px)",
+              left: `calc(${(hoverPoint.p.x / svg.W) * 100}% + 10px)`,
+              top: 8,
+              transform: "translateX(-10px)",
+              pointerEvents: "none",
+              border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
               padding: "8px 10px",
+              background: "rgba(10,10,10,0.85)",
+              backdropFilter: "blur(6px)",
               fontSize: 12,
-              minWidth: 140,
-              pointerEvents: "none",
+              lineHeight: 1.25,
+              minWidth: 170,
+              color: "rgba(255,255,255,0.92)",
             }}
           >
             <div style={{ opacity: 0.75 }}>{fmtX(hoverPoint.p.d)}</div>
@@ -253,13 +256,11 @@ export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [series, setSeries] = useState<Series[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [range, setRange] = useState<RangeKey>("30");
 
   useEffect(() => {
     (async () => {
       setErr(null);
-      setNote(null);
       setSeries(null);
       setRows([]);
 
@@ -269,10 +270,6 @@ export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
       if (!res.ok || !j?.ok) {
         setErr(j?.error ?? `http_${res.status}`);
         return;
-      }
-
-      if (typeof j?.note === "string" && j.note.trim()) {
-        setNote(j.note);
       }
 
       if (Array.isArray(j?.series)) {
@@ -332,13 +329,7 @@ export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
   }, [maxDate, range]);
 
   if (err) return <div style={{ color: "#ff6b6b", fontSize: 14 }}>Error: {err}</div>;
-  if ((!series || series.length === 0) && rows.length === 0)
-    return (
-      <div style={{ fontSize: 14, opacity: 0.85, display: "grid", gap: 6 }}>
-        <div>Sin histórico.</div>
-        {note ? <div style={{ fontSize: 13, opacity: 0.75 }}>{note}</div> : null}
-      </div>
-    );
+  if ((!series || series.length === 0) && rows.length === 0) return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
 
   // FORMULADO (series)
   if (series && series.length) {
@@ -427,18 +418,21 @@ export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
       if (!Number.isFinite(price)) continue;
       const y = price / pres;
       if (!Number.isFinite(y)) continue;
-
       if (!byPres.has(pres)) byPres.set(pres, []);
       byPres.get(pres)!.push({ d: r.as_of_date, y });
     }
-
-    return presList.map((pres) => ({
-      name: `${pres}u`,
-      points: (byPres.get(pres) ?? []).sort((a, b) => a.d.localeCompare(b.d)),
-    }));
+    return Array.from(byPres.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([pres, points]) => ({ name: `${pres} u`, points }));
   })();
 
-  const fmtY = (v: number) => `${fmtArs.format(v)}/u`;
+  const chartsByPres = presList.map((pres) => {
+    const points = filteredRows
+      .filter((r) => Number(r.presentacion) === pres)
+      .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
+      .filter((p) => Number.isFinite(p.y));
+    return { pres, points };
+  });
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -468,16 +462,33 @@ export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
             outline: "none",
           }}
         >
-          <option value="30">30 días</option>
-          <option value="60">60 días</option>
-          <option value="100">100 días</option>
-          <option value="180">180 días</option>
-          <option value="365">365 días</option>
+          <option value="30">Últimos 30 días</option>
+          <option value="60">Últimos 60 días</option>
+          <option value="100">Últimos 100 días</option>
+          <option value="180">Últimos 180 días</option>
+          <option value="365">Último año</option>
           <option value="all">Todo</option>
         </select>
       </div>
 
-      <SparkLineChart title="Histórico (ARS/u)" series={unitSeries} fmtY={fmtY} fmtX={fmtDate} />
+      <SparkLineChart
+        title="Precio por unidad (todas las presentaciones)"
+        series={unitSeries}
+        fmtY={(v) => fmtArs.format(Math.round(v))}
+        fmtX={fmtDate}
+      />
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {chartsByPres.map((c) => (
+          <SparkLineChart
+            key={c.pres}
+            title={`Precio total · Presentación ${c.pres} u`}
+            series={[{ name: `${c.pres} u`, points: c.points }]}
+            fmtY={(v) => fmtArs.format(Math.round(v))}
+            fmtX={fmtDate}
+          />
+        ))}
+      </div>
     </div>
   );
 }
