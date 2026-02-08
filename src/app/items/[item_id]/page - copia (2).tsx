@@ -12,8 +12,8 @@ function normalizeQueryResult(res: any): any[] {
 
 type ParsedKey =
   | { kind: "PROVEEDOR"; id: number; item_key: string }
-  | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
-  | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
+  | { kind: "FORMULADO_PERSISTIDO"; id: number; item_key: string }
+  | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string };
 
 function parseItemKey(raw: string): ParsedKey | null {
   const s = String(raw ?? "").trim();
@@ -24,24 +24,24 @@ function parseItemKey(raw: string): ParsedKey | null {
     return null;
   }
 
-  const mp = s.match(/^p:(\d+)$/i);
-  if (mp) {
-    const id = Number(mp[1]);
+  const mP = s.match(/^p:(\d+)$/i);
+  if (mP) {
+    const id = Number(mP[1]);
     if (Number.isFinite(id) && id > 0) return { kind: "PROVEEDOR", id, item_key: `p:${id}` };
     return null;
   }
 
-  const mfp = s.match(/^fprod:(\d+)$/i);
-  if (mfp) {
-    const producto_id = Number(mfp[1]);
-    if (Number.isFinite(producto_id) && producto_id > 0) return { kind: "FORMULADO_PRODUCTO", producto_id, item_key: `fprod:${producto_id}` };
+  const mF = s.match(/^f:(\d+)$/i);
+  if (mF) {
+    const id = Number(mF[1]);
+    if (Number.isFinite(id) && id > 0) return { kind: "FORMULADO_PERSISTIDO", id, item_key: `f:${id}` };
     return null;
   }
 
-  const mm = s.match(/^mopt:(\d+)$/i);
-  if (mm) {
-    const cost_option_id = Number(mm[1]);
-    if (Number.isFinite(cost_option_id) && cost_option_id > 0) return { kind: "MANUAL_COST_OPTION", cost_option_id, item_key: `mopt:${cost_option_id}` };
+  const mFP = s.match(/^fprod:(\d+)$/i);
+  if (mFP) {
+    const producto_id = Number(mFP[1]);
+    if (Number.isFinite(producto_id) && producto_id > 0) return { kind: "FORMULADO_PRODUCTO", producto_id, item_key: `fprod:${producto_id}` };
     return null;
   }
 
@@ -61,7 +61,12 @@ function titleFromUrl(urlStr: string): string | null {
       .replace(/\s+/g, " ")
       .trim();
 
-    return cleaned || null;
+    if (!cleaned) return null;
+
+    return cleaned
+      .split(" ")
+      .map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w))
+      .join(" ");
   } catch {
     return null;
   }
@@ -85,6 +90,7 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
 
   const sql = db();
 
+  // PROVEEDOR
   if (parsed.kind === "PROVEEDOR") {
     let productTitle = `Item ${parsed.id}`;
     let itemUrl: string | null = null;
@@ -104,7 +110,9 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
         const t = titleFromUrl(itemUrl);
         if (t) productTitle = t;
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
 
     return (
       <div style={{ padding: 16, display: "grid", gap: 12 }}>
@@ -132,14 +140,64 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
     );
   }
 
-  if (parsed.kind === "FORMULADO_PRODUCTO") {
+  // FORMULADO persistido (tabla item_formulado)
+  if (parsed.kind === "FORMULADO_PERSISTIDO") {
+    let titulo = `Item formulado ${parsed.id}`;
+
+    try {
+      const r: any = await sql.query(
+        `
+          select
+            i.tipo,
+            p.nombre as producto_nombre
+          from app.item_formulado i
+          left join app.producto p on p.producto_id = i.producto_id
+          where i.item_formulado_id = $1
+            and i.activo = true
+          limit 1;
+        `,
+        [parsed.id]
+      );
+      const row = normalizeQueryResult(r)[0] ?? null;
+      if (row) {
+        const tipo = String(row.tipo ?? "").toUpperCase();
+        const prodName = String(row.producto_nombre ?? "").trim();
+        if (tipo === "BULK") titulo = prodName ? `Bulk · ${prodName}` : `Bulk ${parsed.id}`;
+        else titulo = prodName ? `Formulado · ${prodName}` : `Formulado ${parsed.id}`;
+      }
+    } catch {
+      // ignore
+    }
+
+    return (
+      <div style={{ padding: 16, display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{titulo}</h1>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            item_key=<code>{parsed.item_key}</code> · item_formulado_id=<code>{parsed.id}</code>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 14, opacity: 0.85 }}>
+          Histórico desde snapshots automáticos (tabla: <code>app.item_formulado_snapshot</code>)
+        </div>
+
+        <PriceHistoryChart itemKey={parsed.item_key} />
+      </div>
+    );
+  }
+
+  // FORMULADO virtual (producto con fórmula v2)
+  {
     let titulo = `Bulk · Producto ${parsed.producto_id}`;
     try {
       const r: any = await sql.query(`select nombre from app.producto where producto_id = $1 limit 1;`, [parsed.producto_id]);
       const row = normalizeQueryResult(r)[0] ?? null;
       const prodName = String(row?.nombre ?? "").trim();
       if (prodName) titulo = `Bulk · ${prodName}`;
-    } catch {}
+    } catch {
+      // ignore
+    }
 
     return (
       <div style={{ padding: 16, display: "grid", gap: 12 }}>
@@ -151,52 +209,7 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
         </div>
 
         <div style={{ fontSize: 14, opacity: 0.85 }}>
-          Histórico: requiere snapshots de oferta/bulk (en este entorno aún no existen).
-        </div>
-
-        <PriceHistoryChart itemKey={parsed.item_key} />
-      </div>
-    );
-  }
-
-  // MANUAL_COST_OPTION
-  {
-    let titulo = `Manual · opt ${parsed.cost_option_id}`;
-    let detalle = "";
-
-    try {
-      const r: any = await sql.query(
-        `
-          select manual_nombre, manual_uom, manual_cantidad, manual_costo_ars
-          from app.cost_option
-          where cost_option_id = $1
-          limit 1;
-        `,
-        [parsed.cost_option_id]
-      );
-      const row = normalizeQueryResult(r)[0] ?? null;
-      if (row) {
-        const n = String(row.manual_nombre ?? "").trim();
-        if (n) titulo = `Manual · ${n}`;
-        const uom = String(row.manual_uom ?? "").trim();
-        const cant = row.manual_cantidad;
-        const costo = row.manual_costo_ars;
-        detalle = `${cant ?? ""} ${uom}`.trim() + (costo != null ? ` · ARS ${String(costo)}` : "");
-      }
-    } catch {}
-
-    return (
-      <div style={{ padding: 16, display: "grid", gap: 12 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{titulo}</h1>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            item_key=<code>{parsed.item_key}</code> · cost_option_id=<code>{parsed.cost_option_id}</code>
-            {detalle ? <> · {detalle}</> : null}
-          </div>
-        </div>
-
-        <div style={{ fontSize: 14, opacity: 0.85 }}>
-          Histórico: no hay tabla de price-history para cost_option en este schema.
+          Formulado virtual (derivado de <code>app.producto_formula_v2</code>). No hay snapshots en esta DB.
         </div>
 
         <PriceHistoryChart itemKey={parsed.item_key} />
