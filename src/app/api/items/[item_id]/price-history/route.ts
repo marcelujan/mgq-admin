@@ -10,8 +10,17 @@ type ParsedKey =
   | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
   | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
 
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function parseItemKey(raw: string): ParsedKey | null {
-  const s = String(raw ?? "").trim();
+  // Next puede entregar params ya decodificado o no; soportamos ambos.
+  const s = safeDecode(String(raw ?? "").trim());
 
   // legacy: /items/123
   if (/^\d+$/.test(s)) {
@@ -48,9 +57,9 @@ function parseItemKey(raw: string): ParsedKey | null {
 
 export async function GET(_req: NextRequest, context: { params: Promise<{ item_id: string }> }) {
   const { item_id } = await context.params;
-  const parsed = parseItemKey(item_id);
 
-  if (!parsed) return NextResponse.json({ ok: false, error: "invalid_item_key" }, { status: 400 });
+  const parsed = parseItemKey(item_id);
+  if (!parsed) return NextResponse.json({ ok: false, error: "invalid_item_key", item_id }, { status: 400 });
 
   if (parsed.kind === "PROVEEDOR") {
     const j = await getProveedorPriceHistory(parsed.id);
