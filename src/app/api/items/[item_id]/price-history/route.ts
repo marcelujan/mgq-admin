@@ -10,17 +10,23 @@ type ParsedKey =
   | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
   | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
 
-function safeDecode(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
+function decodeRepeated(s: string, maxRounds = 3): string {
+  let out = String(s ?? "");
+  for (let i = 0; i < maxRounds; i++) {
+    try {
+      const next = decodeURIComponent(out);
+      if (next === out) break;
+      out = next;
+    } catch {
+      break;
+    }
   }
+  return out;
 }
 
 function parseItemKey(raw: string): ParsedKey | null {
-  // Next puede entregar params ya decodificado o no; soportamos ambos.
-  const s = safeDecode(String(raw ?? "").trim());
+  // Soporta: p:231, p%3A231, p%253A231, etc.
+  const s = decodeRepeated(String(raw ?? "").trim());
 
   // legacy: /items/123
   if (/^\d+$/.test(s)) {
@@ -39,16 +45,18 @@ function parseItemKey(raw: string): ParsedKey | null {
   const mfp = s.match(/^fprod:(\d+)$/i);
   if (mfp) {
     const producto_id = Number(mfp[1]);
-    if (Number.isFinite(producto_id) && producto_id > 0)
+    if (Number.isFinite(producto_id) && producto_id > 0) {
       return { kind: "FORMULADO_PRODUCTO", producto_id, item_key: `fprod:${producto_id}` };
+    }
     return null;
   }
 
   const mm = s.match(/^mopt:(\d+)$/i);
   if (mm) {
     const cost_option_id = Number(mm[1]);
-    if (Number.isFinite(cost_option_id) && cost_option_id > 0)
+    if (Number.isFinite(cost_option_id) && cost_option_id > 0) {
       return { kind: "MANUAL_COST_OPTION", cost_option_id, item_key: `mopt:${cost_option_id}` };
+    }
     return null;
   }
 
@@ -59,7 +67,12 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ item_i
   const { item_id } = await context.params;
 
   const parsed = parseItemKey(item_id);
-  if (!parsed) return NextResponse.json({ ok: false, error: "invalid_item_key", item_id }, { status: 400 });
+  if (!parsed) {
+    return NextResponse.json(
+      { ok: false, error: "invalid_item_key", item_id_raw: item_id, item_id_decoded: decodeRepeated(item_id) },
+      { status: 400 }
+    );
+  }
 
   if (parsed.kind === "PROVEEDOR") {
     const j = await getProveedorPriceHistory(parsed.id);

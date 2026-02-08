@@ -10,13 +10,27 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
+function decodeRepeated(s: string, maxRounds = 3): string {
+  let out = String(s ?? "");
+  for (let i = 0; i < maxRounds; i++) {
+    try {
+      const next = decodeURIComponent(out);
+      if (next === out) break;
+      out = next;
+    } catch {
+      break;
+    }
+  }
+  return out;
+}
+
 type ParsedKey =
   | { kind: "PROVEEDOR"; id: number; item_key: string }
   | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
   | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
 
 function parseItemKey(raw: string): ParsedKey | null {
-  const s = String(raw ?? "").trim();
+  const s = decodeRepeated(String(raw ?? "").trim());
 
   if (/^\d+$/.test(s)) {
     const id = Number(s);
@@ -123,10 +137,6 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
           </div>
         </div>
 
-        <div style={{ fontSize: 14, opacity: 0.85 }}>
-          Histórico diario por presentación (tabla: <code>app.item_price_daily_pres</code>)
-        </div>
-
         <PriceHistoryChart itemKey={parsed.item_key} />
       </div>
     );
@@ -148,10 +158,6 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             item_key=<code>{parsed.item_key}</code> · producto_id=<code>{parsed.producto_id}</code>
           </div>
-        </div>
-
-        <div style={{ fontSize: 14, opacity: 0.85 }}>
-          Histórico: requiere snapshots de oferta/bulk (en este entorno aún no existen).
         </div>
 
         <PriceHistoryChart itemKey={parsed.item_key} />
@@ -193,10 +199,6 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
             item_key=<code>{parsed.item_key}</code> · cost_option_id=<code>{parsed.cost_option_id}</code>
             {detalle ? <> · {detalle}</> : null}
           </div>
-        </div>
-
-        <div style={{ fontSize: 14, opacity: 0.85 }}>
-          Histórico: no hay tabla de price-history para cost_option en este schema.
         </div>
 
         <PriceHistoryChart itemKey={parsed.item_key} />
