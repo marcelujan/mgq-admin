@@ -4,32 +4,27 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 
-type ItemKind = "PROVEEDOR" | "FORMULADO" | string;
+type TipoFiltro = "" | "PROVEEDOR" | "MANUAL" | "FORMULADO";
+type EstadoProveedorFiltro = "" | "PENDING_SCRAPE" | "WAITING_REVIEW" | "OK" | "ERROR_SCRAPE";
 
 type ItemRow = {
   item_key: string; // p:<item_id> | f:<item_formulado_id>
-  kind: ItemKind;
+  kind: "PROVEEDOR" | "MANUAL" | "FORMULADO" | string;
   item_id: string | number;
 
-  // proveedor
   proveedor_codigo: string;
   proveedor_nombre: string;
   url_original: string;
   url_canonica: string;
   seleccionado: boolean;
   estado: string;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 
-  // formulado
   producto_nombre?: string | null;
   oferta_nombre?: string | null;
   tipo_formulado?: string | null; // BULK | PRESENTACION
-
-  // opcional
   mensaje_error?: string | null;
-  ultimo_job_id?: string | number | null;
-  ultimo_job_estado?: string | null;
 };
 
 function qs(params: Record<string, any>) {
@@ -80,10 +75,9 @@ function badgeStyle(estado: string): CSSProperties {
   };
 
   if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.10)" };
-  if (s === "FORMULADO")
-    return { ...base, borderColor: "rgba(59,130,246,0.45)", background: "rgba(59,130,246,0.10)" };
-  if (s.includes("ERROR"))
-    return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
+  if (s === "FORMULADO") return { ...base, borderColor: "rgba(59,130,246,0.45)", background: "rgba(59,130,246,0.10)" };
+  if (s === "MANUAL_OVERRIDE") return { ...base, borderColor: "rgba(245,158,11,0.45)", background: "rgba(245,158,11,0.10)" };
+  if (s.includes("ERROR")) return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
   if (s.includes("WAIT") || s.includes("PENDING"))
     return { ...base, borderColor: "rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.10)" };
 
@@ -103,21 +97,30 @@ export default function ItemsClient() {
   const [error, setError] = useState<string>("");
 
   const [search, setSearch] = useState("");
-  const [estado, setEstado] = useState("");
+  const [tipo, setTipo] = useState<TipoFiltro>(""); // default: todos
+  const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>(""); // default: todos (solo proveedor)
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
+
+  // Si el usuario elige MANUAL o FORMULADO, el estado de scraping no aplica
+  useEffect(() => {
+    if (tipo === "MANUAL" || tipo === "FORMULADO") {
+      setEstadoProv("");
+    }
+  }, [tipo]);
 
   const query = useMemo(
     () =>
       qs({
         search: search.trim() || undefined,
-        estado: estado || undefined,
+        tipo: tipo || undefined,
+        estado: estadoProv || undefined,
         seleccionado: seleccionado || undefined,
         limit,
         offset,
       }),
-    [search, estado, seleccionado, limit, offset]
+    [search, tipo, estadoProv, seleccionado, limit, offset]
   );
 
   useEffect(() => {
@@ -158,12 +161,14 @@ export default function ItemsClient() {
       hour: "2-digit",
       minute: "2-digit",
     });
-    return (iso?: string) => {
+    return (iso?: string | null) => {
       if (!iso) return "";
       const d = new Date(iso);
       return Number.isFinite(d.getTime()) ? f.format(d) : iso;
     };
   }, []);
+
+  const estadoDisabled = tipo === "MANUAL" || tipo === "FORMULADO";
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -200,7 +205,7 @@ export default function ItemsClient() {
         </div>
 
         <div style={{ display: "grid", gap: 4 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Estado</label>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo</label>
           <select
             className="items-filter-select"
             style={{
@@ -210,20 +215,48 @@ export default function ItemsClient() {
               background: "rgba(255,255,255,0.03)",
               color: "rgba(255,255,255,0.92)",
               outline: "none",
+              minWidth: 180,
             }}
-            value={estado}
+            value={tipo}
             onChange={(e) => {
               setOffset(0);
-              setEstado(e.target.value);
+              setTipo(e.target.value as TipoFiltro);
             }}
           >
             <option value="">(todos)</option>
-            <option value="FORMULADO">FORMULADO</option>
+            <option value="PROVEEDOR">Proveedor</option>
+            <option value="MANUAL">Manual</option>
+            <option value="FORMULADO">Formulado</option>
+          </select>
+        </div>
+
+        <div style={{ display: "grid", gap: 4 }}>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>Estado (scrape)</label>
+          <select
+            className="items-filter-select"
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 10,
+              padding: "8px 10px",
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(255,255,255,0.92)",
+              outline: "none",
+              opacity: estadoDisabled ? 0.5 : 1,
+              cursor: estadoDisabled ? "not-allowed" : "pointer",
+              minWidth: 210,
+            }}
+            value={estadoProv}
+            disabled={estadoDisabled}
+            onChange={(e) => {
+              setOffset(0);
+              setEstadoProv(e.target.value as EstadoProveedorFiltro);
+            }}
+          >
+            <option value="">(todos)</option>
             <option value="PENDING_SCRAPE">PENDING_SCRAPE</option>
             <option value="WAITING_REVIEW">WAITING_REVIEW</option>
             <option value="OK">OK</option>
             <option value="ERROR_SCRAPE">ERROR_SCRAPE</option>
-            <option value="MANUAL_OVERRIDE">MANUAL_OVERRIDE</option>
           </select>
         </div>
 
@@ -261,7 +294,8 @@ export default function ItemsClient() {
           }}
           onClick={() => {
             setSearch("");
-            setEstado("");
+            setTipo("");
+            setEstadoProv("");
             setSeleccionado("");
             setOffset(0);
           }}
@@ -325,20 +359,21 @@ export default function ItemsClient() {
           </thead>
           <tbody>
             {items.map((it) => {
-              const isProv = (it.kind || "").toUpperCase() === "PROVEEDOR";
-              const isFor = (it.kind || "").toUpperCase() === "FORMULADO";
+              const kind = (it.kind || "").toUpperCase();
+              const isProv = kind === "PROVEEDOR" || kind === "MANUAL";
+              const isFor = kind === "FORMULADO";
 
               const url = (it.url_canonica || it.url_original || "").trim();
               const showUrl = isProv && !!url;
 
               const productoTitle = isProv
-                ? productTitleFromUrl(url)
+                ? (url ? productTitleFromUrl(url) : `Item ${String(it.item_id)}`)
                 : isFor
                   ? `${labelTipoFormulado(it.tipo_formulado)} · ${String(it.producto_nombre ?? "").trim() || "Producto"}` +
                     (String(it.oferta_nombre ?? "").trim() ? ` · ${String(it.oferta_nombre ?? "").trim()}` : "")
                   : `Item ${String(it.item_id)}`;
 
-              const productoSub = isProv ? hostFromUrl(url) : isFor ? "" : "";
+              const productoSub = isProv && url ? hostFromUrl(url) : "";
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -391,7 +426,7 @@ export default function ItemsClient() {
                       {it.mensaje_error ? <span style={{ opacity: 0.9 }}>⚠︎</span> : null}
                     </span>
                   </td>
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at)}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at ?? null)}</td>
                   <td style={{ padding: 10, textAlign: "center" }}>
                     {showUrl ? (
                       <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9 }}>

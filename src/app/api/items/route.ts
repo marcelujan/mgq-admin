@@ -11,9 +11,16 @@ function normalizeQueryResult(res: any): any[] {
 /**
  * API unificada de Items.
  *
+ * Filtros:
+ * - tipo: "" | "PROVEEDOR" | "MANUAL" | "FORMULADO"
+ * - estado: estados de scraping de proveedor (PENDING_SCRAPE | WAITING_REVIEW | OK | ERROR_SCRAPE | ...)
+ *           (no aplica a MANUAL ni a FORMULADO)
+ * - seleccionado: true/false
+ * - search: texto libre
+ *
  * item_key estable:
- *  - Proveedor:  p:<item_id>
- *  - Formulado:  f:<item_formulado_id>
+ *  - Proveedor/Manual:  p:<item_id>
+ *  - Formulado:         f:<item_formulado_id>
  */
 export async function GET(req: NextRequest) {
   try {
@@ -25,9 +32,10 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
-    const estado = (searchParams.get("estado") ?? "").trim(); // "" o estado proveedor o "FORMULADO"
-    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
+    const tipo = (searchParams.get("tipo") ?? "").trim().toUpperCase(); // "" | PROVEEDOR | MANUAL | FORMULADO
+    const estado = (searchParams.get("estado") ?? "").trim(); // estados proveedor
     const search = (searchParams.get("search") ?? "").trim();
+    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
 
     let seleccionado: boolean | null = null;
     if (seleccionadoRaw === "true") seleccionado = true;
@@ -43,7 +51,7 @@ export async function GET(req: NextRequest) {
       proveedor as (
         select
           ('p:' || i.item_id::text) as item_key,
-          'PROVEEDOR'::text as kind,
+          case when i.estado::text = 'MANUAL_OVERRIDE' then 'MANUAL' else 'PROVEEDOR' end as kind,
           i.item_id::text as item_id,
           ''::text as proveedor_codigo,
           coalesce(pr.nombre, '') as proveedor_nombre,
@@ -61,13 +69,28 @@ export async function GET(req: NextRequest) {
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
         where
-          ($1::text = '' or i.estado::text = $1::text)
-          and ($2::boolean is null or i.seleccionado = $2::boolean)
+          -- tipo: incluir o excluir manuales
+          (
+            $1::text = '' OR
+            ($1::text = 'PROVEEDOR' AND i.estado::text <> 'MANUAL_OVERRIDE') OR
+            ($1::text = 'MANUAL' AND i.estado::text = 'MANUAL_OVERRIDE')
+          )
+          -- estado: SOLO aplica a proveedor (no a manual). Si tipo='' también aplica, pero solo sobre proveedor.
           and (
-            $3::text is null
-            or coalesce(pr.nombre,'') ilike $3::text
-            or coalesce(i.url_original,'') ilike $3::text
-            or coalesce(i.url_canonica,'') ilike $3::text
+            $2::text = '' OR
+            (
+              i.estado::text <> 'MANUAL_OVERRIDE'
+              and i.estado::text = $2::text
+            )
+          )
+          -- seleccionado
+          and ($3::boolean is null or i.seleccionado = $3::boolean)
+          -- search
+          and (
+            $4::text is null
+            or coalesce(pr.nombre,'') ilike $4::text
+            or coalesce(i.url_original,'') ilike $4::text
+            or coalesce(i.url_canonica,'') ilike $4::text
           )
       ),
       formulado as (
@@ -94,11 +117,11 @@ export async function GET(req: NextRequest) {
         where
           f.activo = true
           and ($1::text = '' or $1::text = 'FORMULADO')
-          and ($2::boolean is null or $2::boolean = false)
+          -- estado no aplica a formulado
           and (
-            $3::text is null
-            or coalesce(p.nombre,'') ilike $3::text
-            or coalesce(o.nombre,'') ilike $3::text
+            $4::text is null
+            or coalesce(p.nombre,'') ilike $4::text
+            or coalesce(o.nombre,'') ilike $4::text
           )
       ),
       all_items as (
@@ -123,9 +146,9 @@ export async function GET(req: NextRequest) {
         tipo_formulado
       from all_items
       order by sort_kind asc, sort_id desc
-      limit $4 offset $5;
+      limit $5 offset $6;
       `,
-      [estado, seleccionado, searchLike, limit, offset]
+      [tipo, estado, seleccionado, searchLike, limit, offset]
     );
 
     const rows = normalizeQueryResult(r);
