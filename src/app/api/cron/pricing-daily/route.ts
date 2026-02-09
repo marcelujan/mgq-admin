@@ -72,9 +72,11 @@ export async function POST(req: NextRequest) {
 
     client = await pool.connect();
 
+    // Fecha desde DB
     const d0 = await client.query(`select current_date::text as d;`);
     const asOfDate = String(d0.rows?.[0]?.d);
 
+    // Crear/obtener run del día
     const runQ = await client.query(
       `
       insert into app.pricing_daily_runs (as_of_date, status)
@@ -87,12 +89,13 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
+    // started_at (solo la primera vez)
     await client.query(
       `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
       [runId]
     );
 
-    // Seed: offers OK
+    // Seed: offers OK -> PENDING
     await client.query(
       `
       insert into app.pricing_daily_run_items (run_id, offer_id, status)
@@ -104,6 +107,7 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
+    // total_items
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -155,11 +159,12 @@ export async function POST(req: NextRequest) {
 
       await client!.query("commit;");
       txOpen = false;
+
       return q.rows as any[];
     };
 
-    let ok = 0;
-    let fail = 0;
+    let processed_ok = 0;
+    let processed_fail = 0;
     let inserted_rows = 0;
     let batches = 0;
     let claimed_total = 0;
@@ -195,7 +200,7 @@ export async function POST(req: NextRequest) {
             `,
             [runItemId, `missing_motor_or_url(motor_id=${motorId},url=${url})`, MAX_ATTEMPTS]
           );
-          fail++;
+          processed_fail++;
           continue;
         }
 
@@ -211,7 +216,7 @@ export async function POST(req: NextRequest) {
             `,
             [runItemId, `offer_presentacion_missing(offer_id=${row.offer_id})`, MAX_ATTEMPTS]
           );
-          fail++;
+          processed_fail++;
           continue;
         }
 
@@ -259,7 +264,7 @@ export async function POST(req: NextRequest) {
               [runItemId]
             );
 
-            ok++;
+            processed_ok++;
             success = true;
             break;
           } catch (e: any) {
@@ -273,11 +278,12 @@ export async function POST(req: NextRequest) {
             `update app.pricing_daily_run_items set status='FAIL', last_error=$2, updated_at=now() where id=$1;`,
             [runItemId, (lastErr ?? "unknown_error").slice(0, 2000)]
           );
-          fail++;
+          processed_fail++;
         }
       }
     }
 
+    // Recalcular contadores del run
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -291,7 +297,9 @@ export async function POST(req: NextRequest) {
     );
 
     const pendingQ = await client.query(
-      `select count(*)::int as c from app.pricing_daily_run_items where run_id=$1 and status='PENDING' and attempts < $2;`,
+      `select count(*)::int as c
+       from app.pricing_daily_run_items
+       where run_id=$1 and status='PENDING' and attempts < $2;`,
       [runId, MAX_ATTEMPTS]
     );
     const pendingRemaining = Number(pendingQ.rows?.[0]?.c ?? 0);
@@ -313,8 +321,8 @@ export async function POST(req: NextRequest) {
         batch_size: BATCH_SIZE,
         batches,
         claimed_total,
-        processed_ok: ok,
-        processed_fail: fail,
+        processed_ok,
+        processed_fail,
         inserted_rows,
         pending_remaining: pendingRemaining,
         time_ms: Date.now() - started,
