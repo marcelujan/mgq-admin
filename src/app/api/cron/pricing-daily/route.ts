@@ -14,9 +14,8 @@ const pool = new Pool({
 });
 
 const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 80);
-const MAX_ATTEMPTS = 3; // 1 + 2 reintentos
+const MAX_ATTEMPTS = 3;
 const TIME_BUDGET_MS = 50_000;
-// Margen para asegurar updates/commit final antes del timeout del runtime.
 const TIME_MARGIN_MS = 4_000;
 
 function assertCronAuth(req: NextRequest) {
@@ -39,14 +38,13 @@ function backoffMs(attempt: number) {
 }
 
 async function scrapeWithMotor(motorId: number, url: string) {
-  // Debe devolver: { sourceUrl: string, prices: Array<{ presentacion:number, priceArs:number }> }
   return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
 function errJson(e: any) {
   return {
     message: String(e?.message ?? e ?? "unknown_error"),
-    code: e?.code ? String(e.code) : null, // SQLSTATE
+    code: e?.code ? String(e.code) : null,
     detail: e?.detail ? String(e.detail) : null,
     hint: e?.hint ? String(e.hint) : null,
     where: e?.where ? String(e.where) : null,
@@ -74,11 +72,9 @@ export async function POST(req: NextRequest) {
 
     client = await pool.connect();
 
-    // 1) Fecha desde DB
     const d0 = await client.query(`select current_date::text as d;`);
     const asOfDate = String(d0.rows?.[0]?.d);
 
-    // 2) Crear/obtener run del día
     const runQ = await client.query(
       `
       insert into app.pricing_daily_runs (as_of_date, status)
@@ -91,13 +87,12 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
-    // registrar start si aún no está (útil para observabilidad)
     await client.query(
       `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
       [runId]
     );
 
-    // 3) Seed: desde app.offers (ofertas OK)
+    // Seed: offers OK
     await client.query(
       `
       insert into app.pricing_daily_run_items (run_id, offer_id, status)
@@ -109,7 +104,6 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // 4) Contadores base
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -121,7 +115,6 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // Claim con “touch” de updated_at para evitar starvation si se corta por time budget.
     const claimBatch = async () => {
       await client!.query("begin;");
       txOpen = true;
@@ -171,7 +164,6 @@ export async function POST(req: NextRequest) {
     let batches = 0;
     let claimed_total = 0;
 
-    // 5) Procesar múltiples batches hasta agotar TIME_BUDGET_MS.
     while (Date.now() - started < TIME_BUDGET_MS - TIME_MARGIN_MS) {
       const batchRows = await claimBatch();
       if (!batchRows.length) break;
@@ -187,7 +179,6 @@ export async function POST(req: NextRequest) {
         const motorId = row.motor_id === null ? null : Number(row.motor_id);
         const url = row.url ? String(row.url) : null;
 
-        // esta offer define qué presentación guardar
         const presWantedRaw = row.presentacion;
         const presWanted =
           presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
@@ -241,14 +232,10 @@ export async function POST(req: NextRequest) {
             }
 
             const match = prices.find((p: any) => Number(p?.presentacion) === presWanted);
-            if (!match) {
-              throw new Error(`no_price_for_presentacion:${presWanted}`);
-            }
+            if (!match) throw new Error(`no_price_for_presentacion:${presWanted}`);
 
             const price = Number(match?.priceArs);
-            if (!Number.isFinite(price) || price <= 0) {
-              throw new Error("invalid_price");
-            }
+            if (!Number.isFinite(price) || price <= 0) throw new Error("invalid_price");
 
             await client.query(
               `
@@ -291,7 +278,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 6) Contadores del run
     await client.query(
       `
       update app.pricing_daily_runs r
