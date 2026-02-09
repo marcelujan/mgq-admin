@@ -16,6 +16,8 @@ const pool = new Pool({
 const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 80);
 const MAX_ATTEMPTS = 3; // 1 + 2 reintentos
 const TIME_BUDGET_MS = 50_000;
+// Margen para asegurar updates/commit final antes del timeout del runtime.
+const TIME_MARGIN_MS = 4_000;
 
 function assertCronAuth(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -89,6 +91,12 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
+    // registrar start si aún no está (útil para observabilidad)
+    await client.query(
+      `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
+      [runId]
+    );
+
     // 3) Seed: desde app.offers (ofertas OK)
     await client.query(
       `
@@ -113,151 +121,173 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // 5) Claim batch con lock
-    await client.query("begin;");
-    txOpen = true;
+    // Claim con “touch” de updated_at para evitar starvation si se corta por time budget.
+    const claimBatch = async () => {
+      await client!.query("begin;");
+      txOpen = true;
 
-    const batch = await client.query(
-      `
-      select
-        i.id as run_item_id,
-        i.offer_id,
-        i.attempts,
-        o.item_id,
-        o.motor_id,
-        coalesce(nullif(o.url_canonica,''), o.url_original) as url,
-        o.presentacion
-      from app.pricing_daily_run_items i
-      join app.offers o on o.offer_id = i.offer_id
-      where i.run_id = $1
-        and i.status = 'PENDING'
-        and i.attempts < $2
-        and o.estado = 'OK'
-      order by i.updated_at asc, i.id asc
-      limit $3
-      for update skip locked;
-      `,
-      [runId, MAX_ATTEMPTS, BATCH_SIZE]
-    );
+      const q = await client!.query(
+        `
+        with picked as (
+          select i.id
+          from app.pricing_daily_run_items i
+          join app.offers o on o.offer_id = i.offer_id
+          where i.run_id = $1
+            and i.status = 'PENDING'
+            and i.attempts < $2
+            and o.estado = 'OK'
+          order by i.updated_at asc, i.id asc
+          limit $3
+          for update skip locked
+        ), upd as (
+          update app.pricing_daily_run_items i
+          set updated_at = now()
+          from picked
+          where i.id = picked.id
+          returning i.id as run_item_id, i.offer_id, i.attempts
+        )
+        select
+          u.run_item_id,
+          u.offer_id,
+          u.attempts,
+          o.item_id,
+          o.motor_id,
+          coalesce(nullif(o.url_canonica,''), o.url_original) as url,
+          o.presentacion
+        from upd u
+        join app.offers o on o.offer_id = u.offer_id;
+        `,
+        [runId, MAX_ATTEMPTS, BATCH_SIZE]
+      );
 
-    await client.query("commit;");
-    txOpen = false;
+      await client!.query("commit;");
+      txOpen = false;
+      return q.rows as any[];
+    };
 
     let ok = 0;
     let fail = 0;
     let inserted_rows = 0;
+    let batches = 0;
+    let claimed_total = 0;
 
-    for (const row of batch.rows as any[]) {
-      if (Date.now() - started > TIME_BUDGET_MS) break;
+    // 5) Procesar múltiples batches hasta agotar TIME_BUDGET_MS.
+    while (Date.now() - started < TIME_BUDGET_MS - TIME_MARGIN_MS) {
+      const batchRows = await claimBatch();
+      if (!batchRows.length) break;
 
-      const runItemId = Number(row.run_item_id);
-      const itemId = Number(row.item_id);
-      const motorId = row.motor_id === null ? null : Number(row.motor_id);
-      const url = row.url ? String(row.url) : null;
+      batches++;
+      claimed_total += batchRows.length;
 
-      // esta offer define qué presentación guardar
-      const presWantedRaw = row.presentacion;
-      const presWanted =
-        presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
+      for (const row of batchRows) {
+        if (Date.now() - started > TIME_BUDGET_MS - TIME_MARGIN_MS) break;
 
-      if (!motorId || !url) {
-        await client.query(
-          `
-          update app.pricing_daily_run_items
-          set status='FAIL',
-              last_error=$2,
-              updated_at=now(),
-              attempts = greatest(attempts, $3)
-          where id=$1;
-          `,
-          [runItemId, `missing_motor_or_url(motor_id=${motorId},url=${url})`, MAX_ATTEMPTS]
-        );
-        fail++;
-        continue;
-      }
+        const runItemId = Number(row.run_item_id);
+        const itemId = Number(row.item_id);
+        const motorId = row.motor_id === null ? null : Number(row.motor_id);
+        const url = row.url ? String(row.url) : null;
 
-      if (presWanted === null || !Number.isFinite(presWanted)) {
-        await client.query(
-          `
-          update app.pricing_daily_run_items
-          set status='FAIL',
-              last_error=$2,
-              updated_at=now(),
-              attempts = greatest(attempts, $3)
-          where id=$1;
-          `,
-          [runItemId, `offer_presentacion_missing(offer_id=${row.offer_id})`, MAX_ATTEMPTS]
-        );
-        fail++;
-        continue;
-      }
+        // esta offer define qué presentación guardar
+        const presWantedRaw = row.presentacion;
+        const presWanted =
+          presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
 
-      let lastErr: string | null = null;
-      let success = false;
-
-      for (let attempt = Number(row.attempts) + 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-          await client.query(
-            `update app.pricing_daily_run_items set attempts=$2, updated_at=now() where id=$1;`,
-            [runItemId, attempt]
-          );
-
-          const { sourceUrl, prices } = await scrapeWithMotor(motorId, url);
-
-          if (!Array.isArray(prices) || prices.length === 0) {
-            throw new Error("no_prices_by_presentacion");
-          }
-
-          const match = prices.find(
-            (p: any) => Number(p?.presentacion) === presWanted
-          );
-
-          if (!match) {
-            throw new Error(`no_price_for_presentacion:${presWanted}`);
-          }
-
-          const price = Number(match?.priceArs);
-          if (!Number.isFinite(price) || price <= 0) {
-            throw new Error("invalid_price");
-          }
-
+        if (!motorId || !url) {
           await client.query(
             `
-            insert into app.item_price_daily_pres
-              (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
-            values
-              ($1, $2::date, $3, $4, $5, $6)
-            on conflict (item_id, as_of_date, presentacion)
-            do update set
-              price_ars = excluded.price_ars,
-              source_url = excluded.source_url,
-              scrape_run_id = excluded.scrape_run_id;
+            update app.pricing_daily_run_items
+            set status='FAIL',
+                last_error=$2,
+                updated_at=now(),
+                attempts = greatest(attempts, $3)
+            where id=$1;
             `,
-            [itemId, asOfDate, presWanted, price, String(sourceUrl ?? url), runId]
+            [runItemId, `missing_motor_or_url(motor_id=${motorId},url=${url})`, MAX_ATTEMPTS]
           );
-
-          inserted_rows++;
-
-          await client.query(
-            `update app.pricing_daily_run_items set status='OK', last_error=null, updated_at=now() where id=$1;`,
-            [runItemId]
-          );
-
-          ok++;
-          success = true;
-          break;
-        } catch (e: any) {
-          lastErr = String(e?.message ?? e);
-          if (attempt < MAX_ATTEMPTS) await sleep(backoffMs(attempt));
+          fail++;
+          continue;
         }
-      }
 
-      if (!success) {
-        await client.query(
-          `update app.pricing_daily_run_items set status='FAIL', last_error=$2, updated_at=now() where id=$1;`,
-          [runItemId, (lastErr ?? "unknown_error").slice(0, 2000)]
-        );
-        fail++;
+        if (presWanted === null || !Number.isFinite(presWanted)) {
+          await client.query(
+            `
+            update app.pricing_daily_run_items
+            set status='FAIL',
+                last_error=$2,
+                updated_at=now(),
+                attempts = greatest(attempts, $3)
+            where id=$1;
+            `,
+            [runItemId, `offer_presentacion_missing(offer_id=${row.offer_id})`, MAX_ATTEMPTS]
+          );
+          fail++;
+          continue;
+        }
+
+        let lastErr: string | null = null;
+        let success = false;
+
+        for (let attempt = Number(row.attempts) + 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            await client.query(
+              `update app.pricing_daily_run_items set attempts=$2, updated_at=now() where id=$1;`,
+              [runItemId, attempt]
+            );
+
+            const { sourceUrl, prices } = await scrapeWithMotor(motorId, url);
+
+            if (!Array.isArray(prices) || prices.length === 0) {
+              throw new Error("no_prices_by_presentacion");
+            }
+
+            const match = prices.find((p: any) => Number(p?.presentacion) === presWanted);
+            if (!match) {
+              throw new Error(`no_price_for_presentacion:${presWanted}`);
+            }
+
+            const price = Number(match?.priceArs);
+            if (!Number.isFinite(price) || price <= 0) {
+              throw new Error("invalid_price");
+            }
+
+            await client.query(
+              `
+              insert into app.item_price_daily_pres
+                (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
+              values
+                ($1, $2::date, $3, $4, $5, $6)
+              on conflict (item_id, as_of_date, presentacion)
+              do update set
+                price_ars = excluded.price_ars,
+                source_url = excluded.source_url,
+                scrape_run_id = excluded.scrape_run_id;
+              `,
+              [itemId, asOfDate, presWanted, price, String(sourceUrl ?? url), runId]
+            );
+
+            inserted_rows++;
+
+            await client.query(
+              `update app.pricing_daily_run_items set status='OK', last_error=null, updated_at=now() where id=$1;`,
+              [runItemId]
+            );
+
+            ok++;
+            success = true;
+            break;
+          } catch (e: any) {
+            lastErr = String(e?.message ?? e);
+            if (attempt < MAX_ATTEMPTS) await sleep(backoffMs(attempt));
+          }
+        }
+
+        if (!success) {
+          await client.query(
+            `update app.pricing_daily_run_items set status='FAIL', last_error=$2, updated_at=now() where id=$1;`,
+            [runItemId, (lastErr ?? "unknown_error").slice(0, 2000)]
+          );
+          fail++;
+        }
       }
     }
 
@@ -284,17 +314,19 @@ export async function POST(req: NextRequest) {
       const counts = await client.query(`select fail_count from app.pricing_daily_runs where id=$1;`, [runId]);
       const failCount = Number(counts.rows?.[0]?.fail_count ?? 0);
       const finalStatus = failCount > 0 ? "PARTIAL" : "DONE";
-      await client.query(
-        `update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`,
-        [runId, finalStatus]
-      );
+      await client.query(`update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`, [
+        runId,
+        finalStatus,
+      ]);
     }
 
     return NextResponse.json(
       {
         run_id: runId,
         date: asOfDate,
-        batch_size: batch.rows.length,
+        batch_size: BATCH_SIZE,
+        batches,
+        claimed_total,
         processed_ok: ok,
         processed_fail: fail,
         inserted_rows,
@@ -307,10 +339,7 @@ export async function POST(req: NextRequest) {
     await safeRollback();
     console.error("pricing-daily error", e);
     const info = errJson(e);
-    return NextResponse.json(
-      { error: info.message, pg: info },
-      { status: Number(e?.statusCode ?? 500) }
-    );
+    return NextResponse.json({ error: info.message, pg: info }, { status: Number(e?.statusCode ?? 500) });
   } finally {
     try {
       client?.release();
