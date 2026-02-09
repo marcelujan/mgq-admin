@@ -6,8 +6,6 @@ import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPrices
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HANDLER_VERSION = "pricing-daily-multibatch-mixed-2026-02-09";
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 1,
@@ -17,12 +15,8 @@ const pool = new Pool({
 
 const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 80);
 const MAX_ATTEMPTS = 3;
-
-// En Vercel conviene dejar margen para commits/updates finales.
 const TIME_BUDGET_MS = 50_000;
 const TIME_MARGIN_MS = 4_000;
-
-type OrderMode = "asc" | "desc";
 
 function assertCronAuth(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -44,7 +38,6 @@ function backoffMs(attempt: number) {
 }
 
 async function scrapeWithMotor(motorId: number, url: string) {
-  // Debe devolver: { sourceUrl: string, prices: Array<{ presentacion:number, priceArs:number }> }
   return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
@@ -74,8 +67,6 @@ export async function POST(req: NextRequest) {
     }
   };
 
-  const timeLeftOk = () => Date.now() - started < TIME_BUDGET_MS - TIME_MARGIN_MS;
-
   try {
     assertCronAuth(req);
 
@@ -98,13 +89,13 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
-    // started_at si no estaba
+    // started_at (solo la primera vez)
     await client.query(
       `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
       [runId]
     );
 
-    // Seed: offers OK
+    // Seed: offers OK -> PENDING
     await client.query(
       `
       insert into app.pricing_daily_run_items (run_id, offer_id, status)
@@ -128,13 +119,7 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // Claim batch (con touch updated_at para evitar starvation)
-    const claimBatch = async (mode: OrderMode) => {
-      const orderSql =
-        mode === "asc"
-          ? "i.updated_at asc, i.id asc"
-          : "i.updated_at desc, i.id desc";
-
+    const claimBatch = async () => {
       await client!.query("begin;");
       txOpen = true;
 
@@ -148,11 +133,10 @@ export async function POST(req: NextRequest) {
             and i.status = 'PENDING'
             and i.attempts < $2
             and o.estado = 'OK'
-          order by ${orderSql}
+          order by i.updated_at asc, i.id asc
           limit $3
           for update skip locked
-        ),
-        upd as (
+        ), upd as (
           update app.pricing_daily_run_items i
           set updated_at = now()
           from picked
@@ -182,30 +166,18 @@ export async function POST(req: NextRequest) {
     let processed_ok = 0;
     let processed_fail = 0;
     let inserted_rows = 0;
-
     let batches = 0;
     let claimed_total = 0;
 
-    // Alternar: primero desc (nuevo) para que items recientes tengan histórico aunque haya backlog.
-    let mode: OrderMode = "desc";
-
-    while (timeLeftOk()) {
-      // Intento 1: modo actual
-      let batchRows = await claimBatch(mode);
-
-      // Si vacío, probamos el otro modo una vez (por si no hay “en ese extremo”)
-      if (batchRows.length === 0) {
-        const other: OrderMode = mode === "asc" ? "desc" : "asc";
-        batchRows = await claimBatch(other);
-        if (batchRows.length === 0) break;
-        mode = other;
-      }
+    while (Date.now() - started < TIME_BUDGET_MS - TIME_MARGIN_MS) {
+      const batchRows = await claimBatch();
+      if (!batchRows.length) break;
 
       batches++;
       claimed_total += batchRows.length;
 
       for (const row of batchRows) {
-        if (!timeLeftOk()) break;
+        if (Date.now() - started > TIME_BUDGET_MS - TIME_MARGIN_MS) break;
 
         const runItemId = Number(row.run_item_id);
         const itemId = Number(row.item_id);
@@ -309,12 +281,9 @@ export async function POST(req: NextRequest) {
           processed_fail++;
         }
       }
-
-      // alternar para el siguiente batch
-      mode = mode === "asc" ? "desc" : "asc";
     }
 
-    // Recalcular contadores
+    // Recalcular contadores del run
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -328,11 +297,9 @@ export async function POST(req: NextRequest) {
     );
 
     const pendingQ = await client.query(
-      `
-      select count(*)::int as c
-      from app.pricing_daily_run_items
-      where run_id=$1 and status='PENDING' and attempts < $2;
-      `,
+      `select count(*)::int as c
+       from app.pricing_daily_run_items
+       where run_id=$1 and status='PENDING' and attempts < $2;`,
       [runId, MAX_ATTEMPTS]
     );
     const pendingRemaining = Number(pendingQ.rows?.[0]?.c ?? 0);
@@ -349,7 +316,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        handler_version: HANDLER_VERSION,
         run_id: runId,
         date: asOfDate,
         batch_size: BATCH_SIZE,
