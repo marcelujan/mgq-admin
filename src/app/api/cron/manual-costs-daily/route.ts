@@ -33,20 +33,22 @@ export async function GET(req: NextRequest) {
       const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
       const asOfDate = d0.rows[0]?.d;
 
-      // Upsert diario del último costo manual conocido (aunque no haya cambios)
+      // Snapshot diario para TODOS los manuales activos:
+      // - si manual_costo_ars es null => se guarda 0
+      // - si no hay cambios => se repite el mismo valor (upsert por día)
       const q = await client.query(
         `
-        insert into app.cost_option_snapshot (cost_option_id, as_of_date, costo_ars, fuente, created_at)
+        insert into app.cost_option_snapshot
+          (cost_option_id, as_of_date, costo_ars, fuente, created_at)
         select
           c.cost_option_id,
           $1::date as as_of_date,
-          c.manual_costo_ars as costo_ars,
+          coalesce(c.manual_costo_ars, 0) as costo_ars,
           'CRON'::text as fuente,
           now() as created_at
         from app.cost_option c
         where c.activo = true
           and c.tipo = 'MANUAL_PRESENTACION'
-          and c.manual_costo_ars is not null
         on conflict (cost_option_id, as_of_date)
         do update set
           costo_ars = excluded.costo_ars,
