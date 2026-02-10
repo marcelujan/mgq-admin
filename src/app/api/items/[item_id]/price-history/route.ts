@@ -180,15 +180,42 @@ if (parsed.kind === "FORMULADO_PRODUCTO") {
   );
 }
 
-  // ========= MANUAL =========
+// ========= MANUAL =========
+if (parsed.kind === "MANUAL_COST_OPTION") {
+  const q = await pool.query(
+    `
+    select
+      as_of_date::text as d,
+      costo_ars
+    from app.cost_option_snapshot
+    where cost_option_id = $1
+    order by as_of_date asc
+    `,
+    [parsed.cost_option_id]
+  );
+
+  const points = q.rows
+    .map((r) => ({ d: String(r.d), y: Number(r.costo_ars) }))
+    .filter((p) => p.d && Number.isFinite(p.y));
+
   return NextResponse.json(
     {
       ok: true,
       item_key: parsed.item_key,
       kind: "MANUAL",
-      series: [],
-      note: "Sin histórico: los costos manuales no tienen serie temporal.",
+      series: points.length
+        ? [
+            {
+              id: "cost",
+              label: "Costo",
+              unit: "ARS",
+              points,
+            },
+          ]
+        : [],
+      note: points.length ? undefined : "Sin histórico (sin snapshots).",
     },
     { status: 200 }
   );
+}
 }
