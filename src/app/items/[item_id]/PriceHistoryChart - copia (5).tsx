@@ -73,7 +73,9 @@ function calcBounds(series: Series[]) {
     }
   }
 
-  if (!minX || !maxX || !Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
+  if (!minX || !maxX || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
+    return null;
+  }
 
   if (minY === maxY) {
     const pad = Math.max(1, Math.abs(minY) * 0.05);
@@ -118,10 +120,14 @@ function buildPath(
   return cmds.join(" ");
 }
 
-function nearestByDate(series: Series[], targetDate: string) {
-  let bestDate: string | null = null;
-  let bestDt = Number.POSITIVE_INFINITY;
+function uniqDates(series: Series[]): string[] {
+  const set = new Set<string>();
+  for (const s of series) for (const p of s.points) if (p?.date) set.add(p.date);
+  return Array.from(set).sort();
+}
 
+function nearestPoint(series: Series[], targetDate: string) {
+  let best: { s: Series; p: SeriesPoint; dt: number } | null = null;
   const t = new Date(targetDate).getTime();
   if (!Number.isFinite(t)) return null;
 
@@ -130,39 +136,24 @@ function nearestByDate(series: Series[], targetDate: string) {
       const pt = new Date(p.date).getTime();
       if (!Number.isFinite(pt)) continue;
       const dt = Math.abs(pt - t);
-      if (dt < bestDt) {
-        bestDt = dt;
-        bestDate = p.date;
-      }
+      if (!best || dt < best.dt) best = { s, p, dt };
     }
   }
-
-  if (!bestDate) return null;
-
-  const items = series
-    .map((s) => {
-      const p = s.points.find((x) => x.date === bestDate) ?? null;
-      return p ? { s, p } : null;
-    })
-    .filter(Boolean) as { s: Series; p: SeriesPoint }[];
-
-  items.sort((a, b) => b.p.value - a.p.value);
-
-  return { date: bestDate, items };
+  return best;
 }
 
-/** Paleta fija y estable */
+/** Paleta fija (no depende de theme) + asignación determinística por series.id */
 const PALETTE = [
-  "#2563eb",
-  "#16a34a",
-  "#dc2626",
-  "#7c3aed",
-  "#ea580c",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
-  "#ca8a04",
-  "#0f766e",
+  "#2563eb", // blue-600
+  "#16a34a", // green-600
+  "#dc2626", // red-600
+  "#7c3aed", // violet-600
+  "#ea580c", // orange-600
+  "#0891b2", // cyan-600
+  "#db2777", // pink-600
+  "#65a30d", // lime-600
+  "#ca8a04", // yellow-600 (oscuro)
+  "#0f766e", // teal-700
 ];
 
 function hashStringToInt(s: string): number {
@@ -188,9 +179,8 @@ export default function PriceHistoryChart({ itemKey }: Props) {
   const [err, setErr] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState<number>(90);
 
-  // Hover
+  const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
-  const [hoverIso, setHoverIso] = useState<string | null>(null);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -202,6 +192,7 @@ export default function PriceHistoryChart({ itemKey }: Props) {
       setSeries(null);
       setRows([]);
 
+      // No encodear itemKey: puede venir como "p:231" o ya encoded "p%3A231".
       const res = await fetch(`/api/items/${itemKey}/price-history`, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
 
@@ -211,7 +202,6 @@ export default function PriceHistoryChart({ itemKey }: Props) {
         return;
       }
 
-      // series[] (contrato actual)
       if (Array.isArray(j?.series)) {
         const s = (j.series as any[])
           .map((x) => {
@@ -228,7 +218,6 @@ export default function PriceHistoryChart({ itemKey }: Props) {
                   })
                   .filter(Boolean) as SeriesPoint[]
               : [];
-            pts.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
             return { id, label, unit, points: pts };
           })
           .filter((s) => s.id && s.points.length > 0) as Series[];
@@ -238,7 +227,6 @@ export default function PriceHistoryChart({ itemKey }: Props) {
         return;
       }
 
-      // rows[] legacy
       const arr = Array.isArray(j?.rows) ? (j.rows as any[]) : [];
       const parsed = arr
         .map((r) => ({
@@ -266,20 +254,24 @@ export default function PriceHistoryChart({ itemKey }: Props) {
     return ensureSeriesFromRows(rows);
   }, [series, rows]);
 
-  const boundsAll = useMemo(() => calcBounds(computedSeries), [computedSeries]);
+  const bounds = useMemo(() => calcBounds(computedSeries), [computedSeries]);
+  const dates = useMemo(() => uniqDates(computedSeries), [computedSeries]);
 
   const filteredSeries = useMemo(() => {
-    if (!boundsAll) return computedSeries;
-    const maxX = boundsAll.maxX;
+    if (!bounds) return computedSeries;
+    const maxX = bounds.maxX;
     const minAllowed = daysAgoIso(maxX, rangeDays);
     if (!minAllowed) return computedSeries;
 
     return computedSeries
-      .map((s) => ({ ...s, points: s.points.filter((p) => p.date >= minAllowed) }))
+      .map((s) => ({
+        ...s,
+        points: s.points.filter((p) => p.date >= minAllowed),
+      }))
       .filter((s) => s.points.length > 0);
-  }, [computedSeries, boundsAll, rangeDays]);
+  }, [computedSeries, bounds, rangeDays]);
 
-  const bounds = useMemo(() => calcBounds(filteredSeries), [filteredSeries]);
+  const filteredBounds = useMemo(() => calcBounds(filteredSeries), [filteredSeries]);
 
   const maxDate = useMemo(() => {
     const m = filteredSeries.map((s) => pickMaxDate(s.points)).filter(Boolean) as string[];
@@ -292,20 +284,15 @@ export default function PriceHistoryChart({ itemKey }: Props) {
     return m;
   }, [filteredSeries]);
 
-  const hoverBucket = useMemo(() => {
-    if (!hoverIso) return null;
-    return nearestByDate(filteredSeries, hoverIso);
-  }, [hoverIso, filteredSeries]);
-
   const onMouseMove = (e: MouseEvent) => {
     const el = wrapRef.current;
-    if (!el || !bounds) return;
+    if (!el || !filteredBounds) return;
 
     const r = el.getBoundingClientRect();
     const x = e.clientX - r.left;
     const w = r.width;
 
-    const { minX, maxX } = bounds;
+    const { minX, maxX } = filteredBounds;
     const a = new Date(minX).getTime();
     const b = new Date(maxX).getTime();
     if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) return;
@@ -318,18 +305,23 @@ export default function PriceHistoryChart({ itemKey }: Props) {
     const iso = `${y}-${m}-${dd}`;
 
     setHoverX(clamp(x, 0, w));
-    setHoverIso(iso);
+    setHoverDate(iso);
   };
 
   const onMouseLeave = () => {
     setHoverX(null);
-    setHoverIso(null);
+    setHoverDate(null);
   };
+
+  const hoverInfo = useMemo(() => {
+    if (!hoverDate) return null;
+    return nearestPoint(filteredSeries, hoverDate);
+  }, [hoverDate, filteredSeries]);
 
   if (err) {
     return (
-      <div style={{ padding: 12, border: "1px solid rgba(0,0,0,.12)", borderRadius: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700 }}>Error</div>
+      <div style={{ padding: 12, border: "1px solid rgba(0,0,0,.1)", borderRadius: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Error</div>
         <div style={{ fontSize: 12, opacity: 0.8 }}>{err}</div>
       </div>
     );
@@ -337,53 +329,39 @@ export default function PriceHistoryChart({ itemKey }: Props) {
 
   if (!filteredSeries.length) {
     return (
-      <div style={{ padding: 12, border: "1px solid rgba(0,0,0,.12)", borderRadius: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700 }}>Sin histórico.</div>
+      <div style={{ padding: 12, border: "1px solid rgba(0,0,0,.1)", borderRadius: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Sin histórico.</div>
       </div>
     );
   }
 
-  // Layout SVG (viewBox responsive)
-  const W = 960;
-  const H = 360;
-  const padL = 64;
-  const padR = 18;
-  const padT = 18;
-  const padB = 42;
+  const W = 900;
+  const H = 320;
+  const padL = 48;
+  const padR = 16;
+  const padT = 16;
+  const padB = 28;
+
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
 
-  const b = bounds!;
+  const b = filteredBounds!;
   const paths = filteredSeries.map((s) => ({
     id: s.id,
     label: s.label,
     unit: s.unit,
-    stroke: colorMap.get(s.id) ?? "#111827",
     d: buildPath(s.points, b.minX, b.maxX, b.minY, b.maxY, innerW, innerH),
   }));
 
   const yTicks = 4;
   const yLabels = Array.from({ length: yTicks + 1 }, (_, i) => {
-    const t = i / yTicks; // 0..1 (top->bottom in screen)
+    const t = i / yTicks;
     const v = b.minY + (1 - t) * (b.maxY - b.minY);
-    return { t, v, y: t * innerH };
+    return { t, v, y: padT + t * innerH };
   });
 
-  const tooltipStyle: React.CSSProperties = {
-    position: "absolute",
-    left: hoverX != null ? clamp(hoverX + 14, 8, 520) : 0,
-    top: 10,
-    pointerEvents: "none",
-    background: "rgba(255,255,255,0.92)",
-    border: "1px solid rgba(0,0,0,0.12)",
-    borderRadius: 12,
-    padding: "10px 12px",
-    boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
-    backdropFilter: "blur(6px)",
-    WebkitBackdropFilter: "blur(6px)",
-    minWidth: 220,
-    display: hoverBucket ? "block" : "none",
-  };
+  const xLabelLeft = b.minX;
+  const xLabelRight = b.maxX;
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -415,90 +393,38 @@ export default function PriceHistoryChart({ itemKey }: Props) {
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
         style={{
-          position: "relative",
-          border: "1px solid rgba(0,0,0,.12)",
-          borderRadius: 12,
+          border: "1px solid rgba(0,0,0,.1)",
+          borderRadius: 10,
           padding: 10,
-          overflow: "hidden",
-          background: "rgba(255,255,255,0.02)",
+          overflowX: "auto",
         }}
       >
-        {/* Tooltip flotante */}
-        <div style={tooltipStyle}>
-          {hoverBucket ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "rgba(0,0,0,0.78)" }}>
-                {hoverBucket.date}
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                {hoverBucket.items.map(({ s, p }) => {
-                  const c = colorMap.get(s.id) ?? "#111827";
-                  return (
-                    <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                      <span
-                        style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: 999,
-                          background: c,
-                          flex: "0 0 auto",
-                          marginTop: 3,
-                        }}
-                      />
-                      <div style={{ flex: 1, display: "flex", justifyContent: "space-between", gap: 12 }}>
-                        <div style={{ fontSize: 12, opacity: 0.9 }}>{s.label}</div>
-                        <div style={{ fontSize: 12, fontWeight: 700 }}>
-                          {fmtArs(p.value)} <span style={{ fontWeight: 600, opacity: 0.7 }}>{s.unit}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <svg
-          width="100%"
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="xMidYMid meet"
-          style={{ display: "block" }}
-        >
+        <svg width={W} height={H} style={{ display: "block" }}>
           <g transform={`translate(${padL},${padT})`}>
-            {/* Grid + labels Y */}
             {yLabels.map((t) => (
               <g key={t.t}>
-                <line x1={0} y1={t.y} x2={innerW} y2={t.y} stroke="rgba(0,0,0,.10)" />
-                <text x={-12} y={t.y + 4} textAnchor="end" fontSize={11} fill="rgba(0,0,0,.72)">
+                <line x1={0} y1={t.t * innerH} x2={innerW} y2={t.t * innerH} stroke="rgba(0,0,0,.08)" />
+                <text x={-10} y={t.t * innerH + 4} textAnchor="end" fontSize={11} fill="rgba(0,0,0,.7)">
                   {fmtArs(t.v)}
                 </text>
               </g>
             ))}
 
-            {/* Labels X */}
-            <text x={0} y={innerH + 28} fontSize={11} fill="rgba(0,0,0,.72)">
-              {b.minX}
+            <text x={0} y={innerH + 22} fontSize={11} fill="rgba(0,0,0,.7)">
+              {xLabelLeft}
             </text>
-            <text x={innerW} y={innerH + 28} textAnchor="end" fontSize={11} fill="rgba(0,0,0,.72)">
-              {b.maxX}
+            <text x={innerW} y={innerH + 22} textAnchor="end" fontSize={11} fill="rgba(0,0,0,.7)">
+              {xLabelRight}
             </text>
 
-            {/* Paths */}
-            {paths.map((p) => (
-              <path
-                key={p.id}
-                d={p.d}
-                fill="none"
-                stroke={p.stroke}
-                strokeWidth={2.6}
-                opacity={0.92}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            ))}
+            {paths.map((p) => {
+              const c = colorMap.get(p.id) ?? "#111827";
+              return (
+                <path key={p.id} d={p.d} fill="none" stroke={c} strokeWidth={2.5} opacity={0.9} />
+              );
+            })}
 
-            {/* Dots */}
+            {/* Puntos por serie para mejorar lectura (opcional pero recomendado) */}
             {filteredSeries.map((s) => {
               const c = colorMap.get(s.id) ?? "#111827";
               return (
@@ -511,8 +437,10 @@ export default function PriceHistoryChart({ itemKey }: Props) {
                         key={`${s.id}:${pt.date}`}
                         cx={x}
                         cy={y}
-                        r={3.1}
-                        fill={c}
+                        r={2.4}
+                        fill="#ffffff"
+                        stroke={c}
+                        strokeWidth={1.6}
                         opacity={0.95}
                       />
                     );
@@ -521,26 +449,45 @@ export default function PriceHistoryChart({ itemKey }: Props) {
               );
             })}
 
-            {/* Hover vertical line */}
             {hoverX != null ? (
-              <line x1={(hoverX / (wrapRef.current?.getBoundingClientRect().width || 1)) * innerW} y1={0} x2={(hoverX / (wrapRef.current?.getBoundingClientRect().width || 1)) * innerW} y2={innerH} stroke="rgba(0,0,0,.28)" strokeDasharray="4 4" />
+              <line
+                x1={hoverX}
+                y1={0}
+                x2={hoverX}
+                y2={innerH}
+                stroke="rgba(0,0,0,.25)"
+                strokeDasharray="4 4"
+              />
             ) : null}
           </g>
         </svg>
       </div>
 
-      {/* Leyenda */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.92 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.9 }}>
         {filteredSeries.map((s) => {
           const c = colorMap.get(s.id) ?? "#111827";
           return (
             <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ width: 10, height: 10, borderRadius: 999, background: c }} />
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: c,
+                  boxShadow: "0 0 0 2px rgba(255,255,255,0.9) inset",
+                }}
+              />
               <span>{s.label}</span>
             </div>
           );
         })}
       </div>
+
+      {hoverInfo ? (
+        <div style={{ fontSize: 12, opacity: 0.9 }}>
+          <code>{hoverDate}</code> · {hoverInfo.s.label}: <b>{fmtArs(hoverInfo.p.value)}</b> {hoverInfo.s.unit}
+        </div>
+      ) : null}
     </div>
   );
 }
