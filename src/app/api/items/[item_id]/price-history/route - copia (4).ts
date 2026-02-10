@@ -53,7 +53,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
   const parsed = parseItemKey(item_id);
 
   if (!parsed) {
-    return NextResponse.json({ ok: false, error: "invalid_item_key", raw: item_id }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "invalid_item_key", raw: item_id },
+      { status: 400 }
+    );
   }
 
   // ========= PROVEEDOR =========
@@ -73,12 +76,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
 
     if (q.rowCount === 0) {
       return NextResponse.json(
-        { ok: true, item_key: parsed.item_key, kind: "PROVEEDOR", series: [], note: "Sin histórico." },
+        {
+          ok: true,
+          item_key: parsed.item_key,
+          kind: "PROVEEDOR",
+          series: [],
+          note: "Sin histórico.",
+        },
         { status: 200 }
       );
     }
 
     const byPres = new Map<number, Array<{ d: string; y: number }>>();
+
     for (const r of q.rows) {
       if (!byPres.has(r.presentacion)) byPres.set(r.presentacion, []);
       byPres.get(r.presentacion)!.push({ d: r.date, y: Number(r.price_ars) });
@@ -91,100 +101,121 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
       points,
     }));
 
-    return NextResponse.json({ ok: true, item_key: parsed.item_key, kind: "PROVEEDOR", series }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        item_key: parsed.item_key,
+        kind: "PROVEEDOR",
+        series,
+      },
+      { status: 200 }
+    );
   }
 
-  // ========= FORMULADO =========
-  if (parsed.kind === "FORMULADO_PRODUCTO") {
-    // 1) Resolver item_formulado_id desde producto_id (BULK)
-    const idQ = await pool.query(
-      `
-      select item_formulado_id::int as item_formulado_id
-      from app.item_formulado
-      where producto_id = $1
-        and tipo = 'BULK'
-      order by item_formulado_id asc
-      limit 1
-      `,
-      [parsed.producto_id]
-    );
+  
+// ========= FORMULADO =========
+if (parsed.kind === "FORMULADO_PRODUCTO") {
+  // 1) Resolver item_formulado_id desde producto_id
+  const idQ = await pool.query(
+    `
+    select item_formulado_id::int as item_formulado_id
+    from app.item_formulado
+    where producto_id = $1
+    order by item_formulado_id asc
+    limit 1
+    `,
+    [parsed.producto_id]
+  );
 
-    const itemFormuladoId = idQ.rows[0]?.item_formulado_id as number | undefined;
+  const itemFormuladoId = idQ.rows[0]?.item_formulado_id as number | undefined;
 
-    if (!itemFormuladoId) {
-      return NextResponse.json(
-        {
-          ok: true,
-          item_key: parsed.item_key,
-          kind: "FORMULADO",
-          series: [],
-          note: "Sin histórico (no existe item_formulado BULK para este producto).",
-        },
-        { status: 200 }
-      );
-    }
-
-    // 2) Serie diaria desde snapshots por as_of_date (ya hay unique (item_formulado_id, as_of_date))
-    const q = await pool.query(
-      `
-      select
-        as_of_date::text as d,
-        precio_unitario_ars
-      from app.item_formulado_snapshot
-      where item_formulado_id = $1
-      order by as_of_date asc
-      `,
-      [itemFormuladoId]
-    );
-
-    const points = q.rows
-      .map((r) => ({ d: String(r.d), y: Number(r.precio_unitario_ars) }))
-      .filter((p) => p.d && Number.isFinite(p.y));
-
+  if (!itemFormuladoId) {
     return NextResponse.json(
       {
         ok: true,
         item_key: parsed.item_key,
         kind: "FORMULADO",
-        series: points.length
-          ? [{ id: "price", label: "Precio unitario", unit: "ARS", points }]
-          : [],
-        note: points.length ? undefined : "Sin histórico (sin snapshots).",
+        series: [],
+        note: "Sin histórico (no existe item_formulado para este producto).",
       },
       { status: 200 }
     );
   }
 
-  // ========= MANUAL =========
-  if (parsed.kind === "MANUAL_COST_OPTION") {
-    const q = await pool.query(
-      `
-      select
-        as_of_date::text as d,
-        costo_ars
-      from app.cost_option_snapshot
-      where cost_option_id = $1
-      order by as_of_date asc
-      `,
-      [parsed.cost_option_id]
-    );
+  // 2) Traer serie diaria desde snapshots (usar el último snapshot de cada día)
+  const q = await pool.query(
+    `
+    select distinct on (created_at::date)
+      created_at::date::text as d,
+      precio_unitario_ars
+    from app.item_formulado_snapshot
+    where item_formulado_id = $1
+    order by created_at::date asc, created_at desc
+    `,
+    [itemFormuladoId]
+  );
 
-    const points = q.rows
-      .map((r) => ({ d: String(r.d), y: Number(r.costo_ars) }))
-      .filter((p) => p.d && Number.isFinite(p.y));
+  const points = q.rows
+    .map((r) => ({ d: String(r.d), y: Number(r.precio_unitario_ars) }))
+    .filter((p) => p.d && Number.isFinite(p.y));
 
-    return NextResponse.json(
-      {
-        ok: true,
-        item_key: parsed.item_key,
-        kind: "MANUAL",
-        series: points.length ? [{ id: "cost", label: "Costo", unit: "ARS", points }] : [],
-        note: points.length ? undefined : "Sin histórico (sin snapshots).",
-      },
-      { status: 200 }
-    );
-  }
+  return NextResponse.json(
+    {
+      ok: true,
+      item_key: parsed.item_key,
+      kind: "FORMULADO",
+      series: points.length
+        ? [
+            {
+              id: "price",
+              label: "Precio unitario",
+              unit: "ARS",
+              points,
+            },
+          ]
+        : [],
+      note: points.length ? undefined : "Sin histórico (sin snapshots).",
+    },
+    { status: 200 }
+  );
+}
 
-  // unreachable
-  return NextResponse.json({ ok: false, error: "unhandled_kind" }, { status: 500 });
+// ========= MANUAL =========
+if (parsed.kind === "MANUAL_COST_OPTION") {
+  const q = await pool.query(
+    `
+    select
+      as_of_date::text as d,
+      costo_ars
+    from app.cost_option_snapshot
+    where cost_option_id = $1
+    order by as_of_date asc
+    `,
+    [parsed.cost_option_id]
+  );
+
+  const points = q.rows
+    .map((r) => ({ d: String(r.d), y: Number(r.costo_ars) }))
+    .filter((p) => p.d && Number.isFinite(p.y));
+
+  return NextResponse.json(
+    {
+      ok: true,
+      item_key: parsed.item_key,
+      kind: "MANUAL",
+      series: points.length
+        ? [
+            {
+              id: "cost",
+              label: "Costo",
+              unit: "ARS",
+              points,
+            },
+          ]
+        : [],
+      note: points.length ? undefined : "Sin histórico (sin snapshots).",
+    },
+    { status: 200 }
+  );
+}
 }
