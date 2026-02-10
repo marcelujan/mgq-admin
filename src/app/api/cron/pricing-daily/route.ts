@@ -6,7 +6,7 @@ import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPrices
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const HANDLER_VERSION = "pricing-daily-multibatch-mixed-2026-02-09";
+const HANDLER_VERSION = "pricing-daily-multibatch-mixed-2026-02-10";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -17,8 +17,6 @@ const pool = new Pool({
 
 const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 80);
 const MAX_ATTEMPTS = 3;
-
-// En Vercel conviene dejar margen para commits/updates finales.
 const TIME_BUDGET_MS = 50_000;
 const TIME_MARGIN_MS = 4_000;
 
@@ -44,7 +42,6 @@ function backoffMs(attempt: number) {
 }
 
 async function scrapeWithMotor(motorId: number, url: string) {
-  // Debe devolver: { sourceUrl: string, prices: Array<{ presentacion:number, priceArs:number }> }
   return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
@@ -81,11 +78,9 @@ export async function POST(req: NextRequest) {
 
     client = await pool.connect();
 
-    // Fecha desde DB
     const d0 = await client.query(`select current_date::text as d;`);
     const asOfDate = String(d0.rows?.[0]?.d);
 
-    // Crear/obtener run del día
     const runQ = await client.query(
       `
       insert into app.pricing_daily_runs (as_of_date, status)
@@ -98,13 +93,11 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
-    // started_at si no estaba
     await client.query(
       `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
       [runId]
     );
 
-    // Seed: offers OK
     await client.query(
       `
       insert into app.pricing_daily_run_items (run_id, offer_id, status)
@@ -116,7 +109,6 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // total_items
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -128,12 +120,8 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // Claim batch (con touch updated_at para evitar starvation)
     const claimBatch = async (mode: OrderMode) => {
-      const orderSql =
-        mode === "asc"
-          ? "i.updated_at asc, i.id asc"
-          : "i.updated_at desc, i.id desc";
+      const orderSql = mode === "asc" ? "i.updated_at asc, i.id asc" : "i.updated_at desc, i.id desc";
 
       await client!.query("begin;");
       txOpen = true;
@@ -182,18 +170,16 @@ export async function POST(req: NextRequest) {
     let processed_ok = 0;
     let processed_fail = 0;
     let inserted_rows = 0;
-
     let batches = 0;
     let claimed_total = 0;
 
-    // Alternar: primero desc (nuevo) para que items recientes tengan histórico aunque haya backlog.
+    // Arrancar por DESC para priorizar “nuevo” en presencia de backlog.
     let mode: OrderMode = "desc";
 
     while (timeLeftOk()) {
-      // Intento 1: modo actual
       let batchRows = await claimBatch(mode);
 
-      // Si vacío, probamos el otro modo una vez (por si no hay “en ese extremo”)
+      // Si no hay por este lado, probamos el otro una vez.
       if (batchRows.length === 0) {
         const other: OrderMode = mode === "asc" ? "desc" : "asc";
         batchRows = await claimBatch(other);
@@ -310,11 +296,10 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // alternar para el siguiente batch
+      // Alternar extremos para evitar starvation y a la vez drenar backlog.
       mode = mode === "asc" ? "desc" : "asc";
     }
 
-    // Recalcular contadores
     await client.query(
       `
       update app.pricing_daily_runs r
