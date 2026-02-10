@@ -4,6 +4,8 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Row = { as_of_date: string; presentacion: number; price_ars: number };
+type SeriesPoint = { date: string; value: number };
+type Series = { id: string; label: string; unit: string; points: SeriesPoint[] };
 
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
@@ -37,16 +39,7 @@ function SparkLineChart({
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   const palette = useMemo(
-    () => [
-      "#60a5fa", // blue
-      "#34d399", // green
-      "#f59e0b", // amber
-      "#f472b6", // pink
-      "#a78bfa", // violet
-      "#22d3ee", // cyan
-      "#fb7185", // rose
-      "#eab308", // yellow
-    ],
+    () => ["#60a5fa", "#34d399", "#f59e0b", "#f472b6", "#a78bfa", "#22d3ee", "#fb7185", "#eab308"],
     []
   );
 
@@ -85,9 +78,7 @@ function SparkLineChart({
       }
     }
 
-    const dates = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.d)))).sort((a, b) =>
-      a.localeCompare(b)
-    );
+    const dates = Array.from(new Set(series.flatMap((s) => s.points.map((p) => p.d)))).sort((a, b) => a.localeCompare(b));
 
     const xScale = (iso: string) => {
       const i = dates.indexOf(iso);
@@ -105,13 +96,11 @@ function SparkLineChart({
         .slice()
         .sort((a, b) => a.d.localeCompare(b.d))
         .map((p) => ({ x: xScale(p.d), y: yScale(p.y), d: p.d, v: p.y }));
-      const path =
-        pts.length <= 1 ? "" : "M " + pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
+      const path = pts.length <= 1 ? "" : "M " + pts.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
       return { name, path, pts };
     };
 
     const lines = series.map((s) => mkLine(s.name, s.points));
-
     const steps = 4;
     const ticksY = Array.from({ length: steps + 1 }, (_, i) => yMin + (i * (yMax - yMin)) / steps);
 
@@ -127,7 +116,6 @@ function SparkLineChart({
     const ratio = svg.W / rect.width;
     const xv = x * ratio;
 
-    // FIX tipado: guardamos best sin dist en el objeto
     let best: { s: number; i: number } | null = null;
     let bestDist = Infinity;
 
@@ -168,15 +156,7 @@ function SparkLineChart({
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {series.map((s, idx) => (
               <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, opacity: 0.85 }}>
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: palette[idx % palette.length],
-                    display: "inline-block",
-                  }}
-                />
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: palette[idx % palette.length], display: "inline-block" }} />
                 <span>{s.name}</span>
               </div>
             ))}
@@ -213,14 +193,7 @@ function SparkLineChart({
                 {fmtX(svg.dates[0])}
               </text>
               {svg.dates.length > 1 ? (
-                <text
-                  x={svg.W - svg.PR}
-                  y={svg.H - 10}
-                  fontSize="12"
-                  textAnchor="end"
-                  fill="currentColor"
-                  opacity={0.75}
-                >
+                <text x={svg.W - svg.PR} y={svg.H - 10} fontSize="12" textAnchor="end" fill="currentColor" opacity={0.75}>
                   {fmtX(svg.dates[svg.dates.length - 1])}
                 </text>
               ) : null}
@@ -229,38 +202,19 @@ function SparkLineChart({
 
           {svg.lines.map((l, idx) => {
             const stroke = isMulti ? palette[idx % palette.length] : "currentColor";
-            const strokeOpacity = isMulti ? 0.95 : 0.95;
-            const pointOpacity = isMulti ? 0.95 : 0.95;
-
             return (
               <g key={l.name}>
-                {l.path ? <path d={l.path} fill="none" stroke={stroke} strokeOpacity={strokeOpacity} strokeWidth={2.4} /> : null}
+                {l.path ? <path d={l.path} fill="none" stroke={stroke} strokeOpacity={0.95} strokeWidth={2.4} /> : null}
                 {l.pts.map((p, pIdx) => {
                   const isHover = hover?.s === idx && hover?.i === pIdx;
-                  return (
-                    <circle
-                      key={`${idx}_${pIdx}`}
-                      cx={p.x}
-                      cy={p.y}
-                      r={isHover ? 5 : 3.5}
-                      fill={stroke}
-                      opacity={pointOpacity}
-                    />
-                  );
+                  return <circle key={`${idx}_${pIdx}`} cx={p.x} cy={p.y} r={isHover ? 5 : 3.5} fill={stroke} opacity={0.95} />;
                 })}
               </g>
             );
           })}
 
           {hoverPoint ? (
-            <line
-              x1={hoverPoint.p.x}
-              x2={hoverPoint.p.x}
-              y1={svg.PT}
-              y2={svg.H - svg.PB}
-              stroke="currentColor"
-              strokeOpacity={0.20}
-            />
+            <line x1={hoverPoint.p.x} x2={hoverPoint.p.x} y1={svg.PT} y2={svg.H - svg.PB} stroke="currentColor" strokeOpacity={0.2} />
           ) : null}
         </svg>
 
@@ -287,15 +241,7 @@ function SparkLineChart({
             <div style={{ fontWeight: 700 }}>{fmtY(hoverPoint.p.v)}</div>
             {isMulti ? (
               <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.85, marginTop: 2 }}>
-                <span
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 999,
-                    background: palette[hoverPoint.s % palette.length],
-                    display: "inline-block",
-                  }}
-                />
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: palette[hoverPoint.s % palette.length], display: "inline-block" }} />
                 <span>{hoverPoint.line}</span>
               </div>
             ) : null}
@@ -306,25 +252,48 @@ function SparkLineChart({
   );
 }
 
-export default function PriceHistoryChart({ itemId }: { itemId: number }) {
+export default function PriceHistoryChart({ itemKey }: { itemKey: string }) {
   const [rows, setRows] = useState<Row[]>([]);
+  const [series, setSeries] = useState<Series[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [range, setRange] = useState<RangeKey>("30"); // DEFAULT: 30
+  const [range, setRange] = useState<RangeKey>("30");
 
   useEffect(() => {
     (async () => {
       setErr(null);
-      const res = await fetch(`/api/items/${itemId}/price-history`, { cache: "no-store" });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
+      setSeries(null);
+      setRows([]);
+
+      const res = await fetch(`/api/items/${encodeURIComponent(itemKey)}/price-history`, { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+
+      if (!res.ok || !j?.ok) {
         setErr(j?.error ?? `http_${res.status}`);
         return;
       }
-      const j = await res.json();
+
+      if (Array.isArray(j?.series)) {
+        const s = (j.series as any[])
+          .map((x) => ({
+            id: String(x?.id ?? ""),
+            label: String(x?.label ?? ""),
+            unit: String(x?.unit ?? ""),
+            points: Array.isArray(x?.points)
+              ? (x.points as any[])
+                  .map((p) => ({ date: String(p?.date ?? ""), value: Number(p?.value) }))
+                  .filter((p) => p.date && Number.isFinite(p.value))
+              : [],
+          }))
+          .filter((x) => x.id && x.points.length);
+
+        setSeries(s);
+        return;
+      }
+
       const r = Array.isArray(j?.rows) ? (j.rows as Row[]) : [];
       setRows(r);
     })();
-  }, [itemId]);
+  }, [itemKey]);
 
   const fmtArs = useMemo(() => {
     return new Intl.NumberFormat("es-AR", {
@@ -342,16 +311,14 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     };
   }, []);
 
-  const presList = useMemo(() => {
-    return Array.from(new Set(rows.map((x) => Number(x.presentacion))))
-      .filter((x) => Number.isFinite(x) && x > 0)
-      .sort((a, b) => a - b);
-  }, [rows]);
-
   const maxDate = useMemo(() => {
+    if (series && series.length) {
+      const d = series.flatMap((s) => s.points.map((p) => p.date)).filter(Boolean).sort((a, b) => a.localeCompare(b));
+      return d.length ? d[d.length - 1] : null;
+    }
     const d = rows.map((r) => r.as_of_date).filter(Boolean).sort((a, b) => a.localeCompare(b));
     return d.length ? d[d.length - 1] : null;
-  }, [rows]);
+  }, [rows, series]);
 
   const cutoffIso = useMemo(() => {
     if (!maxDate) return null;
@@ -361,12 +328,88 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     return daysAgoIso(maxDate, Math.max(0, days - 1));
   }, [maxDate, range]);
 
-  const filteredRows = useMemo(() => {
-    if (!cutoffIso) return rows;
-    return rows.filter((r) => r.as_of_date >= cutoffIso);
-  }, [rows, cutoffIso]);
+  if (err) return <div style={{ color: "#ff6b6b", fontSize: 14 }}>Error: {err}</div>;
+  if ((!series || series.length === 0) && rows.length === 0) return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
 
-  const unitSeries = useMemo(() => {
+  // FORMULADO (series)
+  if (series && series.length) {
+    const cutoff = cutoffIso;
+
+    const byUnit = new Map<string, Series[]>();
+    for (const s of series) {
+      const unit = s.unit || "ARS";
+      if (!byUnit.has(unit)) byUnit.set(unit, []);
+      byUnit.get(unit)!.push(s);
+    }
+
+    const charts = Array.from(byUnit.entries()).map(([unit, list]) => {
+      const ser = list.map((s) => ({
+        name: s.label || s.id,
+        points: (cutoff ? s.points.filter((p) => p.date >= cutoff) : s.points).map((p) => ({ d: p.date, y: p.value })),
+      }));
+
+      const fmtY = (v: number) => {
+        if (unit === "ARS") return fmtArs.format(v);
+        if (unit === "ARS/kg") return `${fmtArs.format(v)}/kg`;
+        if (unit === "ARS/L") return `${fmtArs.format(v)}/L`;
+        if (unit === "ARS/u") return `${fmtArs.format(v)}/u`;
+        return fmtArs.format(v);
+      };
+
+      const title = unit === "ARS" ? "Histórico (ARS)" : `Histórico (${unit})`;
+      return <SparkLineChart key={unit} title={title} series={ser} fmtY={fmtY} fmtX={fmtDate} />;
+    });
+
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        <style jsx global>{`
+          .ph_range {
+            color-scheme: dark;
+          }
+          .ph_range option {
+            background: #0b0b0b;
+            color: #ffffff;
+          }
+        `}</style>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>Intervalo</div>
+          <select
+            className="ph_range"
+            value={range}
+            onChange={(e) => setRange(e.target.value as RangeKey)}
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              background: "rgba(255,255,255,0.04)",
+              color: "rgba(255,255,255,0.88)",
+              fontSize: 13,
+              outline: "none",
+            }}
+          >
+            <option value="30">30 días</option>
+            <option value="60">60 días</option>
+            <option value="100">100 días</option>
+            <option value="180">180 días</option>
+            <option value="365">365 días</option>
+            <option value="all">Todo</option>
+          </select>
+        </div>
+
+        {charts}
+      </div>
+    );
+  }
+
+  // PROVEEDOR (rows)
+  const presList = Array.from(new Set(rows.map((x) => Number(x.presentacion))))
+    .filter((x) => Number.isFinite(x) && x > 0)
+    .sort((a, b) => a - b);
+
+  const filteredRows = cutoffIso ? rows.filter((r) => r.as_of_date >= cutoffIso) : rows;
+
+  const unitSeries = (() => {
     const byPres = new Map<number, Array<{ d: string; y: number }>>();
     for (const r of filteredRows) {
       const pres = Number(r.presentacion);
@@ -381,24 +424,18 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
     return Array.from(byPres.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([pres, points]) => ({ name: `${pres} u`, points }));
-  }, [filteredRows]);
+  })();
 
-  const chartsByPres = useMemo(() => {
-    return presList.map((pres) => {
-      const points = filteredRows
-        .filter((r) => Number(r.presentacion) === pres)
-        .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
-        .filter((p) => Number.isFinite(p.y));
-      return { pres, points };
-    });
-  }, [filteredRows, presList]);
-
-  if (err) return <div style={{ color: "#ff6b6b", fontSize: 14 }}>Error: {err}</div>;
-  if (rows.length === 0) return <div style={{ fontSize: 14, opacity: 0.85 }}>Sin datos todavía.</div>;
+  const chartsByPres = presList.map((pres) => {
+    const points = filteredRows
+      .filter((r) => Number(r.presentacion) === pres)
+      .map((r) => ({ d: r.as_of_date, y: Number(r.price_ars) }))
+      .filter((p) => Number.isFinite(p.y));
+    return { pres, points };
+  });
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      {/* CSS para que el dropdown NO sea blanco con texto blanco */}
       <style jsx global>{`
         .ph_range {
           color-scheme: dark;
@@ -419,10 +456,10 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
             border: "1px solid rgba(255,255,255,0.14)",
             borderRadius: 8,
             padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            color: "rgba(255,255,255,0.92)",
+            background: "rgba(255,255,255,0.04)",
+            color: "rgba(255,255,255,0.88)",
+            fontSize: 13,
             outline: "none",
-            colorScheme: "dark",
           }}
         >
           <option value="30">Últimos 30 días</option>
@@ -432,12 +469,6 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
           <option value="365">Último año</option>
           <option value="all">Todo</option>
         </select>
-
-        {cutoffIso && maxDate ? (
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {fmtDate(cutoffIso)} → {fmtDate(maxDate)}
-          </div>
-        ) : null}
       </div>
 
       <SparkLineChart
@@ -451,8 +482,8 @@ export default function PriceHistoryChart({ itemId }: { itemId: number }) {
         {chartsByPres.map((c) => (
           <SparkLineChart
             key={c.pres}
-            title={`Precio total · Presentación ${c.pres}`}
-            series={[{ name: `${c.pres}`, points: c.points }]}
+            title={`Precio total · Presentación ${c.pres} u`}
+            series={[{ name: `${c.pres} u`, points: c.points }]}
             fmtY={(v) => fmtArs.format(Math.round(v))}
             fmtX={fmtDate}
           />
