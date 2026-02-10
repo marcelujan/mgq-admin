@@ -100,7 +100,15 @@ function valToY(v: number, minY: number, maxY: number, height: number) {
   return height - t * height;
 }
 
-function buildPath(points: SeriesPoint[], minX: string, maxX: string, minY: number, maxY: number, width: number, height: number) {
+function buildPath(
+  points: SeriesPoint[],
+  minX: string,
+  maxX: string,
+  minY: number,
+  maxY: number,
+  width: number,
+  height: number
+) {
   if (!points.length) return "";
   const cmds: string[] = [];
   for (let i = 0; i < points.length; i++) {
@@ -134,6 +142,33 @@ function nearestPoint(series: Series[], targetDate: string) {
   return best;
 }
 
+/** Paleta fija (no depende de theme) + asignación determinística por series.id */
+const PALETTE = [
+  "#2563eb", // blue-600
+  "#16a34a", // green-600
+  "#dc2626", // red-600
+  "#7c3aed", // violet-600
+  "#ea580c", // orange-600
+  "#0891b2", // cyan-600
+  "#db2777", // pink-600
+  "#65a30d", // lime-600
+  "#ca8a04", // yellow-600 (oscuro)
+  "#0f766e", // teal-700
+];
+
+function hashStringToInt(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function colorForSeriesId(id: string): string {
+  return PALETTE[hashStringToInt(id) % PALETTE.length];
+}
+
 type Props = {
   itemKey: string;
 };
@@ -157,11 +192,12 @@ export default function PriceHistoryChart({ itemKey }: Props) {
       setSeries(null);
       setRows([]);
 
-      // CAMBIO: no encodear itemKey. Puede venir como "p:231" o ya encoded "p%3A231".
+      // No encodear itemKey: puede venir como "p:231" o ya encoded "p%3A231".
       const res = await fetch(`/api/items/${itemKey}/price-history`, { cache: "no-store" });
       const j = await res.json().catch(() => ({}));
 
       if (!res.ok || !j?.ok) {
+        if (!alive) return;
         setErr(j?.error ?? `http_${res.status}`);
         return;
       }
@@ -240,6 +276,12 @@ export default function PriceHistoryChart({ itemKey }: Props) {
   const maxDate = useMemo(() => {
     const m = filteredSeries.map((s) => pickMaxDate(s.points)).filter(Boolean) as string[];
     return m.length ? m.sort().slice(-1)[0] : null;
+  }, [filteredSeries]);
+
+  const colorMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of filteredSeries) m.set(s.id, colorForSeriesId(s.id));
+    return m;
   }, [filteredSeries]);
 
   const onMouseMove = (e: MouseEvent) => {
@@ -362,13 +404,7 @@ export default function PriceHistoryChart({ itemKey }: Props) {
             {yLabels.map((t) => (
               <g key={t.t}>
                 <line x1={0} y1={t.t * innerH} x2={innerW} y2={t.t * innerH} stroke="rgba(0,0,0,.08)" />
-                <text
-                  x={-10}
-                  y={t.t * innerH + 4}
-                  textAnchor="end"
-                  fontSize={11}
-                  fill="rgba(0,0,0,.7)"
-                >
+                <text x={-10} y={t.t * innerH + 4} textAnchor="end" fontSize={11} fill="rgba(0,0,0,.7)">
                   {fmtArs(t.v)}
                 </text>
               </g>
@@ -381,9 +417,37 @@ export default function PriceHistoryChart({ itemKey }: Props) {
               {xLabelRight}
             </text>
 
-            {paths.map((p) => (
-              <path key={p.id} d={p.d} fill="none" stroke="currentColor" strokeWidth={2} opacity={0.85} />
-            ))}
+            {paths.map((p) => {
+              const c = colorMap.get(p.id) ?? "#111827";
+              return (
+                <path key={p.id} d={p.d} fill="none" stroke={c} strokeWidth={2.5} opacity={0.9} />
+              );
+            })}
+
+            {/* Puntos por serie para mejorar lectura (opcional pero recomendado) */}
+            {filteredSeries.map((s) => {
+              const c = colorMap.get(s.id) ?? "#111827";
+              return (
+                <g key={`dots:${s.id}`}>
+                  {s.points.map((pt) => {
+                    const x = dateToX(pt.date, b.minX, b.maxX, innerW);
+                    const y = valToY(pt.value, b.minY, b.maxY, innerH);
+                    return (
+                      <circle
+                        key={`${s.id}:${pt.date}`}
+                        cx={x}
+                        cy={y}
+                        r={2.4}
+                        fill="#ffffff"
+                        stroke={c}
+                        strokeWidth={1.6}
+                        opacity={0.95}
+                      />
+                    );
+                  })}
+                </g>
+              );
+            })}
 
             {hoverX != null ? (
               <line
@@ -399,13 +463,24 @@ export default function PriceHistoryChart({ itemKey }: Props) {
         </svg>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.85 }}>
-        {filteredSeries.map((s) => (
-          <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 999, background: "currentColor", opacity: 0.75 }} />
-            <span>{s.label}</span>
-          </div>
-        ))}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 12, opacity: 0.9 }}>
+        {filteredSeries.map((s) => {
+          const c = colorMap.get(s.id) ?? "#111827";
+          return (
+            <div key={s.id} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: c,
+                  boxShadow: "0 0 0 2px rgba(255,255,255,0.9) inset",
+                }}
+              />
+              <span>{s.label}</span>
+            </div>
+          );
+        })}
       </div>
 
       {hoverInfo ? (
