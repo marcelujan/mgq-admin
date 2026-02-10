@@ -112,19 +112,52 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
     );
   }
 
-  // ========= FORMULADO =========
-  if (parsed.kind === "FORMULADO_PRODUCTO") {
+  
+// ========= FORMULADO =========
+if (parsed.kind === "FORMULADO_PRODUCTO") {
+  const idQ = await pool.query(
+    `select id::int as item_formulado_id from app.item_formulado where producto_id = $1 limit 1`,
+    [parsed.producto_id]
+  );
+
+  const itemFormuladoId = idQ.rows[0]?.item_formulado_id;
+
+  if (!itemFormuladoId) {
     return NextResponse.json(
-      {
-        ok: true,
-        item_key: parsed.item_key,
-        kind: "FORMULADO",
-        series: [],
-        note: "Sin histórico: los formulados aún no generan price-history diario.",
-      },
+      { ok: true, item_key: parsed.item_key, kind: "FORMULADO", series: [], note: "Sin histórico." },
       { status: 200 }
     );
   }
+
+  const q = await pool.query(
+    `
+    select distinct on (created_at::date)
+      created_at::date::text as d,
+      precio_unitario_ars
+    from app.item_formulado_snapshot
+    where item_formulado_id = $1
+    order by created_at::date, created_at desc
+    `,
+    [itemFormuladoId]
+  );
+
+  const points = q.rows
+    .map((r) => ({ d: r.d, y: Number(r.precio_unitario_ars) }))
+    .filter((p) => Number.isFinite(p.y));
+
+  return NextResponse.json(
+    {
+      ok: true,
+      item_key: parsed.item_key,
+      kind: "FORMULADO",
+      series: points.length
+        ? [{ id: "price", label: "Precio unitario", unit: "ARS", points }]
+        : [],
+      note: points.length ? undefined : "Sin histórico.",
+    },
+    { status: 200 }
+  );
+}
 
   // ========= MANUAL =========
   return NextResponse.json(
