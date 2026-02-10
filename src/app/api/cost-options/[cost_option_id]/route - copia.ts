@@ -22,21 +22,6 @@ function boolOrUndef(v: any): boolean | undefined {
   return undefined;
 }
 
-async function upsertManualSnapshotToday(sql: any, cost_option_id: number, costo_ars: number, fuente: "USER" | "CRON" | "AUTO" = "USER") {
-  await sql.query(
-    `
-    insert into app.cost_option_snapshot (cost_option_id, as_of_date, costo_ars, fuente, created_at)
-    values ($1, current_date, $2, $3::text, now())
-    on conflict (cost_option_id, as_of_date)
-    do update set
-      costo_ars = excluded.costo_ars,
-      fuente = excluded.fuente,
-      created_at = excluded.created_at
-    `,
-    [cost_option_id, costo_ars, fuente]
-  );
-}
-
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ cost_option_id: string }> }) {
   try {
     const { cost_option_id: idStr } = await ctx.params;
@@ -113,35 +98,23 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ cost_opti
     const sql = db();
     const r: any = await sql.query(
       `
-      update app.cost_option
-      set ${sets.join(", ")}, updated_at=now()
-      where cost_option_id=$${p++}
-      returning cost_option_id, tipo, manual_costo_ars, activo
+      UPDATE app.cost_option
+      SET ${sets.join(", ")}, updated_at=now()
+      WHERE cost_option_id=$${p++}
+      RETURNING cost_option_id
       `,
       values
     );
-
     const rows = normalizeQueryResult(r);
     if (!rows.length) return NextResponse.json({ ok: false, error: "no existe cost_option" }, { status: 404 });
-
-    const row = rows[0];
-    const tipo = String(row?.tipo ?? "");
-    const costo = row?.manual_costo_ars === null || row?.manual_costo_ars === undefined ? null : Number(row.manual_costo_ars);
-    const isActivo = row?.activo === true;
-
-    // ✅ Snapshot inmediato si es MANUAL y tiene costo.
-    // (Si lo desactivan, no insertamos snapshot nuevo.)
-    if (tipo === "MANUAL_PRESENTACION" && isActivo && costo !== null && Number.isFinite(costo)) {
-      await upsertManualSnapshotToday(sql, cost_option_id, costo, "USER");
-    }
 
     // Recalcular snapshots: todos los productos cuya fórmula usa este cost_option
     try {
       const pr: any = await sql.query(
         `
-        select distinct producto_id
-        from app.formula_linea_v2
-        where cost_option_id = $1
+        SELECT DISTINCT producto_id
+        FROM app.formula_linea_v2
+        WHERE cost_option_id = $1
         `,
         [cost_option_id]
       );
@@ -160,7 +133,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ cost_opti
       // No romper el PATCH si el recálculo falla.
     }
 
-    return NextResponse.json({ ok: true, cost_option_id: Number(row.cost_option_id) });
+    return NextResponse.json({ ok: true, cost_option_id: Number(rows[0].cost_option_id) });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

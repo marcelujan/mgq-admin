@@ -14,22 +14,6 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function upsertManualSnapshotToday(sql: any, cost_option_id: number, costo_ars: number, fuente: "USER" | "CRON" | "AUTO" = "USER") {
-  // Requiere UNIQUE(cost_option_id, as_of_date)
-  await sql.query(
-    `
-    insert into app.cost_option_snapshot (cost_option_id, as_of_date, costo_ars, fuente, created_at)
-    values ($1, current_date, $2, $3::text, now())
-    on conflict (cost_option_id, as_of_date)
-    do update set
-      costo_ars = excluded.costo_ars,
-      fuente = excluded.fuente,
-      created_at = excluded.created_at
-    `,
-    [cost_option_id, costo_ars, fuente]
-  );
-}
-
 /**
  * GET:
  * - ITEM_PRESENTACION: desde app.item_price_daily_pres (última fecha por item/presentación) + app.item_seguimiento + app.proveedor
@@ -101,6 +85,7 @@ export async function GET(req: NextRequest) {
 
     const costOptParams: any[] = [];
     let whereCO = "WHERE activo=true AND tipo in ('MANUAL_PRESENTACION','BULK_PRODUCTO','ITEM_PRESENTACION')";
+    // Incluimos ITEM_PRESENTACION también para que UI pueda mostrar densidad guardada por opción si quisieras (no obligatorio)
     if (search) {
       costOptParams.push(`%${search}%`);
       const p = costOptParams.length;
@@ -155,6 +140,7 @@ export async function POST(req: NextRequest) {
     }
 
     const densidad_g_ml = numOrNull(body?.densidad_g_ml);
+
     const sql = db();
 
     if (tipo === "ITEM_PRESENTACION") {
@@ -206,18 +192,8 @@ export async function POST(req: NextRequest) {
         `,
         [manual_nombre, manual_uom, manual_cantidad, manual_costo_ars, densidad_g_ml]
       );
-
       const rows = normalizeQueryResult(r);
-      const cost_option_id = Number(rows?.[0]?.cost_option_id);
-
-      if (!Number.isFinite(cost_option_id) || cost_option_id <= 0) {
-        return NextResponse.json({ ok: false, error: "no se pudo crear cost_option" }, { status: 500 });
-      }
-
-      // ✅ Snapshot inmediato: garantiza que el manual nuevo tenga gráfico hoy
-      await upsertManualSnapshotToday(sql, cost_option_id, manual_costo_ars, "USER");
-
-      return NextResponse.json({ ok: true, cost_option_id });
+      return NextResponse.json({ ok: true, cost_option_id: Number(rows?.[0]?.cost_option_id) });
     }
 
     // BULK_PRODUCTO
