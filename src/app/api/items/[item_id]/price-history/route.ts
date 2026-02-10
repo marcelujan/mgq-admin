@@ -115,20 +115,34 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
   
 // ========= FORMULADO =========
 if (parsed.kind === "FORMULADO_PRODUCTO") {
+  // 1) Resolver item_formulado_id desde producto_id
   const idQ = await pool.query(
-    `select id::int as item_formulado_id from app.item_formulado where producto_id = $1 limit 1`,
+    `
+    select item_formulado_id::int as item_formulado_id
+    from app.item_formulado
+    where producto_id = $1
+    order by item_formulado_id asc
+    limit 1
+    `,
     [parsed.producto_id]
   );
 
-  const itemFormuladoId = idQ.rows[0]?.item_formulado_id;
+  const itemFormuladoId = idQ.rows[0]?.item_formulado_id as number | undefined;
 
   if (!itemFormuladoId) {
     return NextResponse.json(
-      { ok: true, item_key: parsed.item_key, kind: "FORMULADO", series: [], note: "Sin histórico." },
+      {
+        ok: true,
+        item_key: parsed.item_key,
+        kind: "FORMULADO",
+        series: [],
+        note: "Sin histórico (no existe item_formulado para este producto).",
+      },
       { status: 200 }
     );
   }
 
+  // 2) Traer serie diaria desde snapshots (usar el último snapshot de cada día)
   const q = await pool.query(
     `
     select distinct on (created_at::date)
@@ -136,14 +150,14 @@ if (parsed.kind === "FORMULADO_PRODUCTO") {
       precio_unitario_ars
     from app.item_formulado_snapshot
     where item_formulado_id = $1
-    order by created_at::date, created_at desc
+    order by created_at::date asc, created_at desc
     `,
     [itemFormuladoId]
   );
 
   const points = q.rows
-    .map((r) => ({ d: r.d, y: Number(r.precio_unitario_ars) }))
-    .filter((p) => Number.isFinite(p.y));
+    .map((r) => ({ d: String(r.d), y: Number(r.precio_unitario_ars) }))
+    .filter((p) => p.d && Number.isFinite(p.y));
 
   return NextResponse.json(
     {
@@ -151,9 +165,16 @@ if (parsed.kind === "FORMULADO_PRODUCTO") {
       item_key: parsed.item_key,
       kind: "FORMULADO",
       series: points.length
-        ? [{ id: "price", label: "Precio unitario", unit: "ARS", points }]
+        ? [
+            {
+              id: "price",
+              label: "Precio unitario",
+              unit: "ARS",
+              points,
+            },
+          ]
         : [],
-      note: points.length ? undefined : "Sin histórico.",
+      note: points.length ? undefined : "Sin histórico (sin snapshots).",
     },
     { status: 200 }
   );
