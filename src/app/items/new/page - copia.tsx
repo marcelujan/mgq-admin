@@ -26,13 +26,14 @@ function splitUrls(text: string): string[] {
     .filter(Boolean);
 }
 
-type TabKey = "PROVEEDOR" | "MANUAL";
-type ManualUom = "GR" | "ML" | "U";
+type Mode = "PROVEEDOR" | "MANUAL";
 
 export default function ItemsNewPage() {
-  const [tab, setTab] = useState<TabKey>("PROVEEDOR");
+  const [mode, setMode] = useState<Mode>("PROVEEDOR");
 
-  // ====== PROVEEDOR (URLs) ======
+  // =========================
+  // PROVEEDOR (bulk URLs)
+  // =========================
   const [proveedores, setProveedores] = useState<ProveedorRow[]>([]);
   const [proveedorId, setProveedorId] = useState<number>(0);
   const [motorId, setMotorId] = useState<number>(0);
@@ -46,16 +47,18 @@ export default function ItemsNewPage() {
   const [commitErr, setCommitErr] = useState<string | null>(null);
   const [commitOkMsg, setCommitOkMsg] = useState<string | null>(null);
 
-  // ====== MANUAL (cost_option) ======
-  const [mNombre, setMNombre] = useState("");
-  const [mUom, setMUom] = useState<ManualUom>("U");
-  const [mCantidad, setMCantidad] = useState<string>("1");
-  const [mCostoArs, setMCostoArs] = useState<string>("");
-  const [mDensidad, setMDensidad] = useState<string>(""); // opcional siempre
+  // =========================
+  // MANUAL (cost_option)
+  // =========================
+  const [manualNombre, setManualNombre] = useState<string>("");
+  const [manualUom, setManualUom] = useState<string>("u");
+  const [manualCantidad, setManualCantidad] = useState<string>("1");
+  const [manualCostoArs, setManualCostoArs] = useState<string>("");
 
-  const [mLoading, setMLoading] = useState(false);
-  const [mErr, setMErr] = useState<string | null>(null);
-  const [mOk, setMOk] = useState<string | null>(null);
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualErr, setManualErr] = useState<string | null>(null);
+  const [manualOkMsg, setManualOkMsg] = useState<string | null>(null);
+  const [manualCreatedId, setManualCreatedId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,66 +172,68 @@ export default function ItemsNewPage() {
   }
 
   async function createManual() {
-    setMErr(null);
-    setMOk(null);
+    setManualErr(null);
+    setManualOkMsg(null);
+    setManualCreatedId(null);
 
-    const nombre = mNombre.trim();
+    const nombre = manualNombre.trim();
+    const uom = manualUom.trim();
+    const cant = Number(manualCantidad);
+    const costo = Number(manualCostoArs);
+
     if (!nombre) {
-      setMErr("Nombre requerido.");
+      setManualErr("Completá el nombre.");
       return;
     }
-
-    const cantidad = Number(String(mCantidad).replace(",", "."));
-    if (!Number.isFinite(cantidad) || cantidad <= 0) {
-      setMErr("Cantidad inválida.");
+    if (!uom) {
+      setManualErr("Completá la unidad (uom).");
       return;
     }
-
-    const costo = Number(String(mCostoArs).replace(",", "."));
+    if (!Number.isFinite(cant) || cant <= 0) {
+      setManualErr("La cantidad debe ser > 0.");
+      return;
+    }
     if (!Number.isFinite(costo) || costo < 0) {
-      setMErr("Costo (ARS) inválido.");
+      setManualErr("El costo ARS debe ser >= 0.");
       return;
     }
 
-    const densidadRaw = String(mDensidad).trim();
-    const densidad =
-      densidadRaw === "" ? null : Number(String(densidadRaw).replace(",", "."));
-
-    if (densidadRaw !== "" && (!Number.isFinite(densidad as number) || (densidad as number) <= 0)) {
-      setMErr("Densidad inválida (si se carga, debe ser > 0).");
-      return;
-    }
-
-    setMLoading(true);
+    setManualLoading(true);
     try {
-      // Guarda en app.cost_option con tipo='MANUAL_PRESENTACION'
-      // Campos: manual_nombre, manual_uom, manual_cantidad, manual_costo_ars, densidad_g_ml
       const res = await fetch(`/api/cost-options`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           tipo: "MANUAL_PRESENTACION",
+          activo: true,
           manual_nombre: nombre,
-          manual_uom: mUom,
-          manual_cantidad: cantidad,
+          manual_uom: uom,
+          manual_cantidad: cant,
           manual_costo_ars: costo,
-          densidad_g_ml: densidad, // opcional
+          // Nota: si tu route soporta otros campos (item_id / item_presentacion / bulk_producto_id / densidad_g_ml),
+          // podés extender este payload sin tocar la UI base.
         }),
       });
 
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
 
-      setMOk(`OK. cost_option_id=${j.cost_option_id ?? "?"}`);
-      setMNombre("");
-      setMUom("U");
-      setMCantidad("1");
-      setMCostoArs("");
-      setMDensidad("");
+      // Intentos comunes de retorno: cost_option_id | id
+      const newId = Number(data.cost_option_id ?? data.id ?? NaN);
+      if (Number.isFinite(newId) && newId > 0) {
+        setManualCreatedId(newId);
+        setManualOkMsg(`OK. Manual creado (mopt:${newId}).`);
+      } else {
+        setManualOkMsg("OK. Manual creado.");
+      }
+
+      // Opcional: reset rápido
+      // setManualNombre("");
+      // setManualCostoArs("");
     } catch (e: any) {
-      setMErr(e?.message || "Error creando manual");
+      setManualErr(e?.message || "Error creando manual");
     } finally {
-      setMLoading(false);
+      setManualLoading(false);
     }
   }
 
@@ -248,12 +253,42 @@ export default function ItemsNewPage() {
       `}</style>
 
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ display: "grid", gap: 6 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Cargar items</h1>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {tab === "PROVEEDOR" ? "Crear items + offers a partir de URLs" : "Crear item manual (costo fijo)"}
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              onClick={() => setMode("PROVEEDOR")}
+              style={{
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 999,
+                padding: "6px 10px",
+                background: mode === "PROVEEDOR" ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.03)",
+                cursor: "pointer",
+                fontSize: 12,
+                opacity: mode === "PROVEEDOR" ? 1 : 0.8,
+              }}
+            >
+              Proveedor (URLs)
+            </button>
+
+            <button
+              onClick={() => setMode("MANUAL")}
+              style={{
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 999,
+                padding: "6px 10px",
+                background: mode === "MANUAL" ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.03)",
+                cursor: "pointer",
+                fontSize: 12,
+                opacity: mode === "MANUAL" ? 1 : 0.8,
+              }}
+            >
+              Manual (costo fijo)
+            </button>
           </div>
         </div>
+
         <Link
           href="/items"
           style={{
@@ -267,38 +302,7 @@ export default function ItemsNewPage() {
         </Link>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button
-          onClick={() => setTab("PROVEEDOR")}
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 999,
-            padding: "6px 10px",
-            background: tab === "PROVEEDOR" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
-            cursor: "pointer",
-            fontSize: 12,
-          }}
-        >
-          Proveedor (URLs)
-        </button>
-        <button
-          onClick={() => setTab("MANUAL")}
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 999,
-            padding: "6px 10px",
-            background: tab === "MANUAL" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
-            cursor: "pointer",
-            fontSize: 12,
-          }}
-        >
-          Manual
-        </button>
-      </div>
-
-      {/* ====== PROVEEDOR PANEL ====== */}
-      {tab === "PROVEEDOR" ? (
+      {mode === "PROVEEDOR" ? (
         <>
           <div
             style={{
@@ -310,6 +314,8 @@ export default function ItemsNewPage() {
               gap: 10,
             }}
           >
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Crear items + offers a partir de URLs</div>
+
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end" }}>
               <div style={{ display: "grid", gap: 4 }}>
                 <label style={{ fontSize: 12, opacity: 0.7 }}>Proveedor</label>
@@ -462,10 +468,7 @@ export default function ItemsNewPage() {
             </div>
           ) : null}
         </>
-      ) : null}
-
-      {/* ====== MANUAL PANEL ====== */}
-      {tab === "MANUAL" ? (
+      ) : (
         <div
           style={{
             border: "1px solid rgba(255,255,255,0.10)",
@@ -477,141 +480,121 @@ export default function ItemsNewPage() {
           }}
         >
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            Crear un item manual (cost_option tipo <b>MANUAL_PRESENTACION</b>). El gráfico se genera por snapshot backend.
+            Crear un item manual (cost_option tipo MANUAL_PRESENTACION). El snapshot para el gráfico debe generarse en el
+            backend (creación/edición y/o cron diario).
           </div>
 
-          {/* layout: grid responsive para que no se pisen */}
-          <div
-            style={{
-              display: "grid",
-              gap: 10,
-              gridTemplateColumns: "minmax(260px, 1.6fr) minmax(120px, 0.6fr) minmax(160px, 0.8fr) minmax(200px, 0.9fr) minmax(240px, 1fr)",
-              alignItems: "end",
-            }}
-          >
-            <div style={{ display: "grid", gap: 4 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre</label>
-              <input
-                value={mNombre}
-                onChange={(e) => setMNombre(e.target.value)}
-                placeholder="Ej: Agua de red"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "rgba(255,255,255,0.92)",
-                  outline: "none",
-                  width: "100%",
-                }}
-              />
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "grid", gap: 4, minWidth: 320, flex: "1 1 320px" }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre</label>
+                <input
+                  value={manualNombre}
+                  onChange={(e) => setManualNombre(e.target.value)}
+                  placeholder="Ej: Agua de red"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    color: "rgba(255,255,255,0.92)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gap: 4, width: 140 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>UoM</label>
+                <input
+                  value={manualUom}
+                  onChange={(e) => setManualUom(e.target.value)}
+                  placeholder="Ej: ML"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    color: "rgba(255,255,255,0.92)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gap: 4, width: 160 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
+                <input
+                  value={manualCantidad}
+                  onChange={(e) => setManualCantidad(e.target.value)}
+                  placeholder="Ej: 1000"
+                  inputMode="decimal"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    color: "rgba(255,255,255,0.92)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gap: 4, width: 200 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Costo (ARS)</label>
+                <input
+                  value={manualCostoArs}
+                  onChange={(e) => setManualCostoArs(e.target.value)}
+                  placeholder="Ej: 1"
+                  inputMode="decimal"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    color: "rgba(255,255,255,0.92)",
+                    outline: "none",
+                  }}
+                />
+              </div>
             </div>
 
-            <div style={{ display: "grid", gap: 4 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>UOM</label>
-              <select
-                className="items-new-select"
-                value={mUom}
-                onChange={(e) => setMUom(e.target.value as ManualUom)}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={createManual}
+                disabled={manualLoading}
                 style={{
                   border: "1px solid rgba(255,255,255,0.14)",
                   borderRadius: 10,
-                  padding: "10px 12px",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "rgba(255,255,255,0.92)",
-                  outline: "none",
-                  width: "100%",
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.04)",
+                  cursor: manualLoading ? "not-allowed" : "pointer",
+                  opacity: manualLoading ? 0.6 : 1,
                 }}
               >
-                <option value="GR">GR</option>
-                <option value="ML">ML</option>
-                <option value="U">U</option>
-              </select>
-            </div>
+                {manualLoading ? "Creando..." : "Crear manual"}
+              </button>
 
-            <div style={{ display: "grid", gap: 4 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
-              <input
-                value={mCantidad}
-                onChange={(e) => setMCantidad(e.target.value)}
-                placeholder="Ej: 1000"
-                inputMode="decimal"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "rgba(255,255,255,0.92)",
-                  outline: "none",
-                  width: "100%",
-                }}
-              />
-            </div>
+              {manualErr ? <div style={{ color: "#ff6b6b", fontSize: 13 }}>{manualErr}</div> : null}
+              {manualOkMsg ? <div style={{ color: "rgba(34,197,94,0.95)", fontSize: 13 }}>{manualOkMsg}</div> : null}
 
-            <div style={{ display: "grid", gap: 4 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Costo (ARS)</label>
-              <input
-                value={mCostoArs}
-                onChange={(e) => setMCostoArs(e.target.value)}
-                placeholder="Ej: 1"
-                inputMode="decimal"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "rgba(255,255,255,0.92)",
-                  outline: "none",
-                  width: "100%",
-                }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gap: 4 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Densidad (g/ml) (opcional)</label>
-              <input
-                value={mDensidad}
-                onChange={(e) => setMDensidad(e.target.value)}
-                placeholder="(opcional)"
-                inputMode="decimal"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 10,
-                  padding: "10px 12px",
-                  background: "rgba(255,255,255,0.03)",
-                  color: "rgba(255,255,255,0.92)",
-                  outline: "none",
-                  width: "100%",
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              onClick={createManual}
-              disabled={mLoading}
-              style={{
-                border: "1px solid rgba(255,255,255,0.14)",
-                borderRadius: 10,
-                padding: "8px 10px",
-                background: "rgba(255,255,255,0.04)",
-                cursor: mLoading ? "not-allowed" : "pointer",
-                opacity: mLoading ? 0.6 : 1,
-              }}
-            >
-              {mLoading ? "Creando..." : "Crear manual"}
-            </button>
-
-            {mErr ? <div style={{ color: "#ff6b6b", fontSize: 13 }}>{mErr}</div> : null}
-            {mOk ? <div style={{ color: "rgba(34,197,94,0.95)", fontSize: 13 }}>{mOk}</div> : null}
-
-            <div style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
-              UOM es menú (GR/ML/U). Densidad es opcional.
+              {manualCreatedId ? (
+                <Link
+                  href={`/items/mopt:${manualCreatedId}`}
+                  style={{
+                    marginLeft: "auto",
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.03)",
+                    fontSize: 12,
+                  }}
+                >
+                  Ver item (mopt:{manualCreatedId})
+                </Link>
+              ) : null}
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
