@@ -25,23 +25,19 @@ type Oferta = {
   densidad_override_g_ml: number | null;
 };
 
-type FormulaV2 =
-  | {
-      producto_id: number;
-      lote_ref_g: number;
-      updated_at: string;
-    }
-  | null;
+type FormulaV2 = {
+  producto_id: number;
+  lote_ref_g: number;
+  updated_at: string;
+} | null;
 
-type CostosProduccion =
-  | {
-      producto_id: number;
-      lote_ref_kg: number | null;
-      costo_fijo_por_lote_ars: number | null;
-      costo_variable_por_kg_ars: number | null;
-      updated_at: string;
-    }
-  | null;
+type CostosProduccion = {
+  producto_id: number;
+  lote_ref_kg: number | null;
+  costo_fijo_por_lote_ars: number | null;
+  costo_variable_por_kg_ars: number | null;
+  updated_at: string;
+} | null;
 
 type ItemOption = {
   tipo: "ITEM_PRESENTACION";
@@ -108,7 +104,7 @@ type PackagingItem = {
   packaging_item_id: number;
   nombre: string;
   descripcion: string | null;
-  unidad: string; // "UN"
+  unidad: string; // en este MVP: "UN"
   costo_unitario_ars: number;
   activo: boolean;
 };
@@ -138,19 +134,6 @@ type SnapshotHead = {
   created_at: string;
 };
 
-type ComponentPickRow = {
-  key: string;
-  id: number;
-  idLabel: string;
-  nombre: string;
-  origen: string; // "Proveedor" | "Manual" | "Bulk"
-  presentacion: string;
-  precioUnitario: string; // preferentemente ARS/kg para comparar escala
-  densidad: string;
-  fecha: string;
-  onAdd: () => Promise<void>;
-};
-
 function numOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
@@ -177,42 +160,6 @@ function nearlyEq(a: number | null, b: number | null, eps = 0.01) {
   if (a === null && b === null) return true;
   if (a === null || b === null) return false;
   return Math.abs(a - b) <= eps;
-}
-
-function cellEllipsisStyle(maxWidth: number) {
-  return {
-    maxWidth,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap" as const,
-  };
-}
-
-function safeText(x: any) {
-  const s = String(x ?? "");
-  return s;
-}
-
-function toARSporKgFromPresentation(priceARS: number | null, presGr: number | null) {
-  if (priceARS === null || presGr === null || presGr <= 0) return null;
-  return (priceARS / presGr) * 1000;
-}
-
-function toARSporKgManual(
-  costoARS: number | null,
-  cantidad: number | null,
-  uom: "GR" | "ML" | "UN" | null,
-  dens: number | null
-) {
-  if (costoARS === null || cantidad === null || cantidad <= 0 || !uom) return null;
-  if (uom === "GR") return (costoARS / cantidad) * 1000;
-  if (uom === "ML") {
-    if (dens === null || dens <= 0) return null;
-    const gramos = cantidad * dens;
-    if (gramos <= 0) return null;
-    return (costoARS / gramos) * 1000;
-  }
-  return null;
 }
 
 export default function ProductoClient({ productoId }: { productoId: number }) {
@@ -374,7 +321,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         console.error(e);
       }
 
-      // Snapshots (último por oferta)
+      // Snapshots (último por oferta; solo info UI + dedupe)
       try {
         await loadLatestSnapshotsAll(ofertasList);
       } catch (e: any) {
@@ -865,9 +812,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await loadAll();
   }
 
-  // FIX: antes ignoraba linea_id y pegaba a /lineas (borrado masivo)
   async function deleteLinea(linea_id: number) {
-    const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas/${linea_id}`, { method: "DELETE" });
+    const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, { method: "DELETE" });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
     await loadAll();
@@ -923,179 +869,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSnapshots, ofertas, bulkARSkg_con, densProd, packagingByOferta]);
-
-  // ===== Unificación de tablas (job / bulks / manuales) =====
-
-  const commonHead = (
-    <thead>
-      <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}>ID</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 150 }}>Origen</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 140 }}>Presentación</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 130 }}>ARS/kg</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Dens (g/ml)</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Fecha</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}></th>
-      </tr>
-    </thead>
-  );
-
-  function CommonPickTable({
-    title,
-    subtitle,
-    controls,
-    rows,
-    footer,
-  }: {
-    title: string;
-    subtitle?: string;
-    controls?: React.ReactNode;
-    rows: ComponentPickRow[];
-    footer?: React.ReactNode;
-  }) {
-    return (
-      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
-          <div style={{ display: "grid", gap: 2 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
-            {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
-          </div>
-        </div>
-
-        {controls ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{controls}</div> : null}
-
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.10)",
-            borderRadius: 12,
-            overflow: "auto",
-            maxHeight: 360,
-          }}
-        >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            {commonHead}
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.idLabel}</td>
-                  <td style={{ padding: 10, fontSize: 12 }}>
-                    <div style={{ ...cellEllipsisStyle(620) }}>{r.nombre}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                    <div style={{ ...cellEllipsisStyle(150) }}>{r.origen}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                    <div style={{ ...cellEllipsisStyle(140) }}>{r.presentacion}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.precioUnitario}</td>
-                  <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.densidad}</td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.fecha}</td>
-                  <td style={{ padding: 10 }}>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await r.onAdd();
-                        } catch (err: any) {
-                          setError(err?.message || "error");
-                        }
-                      }}
-                      style={{
-                        padding: "6px 8px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.14)",
-                        background: "rgba(255,255,255,0.03)",
-                      }}
-                    >
-                      Agregar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {!rows.length ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 10, opacity: 0.75, fontSize: 12 }}>
-                    Sin resultados.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        {footer ? <div style={{ fontSize: 12, opacity: 0.65 }}>{footer}</div> : null}
-      </div>
-    );
-  }
-
-  const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
-    return itemOptions.slice(0, 200).map((x, idx) => {
-      const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion));
-      const nombre = x.url_original || x.url_canonica || "";
-      const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
-      const origen = `Proveedor: ${prov}`;
-      return {
-        key: `job-${x.item_id}-${x.presentacion}-${idx}`,
-        id: x.item_id,
-        idLabel: `#${x.item_id}`,
-        nombre: safeText(nombre),
-        origen,
-        presentacion: `${x.presentacion} g`,
-        precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
-        densidad: "-",
-        fecha: safeText(x.as_of_date),
-        onAdd: async () => addLineaFromItem(x),
-      };
-    });
-  }, [itemOptions]);
-
-  const pickRowsBulks = useMemo<ComponentPickRow[]>(() => {
-    return bulkRows.slice(0, 80).map((b) => {
-      return {
-        key: `bulk-${b.producto_id}`,
-        id: b.producto_id,
-        idLabel: `#${b.producto_id}`,
-        nombre: safeText(b.nombre),
-        origen: "Bulk",
-        presentacion: "1 kg",
-        precioUnitario: fmtMaybe(b.ars_por_kg, 2),
-        densidad: fmtMaybe(b.densidad_producto_g_ml, 4),
-        fecha: "-",
-        onAdd: async () => addLineaFromBulk(b.producto_id),
-      };
-    });
-  }, [bulkRows]);
-
-  const pickRowsManual = useMemo<ComponentPickRow[]>(() => {
-    return manualOptions.slice(0, 120).map((m) => {
-      const dens = numOrNull(m.densidad_g_ml);
-      const arsKg = toARSporKgManual(
-        numOrNull(m.manual_costo_ars),
-        numOrNull(m.manual_cantidad),
-        m.manual_uom,
-        dens
-      );
-
-      const pres =
-        m.manual_cantidad !== null && m.manual_uom
-          ? `${fmtMaybe(m.manual_cantidad, 4)} ${m.manual_uom}`
-          : "-";
-
-      return {
-        key: `man-${m.cost_option_id}`,
-        id: m.cost_option_id,
-        idLabel: `opt #${m.cost_option_id}`,
-        nombre: safeText(m.manual_nombre ?? "Manual"),
-        origen: "Manual",
-        presentacion: pres,
-        precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
-        densidad: fmtMaybe(dens, 4),
-        fecha: "-",
-        onAdd: async () => addLineaFromCostOption(m.cost_option_id),
-      };
-    });
-  }, [manualOptions]);
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -1457,101 +1230,299 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </table>
         </div>
 
-        {/* TABLAS UNIFICADAS */}
-        <CommonPickTable
-          title="Opciones proveedor (job)"
-          subtitle="Columnas unificadas (sin 2 líneas por renglón)"
-          controls={
-            <>
-              <input
-                value={searchOpt}
-                onChange={(e) => setSearchOpt(e.target.value)}
-                placeholder="buscar proveedor/url"
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                  width: 260,
-                }}
-              />
-              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
-                <input type="checkbox" checked={soloSel} onChange={(e) => setSoloSel(e.target.checked)} /> solo seleccionados
-              </label>
-              <button
-                onClick={loadAll}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                Buscar
-              </button>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {itemOptions.length}</div>
-            </>
-          }
-          rows={pickRowsJob}
-          footer={<span>Mostrando hasta 200 filas. Scroll interno fijo.</span>}
-        />
+        {/* selector job (items proveedor) */}
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Opciones (job)</div>
 
-        <CommonPickTable
-          title="Bulks (productos formulados)"
-          controls={
-            <>
-              <input
-                value={bulkSearch}
-                onChange={(e) => setBulkSearch(e.target.value)}
-                placeholder="buscar producto"
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                  width: 260,
-                }}
-              />
-              <button
-                onClick={loadBulks}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                Buscar bulks
-              </button>
-              {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {bulkRows.length}</div>
-            </>
-          }
-          rows={pickRowsBulks}
-        />
+            <input
+              value={searchOpt}
+              onChange={(e) => setSearchOpt(e.target.value)}
+              placeholder="buscar proveedor/url"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 260,
+              }}
+            />
 
-        <CommonPickTable
-          title="Componentes manuales (reusar)"
-          subtitle="Creación: /items/new"
-          controls={
-            <>
-              <input
-                value={manualSearch}
-                onChange={(e) => setManualSearch(e.target.value)}
-                placeholder="buscar manual por nombre"
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                  width: 260,
-                }}
-              />
-              <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {manualOptions.length}</div>
-            </>
-          }
-          rows={pickRowsManual}
-        />
+            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
+              <input type="checkbox" checked={soloSel} onChange={(e) => setSoloSel(e.target.checked)} /> solo seleccionados
+            </label>
+
+            <button
+              onClick={loadAll}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Buscar
+            </button>
+
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Items encontrados: {itemOptions.length}</div>
+          </div>
+
+          {/* CAMBIO: limitar altura + scroll interno */}
+          <div
+            style={{
+              border: "1px solid rgba(255,255,255,0.10)",
+              borderRadius: 12,
+              overflow: "auto",
+              maxHeight: 360,
+            }}
+          >
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Proveedor</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Item</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Pres</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Fecha</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemOptions.slice(0, 200).map((x, idx) => (
+                  <tr key={`${x.item_id}-${x.presentacion}-${idx}`} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600 }}>{x.proveedor_nombre || x.proveedor_codigo || "-"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>{x.proveedor_codigo}</div>
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600 }}>#{x.item_id}</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.75,
+                          maxWidth: 520,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {x.url_original || x.url_canonica}
+                      </div>
+                    </td>
+                    <td style={{ padding: 10 }}>{String(x.presentacion)}</td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(x.price_ars, 2)}</td>
+                    <td style={{ padding: 10 }}>{x.as_of_date}</td>
+                    <td style={{ padding: 10 }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await addLineaFromItem(x);
+                          } catch (err: any) {
+                            setError(err?.message || "error");
+                          }
+                        }}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(255,255,255,0.03)",
+                        }}
+                      >
+                        Agregar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!itemOptions.length ? (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 10, opacity: 0.75 }}>
+                      Sin opciones (revisar job / filtros).
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ fontSize: 12, opacity: 0.65 }}>
+            Mostrando hasta 200 filas. La lista tiene scroll para no alargar la pantalla.
+          </div>
+        </div>
+
+        {/* selector bulks */}
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Bulks (productos formulados)</div>
+
+            <input
+              value={bulkSearch}
+              onChange={(e) => setBulkSearch(e.target.value)}
+              placeholder="buscar producto"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 260,
+              }}
+            />
+
+            <button
+              onClick={loadBulks}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Buscar bulks
+            </button>
+
+            {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {bulkRows.length}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Producto</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Dens (g/ml)</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS/kg</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS/L</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {bulkRows.slice(0, 50).map((b) => {
+                  const dens = numOrNull(b.densidad_producto_g_ml);
+                  const arsKg = numOrNull(b.ars_por_kg);
+                  const arsL = dens !== null && arsKg !== null ? arsKg * dens : null;
+
+                  return (
+                    <tr key={b.producto_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ fontWeight: 600 }}>{b.nombre}</div>
+                        <div style={{ fontSize: 12, opacity: 0.75 }}>#{b.producto_id}</div>
+                      </td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(dens, 4)}</td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(arsKg, 2)}</td>
+                      <td style={{ padding: 10 }}>{fmtMaybe(arsL, 2)}</td>
+                      <td style={{ padding: 10 }}>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await addLineaFromBulk(b.producto_id);
+                            } catch (err: any) {
+                              setError(err?.message || "error");
+                            }
+                          }}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.03)",
+                          }}
+                        >
+                          Agregar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!bulkRows.length ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                      Sin resultados. (Buscar bulks)
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* MANUALES: solo selección */}
+        <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Componentes manuales (reusar)</div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Creación de manuales: usar <b>/items/new</b>.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              value={manualSearch}
+              onChange={(e) => setManualSearch(e.target.value)}
+              placeholder="buscar manual por nombre"
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                width: 260,
+              }}
+            />
+            <div style={{ fontSize: 12, opacity: 0.75 }}>Encontrados: {manualOptions.length}</div>
+          </div>
+
+          <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Presentación</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>ARS</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Dens</th>
+                  <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualOptions.slice(0, 80).map((m) => (
+                  <tr key={m.cost_option_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600 }}>{m.manual_nombre ?? "Manual"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.75 }}>opt #{m.cost_option_id}</div>
+                    </td>
+                    <td style={{ padding: 10 }}>
+                      {fmtMaybe(m.manual_cantidad, 4)} {m.manual_uom ?? ""}
+                    </td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(m.manual_costo_ars, 2)}</td>
+                    <td style={{ padding: 10 }}>{fmtMaybe(m.densidad_g_ml, 4)}</td>
+                    <td style={{ padding: 10 }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await addLineaFromCostOption(m.cost_option_id);
+                          } catch (err: any) {
+                            setError(err?.message || "error");
+                          }
+                        }}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(255,255,255,0.03)",
+                        }}
+                      >
+                        Agregar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!manualOptions.length ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 10, opacity: 0.75 }}>
+                      Sin manuales.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {/* ofertas + packaging + snapshot último */}
