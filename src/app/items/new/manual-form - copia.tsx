@@ -3,13 +3,11 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type ManualUom = "UN" | "ML" | "GR";
-
 type CreateManualPayload = {
   tipo: "MANUAL_PRESENTACION";
   activo: boolean;
   manual_nombre: string;
-  manual_uom: ManualUom;
+  manual_uom: string;
   manual_cantidad: number;
   manual_costo_ars: number;
 };
@@ -18,7 +16,7 @@ export default function ManualForm() {
   const router = useRouter();
 
   const [nombre, setNombre] = useState("");
-  const [uom, setUom] = useState<ManualUom>("UN");
+  const [uom, setUom] = useState("u"); // o "ML"/"GR" según tu convención
   const [cantidad, setCantidad] = useState<string>("1");
   const [costoArs, setCostoArs] = useState<string>("0");
   const [saving, setSaving] = useState(false);
@@ -40,7 +38,7 @@ export default function ManualForm() {
       tipo: "MANUAL_PRESENTACION",
       activo: true,
       manual_nombre: nombre.trim(),
-      manual_uom: uom,
+      manual_uom: uom.trim(),
       manual_cantidad: Number(cantidad),
       manual_costo_ars: Number(costoArs),
     };
@@ -58,8 +56,10 @@ export default function ManualForm() {
         throw new Error(j?.error ?? `http_${res.status}`);
       }
 
+      // Esperado: el POST devuelve cost_option_id (ajustar si tu API responde distinto)
       const id = j?.cost_option_id ?? j?.id ?? null;
       if (!id) {
+        // si no devuelve id, al menos volvemos al listado
         router.push("/items");
         router.refresh();
         return;
@@ -96,9 +96,10 @@ export default function ManualForm() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <div style={{ display: "grid", gap: 6 }}>
           <label style={{ fontSize: 12, opacity: 0.8 }}>Unidad (uom)</label>
-          <select
+          <input
             value={uom}
-            onChange={(e) => setUom(e.target.value as ManualUom)}
+            onChange={(e) => setUom(e.target.value)}
+            placeholder="ML / GR / u"
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
@@ -107,11 +108,7 @@ export default function ManualForm() {
               color: "rgba(255,255,255,0.9)",
               outline: "none",
             }}
-          >
-            <option value="UN">UN</option>
-            <option value="ML">ML</option>
-            <option value="GR">GR</option>
-          </select>
+          />
         </div>
 
         <div style={{ display: "grid", gap: 6 }}>

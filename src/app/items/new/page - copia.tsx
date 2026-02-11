@@ -27,9 +27,7 @@ function splitUrls(text: string): string[] {
 }
 
 type TabKey = "PROVEEDOR" | "MANUAL";
-
-// CAMBIO: U -> UN (estas 3 opciones son funcionales, no visuales)
-type ManualUom = "GR" | "ML" | "UN";
+type ManualUom = "GR" | "ML" | "U";
 
 export default function ItemsNewPage() {
   const [tab, setTab] = useState<TabKey>("PROVEEDOR");
@@ -50,7 +48,7 @@ export default function ItemsNewPage() {
 
   // ====== MANUAL (cost_option) ======
   const [mNombre, setMNombre] = useState("");
-  const [mUom, setMUom] = useState<ManualUom>("UN"); // CAMBIO: default UN
+  const [mUom, setMUom] = useState<ManualUom>("U");
   const [mCantidad, setMCantidad] = useState<string>("1");
   const [mCostoArs, setMCostoArs] = useState<string>("");
   const [mDensidad, setMDensidad] = useState<string>(""); // opcional siempre
@@ -193,7 +191,8 @@ export default function ItemsNewPage() {
     }
 
     const densidadRaw = String(mDensidad).trim();
-    const densidad = densidadRaw === "" ? null : Number(String(densidadRaw).replace(",", "."));
+    const densidad =
+      densidadRaw === "" ? null : Number(String(densidadRaw).replace(",", "."));
 
     if (densidadRaw !== "" && (!Number.isFinite(densidad as number) || (densidad as number) <= 0)) {
       setMErr("Densidad inválida (si se carga, debe ser > 0).");
@@ -202,19 +201,18 @@ export default function ItemsNewPage() {
 
     setMLoading(true);
     try {
-      // Defensa: normalizar (aunque el select ya limita a GR/ML/UN)
-      const manual_uom = String(mUom).trim().toUpperCase();
-
+      // Guarda en app.cost_option con tipo='MANUAL_PRESENTACION'
+      // Campos: manual_nombre, manual_uom, manual_cantidad, manual_costo_ars, densidad_g_ml
       const res = await fetch(`/api/cost-options`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           tipo: "MANUAL_PRESENTACION",
           manual_nombre: nombre,
-          manual_uom,
+          manual_uom: mUom,
           manual_cantidad: cantidad,
           manual_costo_ars: costo,
-          densidad_g_ml: densidad,
+          densidad_g_ml: densidad, // opcional
         }),
       });
 
@@ -223,7 +221,7 @@ export default function ItemsNewPage() {
 
       setMOk(`OK. cost_option_id=${j.cost_option_id ?? "?"}`);
       setMNombre("");
-      setMUom("UN"); // CAMBIO: reset UN
+      setMUom("U");
       setMCantidad("1");
       setMCostoArs("");
       setMDensidad("");
@@ -482,12 +480,12 @@ export default function ItemsNewPage() {
             Crear un item manual (cost_option tipo <b>MANUAL_PRESENTACION</b>). El gráfico se genera por snapshot backend.
           </div>
 
+          {/* layout: grid responsive para que no se pisen */}
           <div
             style={{
               display: "grid",
               gap: 10,
-              gridTemplateColumns:
-                "minmax(260px, 1.6fr) minmax(140px, 0.7fr) minmax(160px, 0.8fr) minmax(200px, 0.9fr) minmax(240px, 1fr)",
+              gridTemplateColumns: "minmax(260px, 1.6fr) minmax(120px, 0.6fr) minmax(160px, 0.8fr) minmax(200px, 0.9fr) minmax(240px, 1fr)",
               alignItems: "end",
             }}
           >
@@ -527,7 +525,7 @@ export default function ItemsNewPage() {
               >
                 <option value="GR">GR</option>
                 <option value="ML">ML</option>
-                <option value="UN">UN</option>
+                <option value="U">U</option>
               </select>
             </div>
 
@@ -609,7 +607,7 @@ export default function ItemsNewPage() {
             {mOk ? <div style={{ color: "rgba(34,197,94,0.95)", fontSize: 13 }}>{mOk}</div> : null}
 
             <div style={{ marginLeft: "auto", fontSize: 12, opacity: 0.7 }}>
-              UOM es menú (GR/ML/UN). Densidad es opcional.
+              UOM es menú (GR/ML/U). Densidad es opcional.
             </div>
           </div>
         </div>
