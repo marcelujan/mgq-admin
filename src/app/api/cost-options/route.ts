@@ -14,7 +14,12 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-async function upsertManualSnapshotToday(sql: any, cost_option_id: number, costo_ars: number, fuente: "USER" | "CRON" | "AUTO" = "USER") {
+async function upsertManualSnapshotToday(
+  sql: any,
+  cost_option_id: number,
+  costo_ars: number,
+  fuente: "USER" | "CRON" | "AUTO" = "USER"
+) {
   // Requiere UNIQUE(cost_option_id, as_of_date)
   await sql.query(
     `
@@ -183,14 +188,20 @@ export async function POST(req: NextRequest) {
 
     if (tipo === "MANUAL_PRESENTACION") {
       const manual_nombre = String(body?.manual_nombre ?? "").trim();
-      const manual_uom = String(body?.manual_uom ?? "").trim();
+
+      // CAMBIO FUNCIONAL: normalizar a mayúsculas para tolerar "un"/" Un "
+      const manual_uom = String(body?.manual_uom ?? "").trim().toUpperCase();
+
       const manual_cantidad = numOrNull(body?.manual_cantidad);
       const manual_costo_ars = numOrNull(body?.manual_costo_ars);
 
       if (!manual_nombre) return NextResponse.json({ ok: false, error: "manual_nombre requerido" }, { status: 400 });
-      if (!["GR", "ML", "UN"].includes(manual_uom)) return NextResponse.json({ ok: false, error: "manual_uom inválido" }, { status: 400 });
-      if (manual_cantidad === null || manual_cantidad <= 0) return NextResponse.json({ ok: false, error: "manual_cantidad inválida" }, { status: 400 });
-      if (manual_costo_ars === null || manual_costo_ars < 0) return NextResponse.json({ ok: false, error: "manual_costo_ars inválido" }, { status: 400 });
+      if (!["GR", "ML", "UN"].includes(manual_uom))
+        return NextResponse.json({ ok: false, error: "manual_uom inválido" }, { status: 400 });
+      if (manual_cantidad === null || manual_cantidad <= 0)
+        return NextResponse.json({ ok: false, error: "manual_cantidad inválida" }, { status: 400 });
+      if (manual_costo_ars === null || manual_costo_ars < 0)
+        return NextResponse.json({ ok: false, error: "manual_costo_ars inválido" }, { status: 400 });
 
       const r: any = await sql.query(
         `
