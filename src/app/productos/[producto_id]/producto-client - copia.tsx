@@ -162,6 +162,17 @@ function nearlyEq(a: number | null, b: number | null, eps = 0.01) {
   return Math.abs(a - b) <= eps;
 }
 
+function fmtDateTimeMaybe(s: string | null | undefined): string {
+  if (!s) return "-";
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return String(s);
+    return d.toLocaleString();
+  } catch {
+    return String(s);
+  }
+}
+
 export default function ProductoClient({ productoId }: { productoId: number }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,8 +198,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  // Manuales (solo selección; no crear aquí)
+  // Manuales
   const [manualSearch, setManualSearch] = useState("");
+  const [manualNombre, setManualNombre] = useState("");
+  const [manualUom, setManualUom] = useState<"GR" | "ML" | "UN">("GR");
+  const [manualCantidad, setManualCantidad] = useState<string>("");
+  const [manualCostoARS, setManualCostoARS] = useState<string>("");
+  const [manualDens, setManualDens] = useState<string>("");
 
   // Packaging
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
@@ -318,6 +334,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         await loadPackagingItems();
         await loadPackagingAll(ofertasList);
       } catch (e: any) {
+        // no bloquear editor si packaging falla
         console.error(e);
       }
 
@@ -367,6 +384,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       it.packaging_item_id = Number(it.packaging_item_id);
       it.costo_unitario_ars = Number(it.costo_unitario_ars);
       it.activo = !!it.activo;
+      // MVP: el backend debería devolver unidad="UN"; si no, forzamos visualmente a UN sin romper.
       if (!it.unidad) it.unidad = "UN";
     }
     setPackagingItems(rows as PackagingItem[]);
@@ -525,6 +543,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     const { packRows, subtotal: packaging_costo_ars } = computeOfertaPackagingSubtotal(oferta_id);
     const total_costo_ars = base_costo_ars + packaging_costo_ars;
 
+    // Dedupe: si coincide con el último snapshot, no crear
     const last = latestSnapshotByOferta[oferta_id] ?? null;
     if (
       last &&
@@ -617,7 +636,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
   }
 
-  function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
+
+
+    function getCostoOptionARSporUnidad(l: LineaV2): { ok: true; ars: number } | { ok: false; err: string } {
     if (l.tipo === "ITEM_PRESENTACION") {
       if (l.job_price_ars !== null && l.job_price_ars !== undefined) {
         return { ok: true, ars: Number(l.job_price_ars) };
@@ -775,6 +796,32 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return id;
   }
 
+  async function ensureCostOptionManual(payload: {
+    manual_nombre: string;
+    manual_uom: "GR" | "ML" | "UN";
+    manual_cantidad: number;
+    manual_costo_ars: number;
+    densidad_g_ml: number | null;
+  }): Promise<number> {
+    const r = await fetch(`/api/cost-options`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        tipo: "MANUAL_PRESENTACION",
+        manual_nombre: payload.manual_nombre,
+        manual_uom: payload.manual_uom,
+        manual_cantidad: payload.manual_cantidad,
+        manual_costo_ars: payload.manual_costo_ars,
+        densidad_g_ml: payload.densidad_g_ml,
+      }),
+    });
+    const j = await r.json().catch(() => ({} as any));
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    const id = Number(j.cost_option_id);
+    if (!Number.isFinite(id)) throw new Error("cost_option_id inválido en respuesta");
+    return id;
+  }
+
   async function addLineaFromCostOption(cost_option_id: number) {
     const up = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, {
       method: "POST",
@@ -801,6 +848,33 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await addLineaFromCostOption(cost_option_id);
   }
 
+  async function createManualAndAdd() {
+    const nombre = manualNombre.trim();
+    const qty = numOrNull(manualCantidad);
+    const ars = numOrNull(manualCostoARS);
+    const dens = manualDens.trim() === "" ? null : numOrNull(manualDens);
+
+    if (!nombre) throw new Error("manual: falta nombre");
+    if (!qty || qty <= 0) throw new Error("manual: cantidad inválida");
+    if (ars === null || ars < 0) throw new Error("manual: costo ARS inválido");
+    if (manualUom === "ML" && (!dens || dens <= 0)) throw new Error("manual: UOM=ML requiere densidad g/ml");
+
+    const cost_option_id = await ensureCostOptionManual({
+      manual_nombre: nombre,
+      manual_uom: manualUom,
+      manual_cantidad: qty,
+      manual_costo_ars: ars,
+      densidad_g_ml: manualUom === "ML" ? dens! : dens ?? null,
+    });
+
+    await addLineaFromCostOption(cost_option_id);
+
+    setManualNombre("");
+    setManualCantidad("");
+    setManualCostoARS("");
+    setManualDens("");
+  }
+
   async function patchLinea(linea_id: number, patch: any) {
     const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas/${linea_id}`, {
       method: "PATCH",
@@ -813,7 +887,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }
 
   async function deleteLinea(linea_id: number) {
-    const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas`, { method: "DELETE" });
+    const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas/${linea_id}`, { method: "DELETE" });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
     await loadAll();
@@ -856,13 +930,14 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return rows.filter((x) => (x.manual_nombre ?? "").toLowerCase().includes(q));
   }, [extraOptions, manualSearch]);
 
-  // Auto-snapshot cuando cambian inputs relevantes
+  // Auto-snapshot cuando cambian inputs relevantes (bulk/kg total, densidad producto, packaging, ofertas)
   useEffect(() => {
     if (!autoSnapshots) return;
     if (!ofertas.length) return;
     if (bulkARSkg_con === null) return;
 
     for (const o of ofertas) {
+      // no bloquear UI por errores: cada create maneja sus validaciones y dedupe
       createSnapshotForOferta(o, bulkARSkg_con, densProd).catch((e: any) => {
         console.error(e);
       });
@@ -900,7 +975,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
       </div>
 
-      <div
+
+
+            <div
         style={{
           border: "1px solid rgba(255,255,255,0.12)",
           borderRadius: 12,
@@ -1230,7 +1307,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </table>
         </div>
 
-        {/* selector job (items proveedor) */}
+        {/* selector job */}
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Opciones (job)</div>
@@ -1267,15 +1344,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             <div style={{ fontSize: 12, opacity: 0.75 }}>Items encontrados: {itemOptions.length}</div>
           </div>
 
-          {/* CAMBIO: limitar altura + scroll interno */}
-          <div
-            style={{
-              border: "1px solid rgba(255,255,255,0.10)",
-              borderRadius: 12,
-              overflow: "auto",
-              maxHeight: 360,
-            }}
-          >
+          <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
@@ -1288,7 +1357,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 </tr>
               </thead>
               <tbody>
-                {itemOptions.slice(0, 200).map((x, idx) => (
+                {itemOptions.slice(0, 80).map((x, idx) => (
                   <tr key={`${x.item_id}-${x.presentacion}-${idx}`} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                     <td style={{ padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>{x.proveedor_nombre || x.proveedor_codigo || "-"}</div>
@@ -1342,10 +1411,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 ) : null}
               </tbody>
             </table>
-          </div>
-
-          <div style={{ fontSize: 12, opacity: 0.65 }}>
-            Mostrando hasta 200 filas. La lista tiene scroll para no alargar la pantalla.
           </div>
         </div>
 
@@ -1443,16 +1508,115 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </div>
         </div>
 
-        {/* MANUALES: solo selección */}
+        {/* MANUALES */}
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Componentes manuales (reusar)</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              Creación de manuales: usar <b>/items/new</b>.
-            </div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Componentes manuales</div>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Nombre
+              <input
+                value={manualNombre}
+                onChange={(e) => setManualNombre(e.target.value)}
+                placeholder="ej: Agua"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 220,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              UOM
+              <select
+                value={manualUom}
+                onChange={(e) => setManualUom(e.target.value as any)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 110,
+                }}
+              >
+                <option value="GR">GR</option>
+                <option value="ML">ML</option>
+                <option value="UN">UN</option>
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Cantidad (presentación)
+              <input
+                value={manualCantidad}
+                onChange={(e) => setManualCantidad(e.target.value)}
+                placeholder={manualUom === "GR" ? "ej: 1000" : manualUom === "ML" ? "ej: 1000" : "ej: 1"}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 170,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Costo ARS (por presentación)
+              <input
+                value={manualCostoARS}
+                onChange={(e) => setManualCostoARS(e.target.value)}
+                placeholder="ej: 250"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 190,
+                }}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Densidad g/ml (opcional; req si UOM=ML)
+              <input
+                value={manualDens}
+                onChange={(e) => setManualDens(e.target.value)}
+                placeholder={manualUom === "ML" ? "ej: 1.0" : "(opcional)"}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 260,
+                }}
+              />
+            </label>
+
+            <button
+              onClick={async () => {
+                try {
+                  await createManualAndAdd();
+                } catch (err: any) {
+                  setError(err?.message || "error");
+                }
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Crear y agregar
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700 }}>Reusar manual existente</div>
             <input
               value={manualSearch}
               onChange={(e) => setManualSearch(e.target.value)}
