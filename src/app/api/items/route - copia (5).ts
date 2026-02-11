@@ -23,11 +23,10 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
-    // DEFAULT 100 (antes 50)
-    const limitRaw = Number(searchParams.get("limit") ?? 100);
+    const limitRaw = Number(searchParams.get("limit") ?? 50);
     const offsetRaw = Number(searchParams.get("offset") ?? 0);
 
-    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 50;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
     const tipo = (searchParams.get("tipo") ?? "").trim().toUpperCase(); // "" | PROVEEDOR | MANUAL | FORMULADO
@@ -57,12 +56,8 @@ export async function GET(req: NextRequest) {
           i.url_canonica,
           i.seleccionado,
           i.estado::text as estado,
-          -- "Actualizado" real: max(as_of_date) de snapshots de precio; fallback a i.updated_at
-          coalesce(
-            (pd.max_d::timestamptz + interval '12 hours'),
-            i.updated_at
-          ) as updated_at,
-          null::timestamptz as created_at,
+          i.created_at,
+          i.updated_at,
           null::text as producto_nombre,
           null::text as oferta_nombre,
           null::text as tipo_formulado,
@@ -74,11 +69,6 @@ export async function GET(req: NextRequest) {
           0::int as sort_kind
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
-        left join lateral (
-          select max(as_of_date) as max_d
-          from app.item_price_daily_pres p
-          where p.item_id = i.item_id
-        ) pd on true
         where
           ($1::text = '' or $1::text = 'PROVEEDOR')
           and ($2::text = '' or i.estado::text = $2::text)
@@ -108,18 +98,13 @@ export async function GET(req: NextRequest) {
           'FORMULADO'::text as kind,
           pf.producto_id::text as item_id,
           ''::text as proveedor_codigo,
-          -- Fuente correcto en UI (antes "Fórmula v2")
-          'Formulado'::text as proveedor_nombre,
+          ''::text as proveedor_nombre,
           ''::text as url_original,
           ''::text as url_canonica,
           false as seleccionado,
           'FORMULADO'::text as estado,
-          -- "Actualizado" real: max(as_of_date) de item_formulado_snapshot; fallback null
-          coalesce(
-            (fs.max_d::timestamptz + interval '12 hours'),
-            null::timestamptz
-          ) as updated_at,
           null::timestamptz as created_at,
+          null::timestamptz as updated_at,
           coalesce(p.nombre, '') as producto_nombre,
           ''::text as oferta_nombre,
           'BULK'::text as tipo_formulado,
@@ -131,20 +116,6 @@ export async function GET(req: NextRequest) {
           1::int as sort_kind
         from productos_formulados_v2 pf
         left join app.producto p on p.producto_id = pf.producto_id
-        left join lateral (
-          select item_formulado_id
-          from app.item_formulado f
-          where f.producto_id = pf.producto_id::int
-            and f.tipo = 'BULK'
-            and f.activo = true
-          order by f.item_formulado_id asc
-          limit 1
-        ) fi on true
-        left join lateral (
-          select max(as_of_date) as max_d
-          from app.item_formulado_snapshot s
-          where s.item_formulado_id = fi.item_formulado_id
-        ) fs on true
         where
           ($1::text = '' or $1::text = 'FORMULADO')
           and (
@@ -159,18 +130,13 @@ export async function GET(req: NextRequest) {
           'MANUAL'::text as kind,
           c.cost_option_id::text as item_id,
           ''::text as proveedor_codigo,
-          -- Fuente correcto en UI (antes "Cost option")
-          'Manual'::text as proveedor_nombre,
+          ''::text as proveedor_nombre,
           ''::text as url_original,
           ''::text as url_canonica,
           false as seleccionado,
           'MANUAL'::text as estado,
-          -- "Actualizado" real: max(as_of_date) de cost_option_snapshot; fallback a c.updated_at
-          coalesce(
-            (ms.max_d::timestamptz + interval '12 hours'),
-            c.updated_at
-          ) as updated_at,
           null::timestamptz as created_at,
+          null::timestamptz as updated_at,
           ''::text as producto_nombre,
           ''::text as oferta_nombre,
           'MANUAL_PRESENTACION'::text as tipo_formulado,
@@ -181,11 +147,6 @@ export async function GET(req: NextRequest) {
           c.cost_option_id::bigint as sort_id,
           2::int as sort_kind
         from app.cost_option c
-        left join lateral (
-          select max(as_of_date) as max_d
-          from app.cost_option_snapshot s
-          where s.cost_option_id = c.cost_option_id
-        ) ms on true
         where
           c.activo = true
           and c.tipo = 'MANUAL_PRESENTACION'
@@ -203,17 +164,7 @@ export async function GET(req: NextRequest) {
         select * from formulado_virtual
         union all
         select * from manual_catalogo
-      ),
-
-      paged as (
-        select
-          *,
-          count(*) over()::int as total_count
-        from all_items
-        order by sort_kind asc, sort_id desc
-        limit $5 offset $6
       )
-
       select
         item_key,
         kind,
@@ -224,6 +175,7 @@ export async function GET(req: NextRequest) {
         url_canonica,
         seleccionado,
         estado,
+        created_at,
         updated_at,
         producto_nombre,
         oferta_nombre,
@@ -231,23 +183,20 @@ export async function GET(req: NextRequest) {
         manual_nombre,
         manual_uom,
         manual_cantidad,
-        manual_costo_ars,
-        total_count
-      from paged;
+        manual_costo_ars
+      from all_items
+      order by sort_kind asc, sort_id desc
+      limit $5 offset $6;
       `,
       [tipo, estado, seleccionado, searchLike, limit, offset]
     );
 
     const rows = normalizeQueryResult(r);
 
-    const total = rows.length > 0 ? Number(rows[0]?.total_count ?? rows.length) : 0;
-    const items = rows.map(({ total_count, ...rest }) => rest);
-
     return NextResponse.json({
       ok: true,
-      total,
-      count: items.length,
-      items,
+      count: rows.length,
+      items: rows,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });

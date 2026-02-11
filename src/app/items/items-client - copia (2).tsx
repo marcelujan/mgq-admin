@@ -1,168 +1,217 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type TipoFiltro = "" | "PROVEEDOR" | "MANUAL" | "FORMULADO";
 type EstadoProveedorFiltro = "" | "PENDING_SCRAPE" | "WAITING_REVIEW" | "OK" | "ERROR_SCRAPE";
 
 type ItemRow = {
   item_key: string;
-  kind: string;
-  item_id: string;
-  proveedor_nombre?: string | null;
-  url_original?: string | null;
-  url_canonica?: string | null;
-  seleccionado?: boolean | null;
-  estado?: string | null;
+  kind: "PROVEEDOR" | "MANUAL" | "FORMULADO" | string;
+  item_id: string | number;
+
+  proveedor_nombre: string;
+  url_original: string;
+  url_canonica: string;
+  seleccionado: boolean;
+  estado: string;
   updated_at?: string | null;
+
   producto_nombre?: string | null;
+  oferta_nombre?: string | null;
+  tipo_formulado?: string | null;
+
   manual_nombre?: string | null;
   manual_uom?: string | null;
   manual_cantidad?: number | null;
   manual_costo_ars?: number | null;
+
+  mensaje_error?: string | null;
 };
 
-function hostFromUrl(url: string): string {
+function qs(params: Record<string, any>) {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    sp.set(k, String(v));
+  });
+  return sp.toString();
+}
+
+function productTitleFromUrl(url: string): string {
   try {
     const u = new URL(url);
-    return u.host || url;
+    const last = (u.pathname.split("/").filter(Boolean).pop() || "").trim();
+    if (!last) return u.hostname;
+    const decoded = decodeURIComponent(last)
+      .replace(/\.(html|htm|php)$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return decoded || u.hostname;
   } catch {
     return url;
   }
 }
 
-function productTitleFromUrl(url: string): string {
-  // heurística simple (mantengo como estaba)
-  return url.replace(/^https?:\/\//i, "").split(/[/?#]/)[0] || url;
+function hostFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }
 
-function badgeStyle(estado: any) {
-  const s = String(estado ?? "").toUpperCase();
-  const base = {
-    display: "inline-block",
-    border: "1px solid rgba(255,255,255,0.18)",
+function badgeStyle(estado: string): CSSProperties {
+  const s = (estado || "").toUpperCase();
+  const base: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
     borderRadius: 999,
-    padding: "4px 10px",
+    padding: "2px 10px",
     fontSize: 12,
-    opacity: 0.95,
-    whiteSpace: "nowrap" as const,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.03)",
+    whiteSpace: "nowrap",
   };
 
-  if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.55)" };
-  if (s.includes("ERROR")) return { ...base, borderColor: "rgba(239,68,68,0.55)" };
-  if (s.includes("PENDING") || s.includes("WAIT")) return { ...base, borderColor: "rgba(234,179,8,0.55)" };
+  if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.10)" };
+  if (s === "FORMULADO") return { ...base, borderColor: "rgba(59,130,246,0.45)", background: "rgba(59,130,246,0.10)" };
+  if (s === "MANUAL") return { ...base, borderColor: "rgba(245,158,11,0.45)", background: "rgba(245,158,11,0.10)" };
+  if (s.includes("ERROR")) return { ...base, borderColor: "rgba(248,113,113,0.55)", background: "rgba(248,113,113,0.10)" };
+  if (s.includes("WAIT") || s.includes("PENDING"))
+    return { ...base, borderColor: "rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.10)" };
+
   return base;
 }
 
-function fmtUpdated(s: string | null) {
-  if (!s) return "—";
-  const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) return String(s);
-  // mostrar fecha + hora si viene con hora; si es “date-only” igual queda legible
-  return d.toLocaleString("es-AR");
-}
-
-function makePageButtons(current: number, total: number): Array<number | "…"> {
-  if (total <= 1) return [1];
-  const set = new Set<number>();
-  set.add(1);
-  set.add(total);
-  set.add(current);
-  if (current - 1 >= 1) set.add(current - 1);
-  if (current + 1 <= total) set.add(current + 1);
-
-  const arr = Array.from(set).sort((a, b) => a - b);
-
-  const out: Array<number | "…"> = [];
-  for (let i = 0; i < arr.length; i++) {
-    const n = arr[i];
-    if (i > 0 && n - arr[i - 1] > 1) out.push("…");
-    out.push(n);
-  }
-  return out;
+function labelTipoFormulado(tipo?: string | null): string {
+  const t = String(tipo ?? "").toUpperCase();
+  if (t === "BULK") return "Bulk";
+  if (t === "PRESENTACION") return "Presentación";
+  if (t === "MANUAL_PRESENTACION") return "Manual";
+  return t || "";
 }
 
 export default function ItemsClient() {
   const [items, setItems] = useState<ItemRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string>("");
 
   const [search, setSearch] = useState("");
   const [tipo, setTipo] = useState<TipoFiltro>("");
   const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>("");
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
-
-  // DEFAULT 100
-  const [limit] = useState(100);
+  const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
 
-  const [total, setTotal] = useState(0);
+  useEffect(() => {
+    if (tipo === "MANUAL" || tipo === "FORMULADO") setEstadoProv("");
+  }, [tipo]);
 
-  const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
-
-  const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit) || 1), [total, limit]);
+  const query = useMemo(
+    () =>
+      qs({
+        search: search.trim() || undefined,
+        tipo: tipo || undefined,
+        estado: estadoProv || undefined,
+        seleccionado: seleccionado || undefined,
+        limit,
+        offset,
+      }),
+    [search, tipo, estadoProv, seleccionado, limit, offset]
+  );
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
+    let cancelled = false;
+    setLoading(true);
+    setError("");
 
-      try {
-        const sp = new URLSearchParams();
-        sp.set("limit", String(limit));
-        sp.set("offset", String(offset));
-        if (tipo) sp.set("tipo", tipo);
-        if (!estadoDisabled && estadoProv) sp.set("estado", estadoProv);
-        if (search.trim()) sp.set("search", search.trim());
-        if (seleccionado) sp.set("seleccionado", seleccionado);
-
-        const res = await fetch(`/api/items?${sp.toString()}`, { cache: "no-store" });
-        const j = await res.json().catch(() => ({}));
-
-        if (!res.ok || !j?.ok) {
-          setError(j?.error ?? `http_${res.status}`);
+    fetch(`/api/items?${query}`, { cache: "no-store" })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        return j.items as ItemRow[];
+      })
+      .then((rows) => {
+        if (!cancelled) setItems(rows);
+      })
+      .catch((e: any) => {
+        if (!cancelled) {
+          setError(e?.message ?? "error");
           setItems([]);
-          setTotal(0);
-          return;
         }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-        setItems(Array.isArray(j?.items) ? (j.items as ItemRow[]) : []);
-        setTotal(Number(j?.total ?? 0));
-      } catch (e: any) {
-        setError(String(e?.message ?? e));
-        setItems([]);
-        setTotal(0);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled]);
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
-  const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
+  const fmtUpdated = useMemo(() => {
+    const f = new Intl.DateTimeFormat("es-AR", {
+      year: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return (iso?: string | null) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      return Number.isFinite(d.getTime()) ? f.format(d) : iso;
+    };
+  }, []);
+
+  const fmtArs = useMemo(
+    () =>
+      new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        maximumFractionDigits: 0,
+      }),
+    []
+  );
+
+  const estadoDisabled = tipo === "MANUAL" || tipo === "FORMULADO";
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
+      <style jsx global>{`
+        .items-filter-select {
+          color-scheme: dark;
+        }
+        .items-filter-select option {
+          background: #0b0b0b;
+          color: #ffffff;
+        }
+      `}</style>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "end" }}>
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar</label>
           <input
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 10,
+              padding: "8px 10px",
+              width: 320,
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(255,255,255,0.92)",
+              outline: "none",
+            }}
             value={search}
             onChange={(e) => {
               setOffset(0);
               setSearch(e.target.value);
             }}
             placeholder="url / proveedor / producto / manual"
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: "8px 10px",
-              background: "rgba(255,255,255,0.03)",
-              color: "rgba(255,255,255,0.92)",
-              outline: "none",
-              width: 340,
-            }}
           />
         </div>
 
@@ -270,24 +319,7 @@ export default function ItemsClient() {
         </div>
       </div>
 
-      {/* Paginación mejorada */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            background: "rgba(255,255,255,0.02)",
-            cursor: offset === 0 || loading ? "not-allowed" : "pointer",
-            opacity: offset === 0 || loading ? 0.5 : 1,
-          }}
-          disabled={offset === 0 || loading}
-          onClick={() => setOffset(0)}
-          title="Primera página"
-        >
-          ⏮
-        </button>
-
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <button
           style={{
             border: "1px solid rgba(255,255,255,0.14)",
@@ -302,69 +334,21 @@ export default function ItemsClient() {
         >
           ← Prev
         </button>
-
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {pageButtons.map((b, idx) =>
-            b === "…" ? (
-              <span key={`e_${idx}`} style={{ opacity: 0.7, padding: "0 4px" }}>
-                …
-              </span>
-            ) : (
-              <button
-                key={b}
-                onClick={() => setOffset((b - 1) * limit)}
-                disabled={loading}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  borderRadius: 10,
-                  padding: "6px 10px",
-                  background: b === page ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.02)",
-                  cursor: loading ? "not-allowed" : "pointer",
-                  opacity: loading ? 0.6 : 1,
-                  fontSize: 12,
-                }}
-                title={`Página ${b}`}
-              >
-                {b}
-              </button>
-            )
-          )}
-        </div>
-
         <button
           style={{
             border: "1px solid rgba(255,255,255,0.14)",
             borderRadius: 10,
             padding: "8px 10px",
             background: "rgba(255,255,255,0.02)",
-            cursor: loading || page >= totalPages ? "not-allowed" : "pointer",
-            opacity: loading || page >= totalPages ? 0.5 : 1,
+            cursor: loading || items.length < limit ? "not-allowed" : "pointer",
+            opacity: loading || items.length < limit ? 0.5 : 1,
           }}
-          disabled={loading || page >= totalPages}
+          disabled={loading || items.length < limit}
           onClick={() => setOffset((v) => v + limit)}
         >
           Next →
         </button>
-
-        <button
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            background: "rgba(255,255,255,0.02)",
-            cursor: loading || page >= totalPages ? "not-allowed" : "pointer",
-            opacity: loading || page >= totalPages ? 0.5 : 1,
-          }}
-          disabled={loading || page >= totalPages}
-          onClick={() => setOffset((totalPages - 1) * limit)}
-          title="Última página"
-        >
-          ⏭
-        </button>
-
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          pág {page}/{totalPages} · total={total} · limit={limit}
-        </div>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>offset={offset} limit={limit}</div>
       </div>
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "auto" }}>
@@ -375,7 +359,7 @@ export default function ItemsClient() {
               <th style={{ padding: 10, minWidth: 360 }}>Item</th>
               <th style={{ padding: 10, width: 220 }}>Fuente</th>
               <th style={{ padding: 10, width: 160 }}>Estado</th>
-              <th style={{ padding: 10, width: 180 }}>Actualizado</th>
+              <th style={{ padding: 10, width: 150 }}>Actualizado</th>
               <th style={{ padding: 10, width: 44 }}>🔗</th>
               <th style={{ padding: 10, width: 44 }}>🔍</th>
             </tr>
@@ -398,17 +382,16 @@ export default function ItemsClient() {
                     ? String(it.manual_nombre ?? "").trim() || `Manual ${String(it.item_id)}`
                     : `Item ${String(it.item_id)}`;
 
-              // Fuente: ahora viene correcto desde API
-              const fuente = String(it.proveedor_nombre ?? "—");
+              const sub = isProv && url ? hostFromUrl(url) : isMan ? `${String(it.manual_cantidad ?? "")} ${String(it.manual_uom ?? "").trim()}` : "";
+
+              const fuente = isProv ? (it.proveedor_nombre || "Proveedor") : isFor ? "Fórmula v2" : isMan ? "Cost option" : "—";
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  {/* ID: solo número */}
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.95, fontWeight: 700 }}>
-                    {String(it.item_id)}
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.9 }}>
+                    <div style={{ fontWeight: 700 }}>{String(it.item_id)}</div>
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>{it.kind}</div>
                   </td>
-
-                  {/* Item: solo 1 renglón */}
                   <td style={{ padding: 10 }}>
                     <div
                       style={{
@@ -417,25 +400,24 @@ export default function ItemsClient() {
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
-                        maxWidth: 620,
+                        maxWidth: 520,
                       }}
                       title={isProv ? url : title}
                     >
                       {title}
                     </div>
+                    {sub ? (
+                      <div style={{ fontSize: 12, opacity: 0.65, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 520 }}>
+                        {sub}
+                        {isMan && it.manual_costo_ars != null ? ` · ${fmtArs.format(Number(it.manual_costo_ars))}` : ""}
+                      </div>
+                    ) : null}
                   </td>
-
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fuente}</td>
-
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
                     <span style={badgeStyle(it.estado)}>{it.estado}</span>
                   </td>
-
-                  {/* Actualizado: ahora viene “real” desde snapshots (para todos los tipos) */}
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
-                    {fmtUpdated(it.updated_at ?? null)}
-                  </td>
-
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at ?? null)}</td>
                   <td style={{ padding: 10, textAlign: "center" }}>
                     {showUrl ? (
                       <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9 }}>
@@ -445,7 +427,6 @@ export default function ItemsClient() {
                       <span style={{ opacity: 0.3 }}>🔗</span>
                     )}
                   </td>
-
                   <td style={{ padding: 10, textAlign: "center" }}>
                     <Link href={`/items/${encodeURIComponent(it.item_key)}`} title="Ver detalle" style={{ opacity: 0.9 }}>
                       🔍
