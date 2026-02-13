@@ -4,6 +4,7 @@ import { Pool } from "pg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -14,23 +15,15 @@ const pool = new Pool({
 
 function assertCronAuth(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  const auth = req.headers.get("authorization") || "";
+  const auth = req.headers.get("authorization") ?? "";
   if (!secret || auth !== `Bearer ${secret}`) {
-    return false;
+    const err: any = new Error("unauthorized");
+    err.statusCode = 401;
+    throw err;
   }
-  return true;
 }
 
-/**
- * Inserta/actualiza 1 snapshot por día por item_formulado BULK.
- * Si no hay costos cargados, queda 0 (política elegida).
- * Fuente: CRON.
- */
-export async function GET(req: NextRequest) {
-  if (!assertCronAuth(req)) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
-
+async function run() {
   const client = await pool.connect();
   try {
     const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
@@ -42,7 +35,7 @@ export async function GET(req: NextRequest) {
         (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
       select
         f.item_formulado_id,
-        current_date,
+        $1::date as as_of_date,
         (
           coalesce(c.costo_variable_por_kg_ars, 0)
           + case
@@ -63,20 +56,29 @@ export async function GET(req: NextRequest) {
         precio_unitario_ars = excluded.precio_unitario_ars,
         fuente = excluded.fuente,
         created_at = excluded.created_at
-      returning 1;
-      `
+      `,
+      [asOfDate]
     );
 
-    return NextResponse.json(
-      { ok: true, as_of_date: asOfDate, rowcount: q.rowCount },
-      { status: 200 }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: String(e?.message ?? e) },
-      { status: 500 }
-    );
+    return { ok: true, as_of_date: asOfDate, rowcount: q.rowCount ?? 0 };
   } finally {
     client.release();
   }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    assertCronAuth(req);
+    const payload = await run();
+    return NextResponse.json(payload, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: e?.statusCode ?? 500 }
+    );
+  }
+}
+
+export async function GET(req: NextRequest) {
+  return POST(req);
 }
