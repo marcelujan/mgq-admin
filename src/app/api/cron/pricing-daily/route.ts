@@ -5,8 +5,9 @@ import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPrices
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // seconds (Vercel)
 
-const HANDLER_VERSION = "pricing-daily-multibatch-mixed-2026-02-10";
+const HANDLER_VERSION = "pricing-daily-grouped-scrape-bulkdb-2026-02-12";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -15,10 +16,11 @@ const pool = new Pool({
   connectionTimeoutMillis: 10_000,
 });
 
-const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 80);
-const MAX_ATTEMPTS = 3;
-const TIME_BUDGET_MS = 50_000;
-const TIME_MARGIN_MS = 4_000;
+const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 120);
+const MAX_ATTEMPTS = Number(process.env.PRICING_MAX_ATTEMPTS ?? 3);
+const TIME_BUDGET_MS = Number(process.env.PRICING_TIME_BUDGET_MS ?? 55_000);
+const TIME_MARGIN_MS = Number(process.env.PRICING_TIME_MARGIN_MS ?? 8_000);
+const CONCURRENCY = Math.max(1, Number(process.env.PRICING_CONCURRENCY ?? 8));
 
 type OrderMode = "asc" | "desc";
 
@@ -32,19 +34,6 @@ function assertCronAuth(req: NextRequest) {
   }
 }
 
-async function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function backoffMs(attempt: number) {
-  const base = attempt === 1 ? 500 : 2000;
-  return base + Math.floor(Math.random() * 250);
-}
-
-async function scrapeWithMotor(motorId: number, url: string) {
-  return await runMotorForPricesByPresentacion(BigInt(motorId), url);
-}
-
 function errJson(e: any) {
   return {
     message: String(e?.message ?? e ?? "unknown_error"),
@@ -54,6 +43,65 @@ function errJson(e: any) {
     where: e?.where ? String(e.where) : null,
   };
 }
+
+type MotorScrapeResult = {
+  sourceUrl: string | null;
+  prices: Array<{ presentacion: number; priceArs: number }>;
+};
+
+async function scrapeWithMotor(motorId: number, url: string): Promise<MotorScrapeResult> {
+  return await runMotorForPricesByPresentacion(BigInt(motorId), url);
+}
+
+function pLimit(concurrency: number) {
+  let activeCount = 0;
+  const queue: Array<() => void> = [];
+
+  const next = () => {
+    activeCount--;
+    const fn = queue.shift();
+    if (fn) fn();
+  };
+
+  return async function <T>(fn: () => Promise<T>): Promise<T> {
+    if (activeCount >= concurrency) {
+      await new Promise<void>((resolve) => queue.push(resolve));
+    }
+    activeCount++;
+    try {
+      return await fn();
+    } finally {
+      next();
+    }
+  };
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+type ClaimedRow = {
+  run_item_id: number;
+  offer_id: number;
+  attempts: number;
+  item_id: number;
+  motor_id: number | null;
+  url: string | null;
+  presentacion: number | null;
+};
+
+type GroupScrapeOut =
+  | {
+      key: string;
+      ok: true;
+      motorId: number;
+      url: string;
+      sourceUrl: string;
+      priceByPres: Map<number, number>;
+    }
+  | { key: string; ok: false; motorId: number; url: string; error: string };
 
 export async function POST(req: NextRequest) {
   const started = Date.now();
@@ -71,7 +119,8 @@ export async function POST(req: NextRequest) {
     }
   };
 
-  const timeLeftOk = () => Date.now() - started < TIME_BUDGET_MS - TIME_MARGIN_MS;
+  const timeLeftMs = () => TIME_BUDGET_MS - (Date.now() - started);
+  const timeLeftOk = () => timeLeftMs() > TIME_MARGIN_MS;
 
   try {
     assertCronAuth(req);
@@ -120,8 +169,11 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    const claimBatch = async (mode: OrderMode) => {
-      const orderSql = mode === "asc" ? "i.updated_at asc, i.id asc" : "i.updated_at desc, i.id desc";
+    const claimBatch = async (mode: OrderMode): Promise<ClaimedRow[]> => {
+      const orderSql =
+        mode === "asc"
+          ? "i.updated_at asc nulls first, i.id asc"
+          : "i.updated_at desc nulls last, i.id desc";
 
       await client!.query("begin;");
       txOpen = true;
@@ -164,8 +216,10 @@ export async function POST(req: NextRequest) {
       await client!.query("commit;");
       txOpen = false;
 
-      return q.rows as any[];
+      return q.rows as ClaimedRow[];
     };
+
+    const limit = pLimit(CONCURRENCY);
 
     let processed_ok = 0;
     let processed_fail = 0;
@@ -173,13 +227,17 @@ export async function POST(req: NextRequest) {
     let batches = 0;
     let claimed_total = 0;
 
-    // Arrancar por DESC para priorizar “nuevo” en presencia de backlog.
+    let scraped_groups = 0;
+    let scraped_ok = 0;
+    let scraped_fail = 0;
+    let skipped_missing_motor_or_url = 0;
+    let skipped_missing_presentacion = 0;
+
     let mode: OrderMode = "desc";
 
     while (timeLeftOk()) {
       let batchRows = await claimBatch(mode);
 
-      // Si no hay por este lado, probamos el otro una vez.
       if (batchRows.length === 0) {
         const other: OrderMode = mode === "asc" ? "desc" : "asc";
         batchRows = await claimBatch(other);
@@ -190,19 +248,17 @@ export async function POST(req: NextRequest) {
       batches++;
       claimed_total += batchRows.length;
 
+      const valid: ClaimedRow[] = [];
       for (const row of batchRows) {
-        if (!timeLeftOk()) break;
-
         const runItemId = Number(row.run_item_id);
-        const itemId = Number(row.item_id);
         const motorId = row.motor_id === null ? null : Number(row.motor_id);
         const url = row.url ? String(row.url) : null;
-
         const presWantedRaw = row.presentacion;
         const presWanted =
           presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
 
         if (!motorId || !url) {
+          skipped_missing_motor_or_url++;
           await client.query(
             `
             update app.pricing_daily_run_items
@@ -219,6 +275,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (presWanted === null || !Number.isFinite(presWanted)) {
+          skipped_missing_presentacion++;
           await client.query(
             `
             update app.pricing_daily_run_items
@@ -234,69 +291,198 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        let lastErr: string | null = null;
-        let success = false;
+        valid.push(row);
+      }
 
-        for (let attempt = Number(row.attempts) + 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (!timeLeftOk()) break;
+      if (valid.length === 0) {
+        mode = mode === "asc" ? "desc" : "asc";
+        continue;
+      }
+
+      const allRunItemIds = valid.map((v) => Number(v.run_item_id));
+      await client.query(
+        `
+        update app.pricing_daily_run_items
+        set attempts = attempts + 1,
+            updated_at = now()
+        where id = any($1::bigint[])
+          and status = 'PENDING'
+          and attempts < $2;
+        `,
+        [allRunItemIds, MAX_ATTEMPTS]
+      );
+
+      if (!timeLeftOk()) break;
+
+      const groups = new Map<string, ClaimedRow[]>();
+      for (const row of valid) {
+        const motorId = Number(row.motor_id);
+        const url = String(row.url);
+        const key = `${motorId}::${url}`;
+        const arr = groups.get(key) ?? [];
+        arr.push(row);
+        groups.set(key, arr);
+      }
+
+      const groupEntries = Array.from(groups.entries());
+      scraped_groups += groupEntries.length;
+
+      const scrapeTasks = groupEntries.map(([key, rows]) =>
+        limit(async (): Promise<GroupScrapeOut | null> => {
+          if (!timeLeftOk()) return null;
+
+          const motorId = Number(rows[0].motor_id);
+          const url = String(rows[0].url);
+
           try {
-            await client.query(
-              `update app.pricing_daily_run_items set attempts=$2, updated_at=now() where id=$1;`,
-              [runItemId, attempt]
-            );
-
             const { sourceUrl, prices } = await scrapeWithMotor(motorId, url);
 
             if (!Array.isArray(prices) || prices.length === 0) {
               throw new Error("no_prices_by_presentacion");
             }
 
-            const match = prices.find((p: any) => Number(p?.presentacion) === presWanted);
-            if (!match) throw new Error(`no_price_for_presentacion:${presWanted}`);
+            const priceByPres = new Map<number, number>();
+            for (const p of prices as any[]) {
+              const pres = Number(p?.presentacion);
+              const price = Number(p?.priceArs);
+              if (Number.isFinite(pres) && Number.isFinite(price) && price > 0) {
+                priceByPres.set(pres, price);
+              }
+            }
 
-            const price = Number(match?.priceArs);
-            if (!Number.isFinite(price) || price <= 0) throw new Error("invalid_price");
+            if (priceByPres.size === 0) throw new Error("no_valid_prices");
 
-            await client.query(
-              `
-              insert into app.item_price_daily_pres
-                (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
-              values
-                ($1, $2::date, $3, $4, $5, $6)
-              on conflict (item_id, as_of_date, presentacion)
-              do update set
-                price_ars = excluded.price_ars,
-                source_url = excluded.source_url,
-                scrape_run_id = excluded.scrape_run_id;
-              `,
-              [itemId, asOfDate, presWanted, price, String(sourceUrl ?? url), runId]
-            );
-
-            inserted_rows++;
-
-            await client.query(
-              `update app.pricing_daily_run_items set status='OK', last_error=null, updated_at=now() where id=$1;`,
-              [runItemId]
-            );
-
-            processed_ok++;
-            success = true;
-            break;
+            return {
+              key,
+              ok: true,
+              motorId,
+              url,
+              sourceUrl: String(sourceUrl ?? url),
+              priceByPres,
+            };
           } catch (e: any) {
-            lastErr = String(e?.message ?? e);
-            if (attempt < MAX_ATTEMPTS) await sleep(backoffMs(attempt));
+            return {
+              key,
+              ok: false,
+              motorId,
+              url,
+              error: String(e?.message ?? e).slice(0, 2000),
+            };
           }
+        })
+      );
+
+      const groupResults = (await Promise.all(scrapeTasks)).filter(Boolean) as GroupScrapeOut[];
+
+      const okInserts: Array<[number, string, number, number, string, number]> = [];
+      const okRunItemIds: number[] = [];
+      const failRunItems: Array<[number, string]> = [];
+
+      for (const gr of groupResults) {
+        const rows = groups.get(gr.key) ?? [];
+
+        if (!gr.ok) {
+          scraped_fail++;
+          for (const row of rows) {
+            failRunItems.push([Number(row.run_item_id), gr.error]);
+          }
+          continue;
         }
 
-        if (!success) {
-          await client.query(
-            `update app.pricing_daily_run_items set status='FAIL', last_error=$2, updated_at=now() where id=$1;`,
-            [runItemId, (lastErr ?? "unknown_error").slice(0, 2000)]
-          );
-          processed_fail++;
+        scraped_ok++;
+
+        for (const row of rows) {
+          if (!timeLeftOk()) break;
+
+          const presWanted = Number(row.presentacion);
+          const price = gr.priceByPres.get(presWanted);
+
+          if (!price || !Number.isFinite(price) || price <= 0) {
+            failRunItems.push([Number(row.run_item_id), `no_or_invalid_price_for_presentacion:${presWanted}`]);
+            continue;
+          }
+
+          okInserts.push([
+            Number(row.item_id),
+            asOfDate,
+            presWanted,
+            price,
+            gr.sourceUrl,
+            runId,
+          ]);
+          okRunItemIds.push(Number(row.run_item_id));
         }
       }
 
-      // Alternar extremos para evitar starvation y a la vez drenar backlog.
+      for (const part of chunkArray(okInserts, 300)) {
+        if (!timeLeftOk()) break;
+        if (part.length === 0) continue;
+
+        const valuesSql = part
+          .map((_, i) => {
+            const b = i * 6;
+            return `($${b + 1}, $${b + 2}::date, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+          })
+          .join(",");
+
+        const flat = part.flat();
+
+        await client.query(
+          `
+          insert into app.item_price_daily_pres
+            (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
+          values ${valuesSql}
+          on conflict (item_id, as_of_date, presentacion)
+          do update set
+            price_ars = excluded.price_ars,
+            source_url = excluded.source_url,
+            scrape_run_id = excluded.scrape_run_id;
+          `,
+          flat
+        );
+      }
+
+      inserted_rows += okInserts.length;
+
+      for (const part of chunkArray(okRunItemIds, 1000)) {
+        if (!timeLeftOk()) break;
+        if (part.length === 0) continue;
+
+        await client.query(
+          `
+          update app.pricing_daily_run_items
+          set status='OK', last_error=null, updated_at=now()
+          where id = any($1::bigint[]);
+          `,
+          [part]
+        );
+      }
+
+      for (const part of chunkArray(failRunItems, 300)) {
+        if (!timeLeftOk()) break;
+        if (part.length === 0) continue;
+
+        const valuesSql = part.map((_, i) => `($${i * 2 + 1}::bigint, $${i * 2 + 2})`).join(",");
+        const flat = part.flat();
+
+        await client.query(
+          `
+          with v(id, err) as (values ${valuesSql})
+          update app.pricing_daily_run_items i
+          set status='FAIL',
+              last_error = left(v.err, 2000),
+              updated_at=now()
+          from v
+          where i.id = v.id;
+          `,
+          flat
+        );
+      }
+
+      processed_ok += okRunItemIds.length;
+      processed_fail += failRunItems.length;
+
       mode = mode === "asc" ? "desc" : "asc";
     }
 
@@ -312,25 +498,23 @@ export async function POST(req: NextRequest) {
       [runId, MAX_ATTEMPTS]
     );
 
-    const pendingQ = await client.query(
+    const finalCounts = await client.query(
       `
-      select count(*)::int as c
-      from app.pricing_daily_run_items
-      where run_id=$1 and status='PENDING' and attempts < $2;
+      select
+        (select count(*)::int from app.pricing_daily_run_items where run_id=$1 and status='PENDING' and attempts < $2) as pending,
+        (select count(*)::int from app.pricing_daily_run_items where run_id=$1 and status='FAIL') as fail;
       `,
       [runId, MAX_ATTEMPTS]
     );
-    const pendingRemaining = Number(pendingQ.rows?.[0]?.c ?? 0);
 
-    if (pendingRemaining === 0) {
-      const counts = await client.query(`select fail_count from app.pricing_daily_runs where id=$1;`, [runId]);
-      const failCount = Number(counts.rows?.[0]?.fail_count ?? 0);
-      const finalStatus = failCount > 0 ? "PARTIAL" : "DONE";
-      await client.query(`update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`, [
-        runId,
-        finalStatus,
-      ]);
-    }
+    const pendingRemaining = Number(finalCounts.rows?.[0]?.pending ?? 0);
+    const failCount = Number(finalCounts.rows?.[0]?.fail ?? 0);
+
+    const finalStatus = pendingRemaining === 0 && failCount === 0 ? "DONE" : "PARTIAL";
+    await client.query(`update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`, [
+      runId,
+      finalStatus,
+    ]);
 
     return NextResponse.json(
       {
@@ -338,13 +522,27 @@ export async function POST(req: NextRequest) {
         run_id: runId,
         date: asOfDate,
         batch_size: BATCH_SIZE,
+        concurrency: CONCURRENCY,
+        max_attempts: MAX_ATTEMPTS,
+        time_budget_ms: TIME_BUDGET_MS,
+        time_margin_ms: TIME_MARGIN_MS,
         batches,
         claimed_total,
         processed_ok,
         processed_fail,
         inserted_rows,
         pending_remaining: pendingRemaining,
+        scrape: {
+          groups: scraped_groups,
+          ok: scraped_ok,
+          fail: scraped_fail,
+        },
+        skipped: {
+          missing_motor_or_url: skipped_missing_motor_or_url,
+          missing_presentacion: skipped_missing_presentacion,
+        },
         time_ms: Date.now() - started,
+        time_left_ms: Math.max(0, timeLeftMs()),
       },
       { status: 200 }
     );
