@@ -130,7 +130,6 @@ export async function POST(req: NextRequest) {
     const d0 = await client.query(`select current_date::text as d;`);
     const asOfDate = String(d0.rows?.[0]?.d);
 
-    // create/run row
     const runQ = await client.query(
       `
       insert into app.pricing_daily_runs (as_of_date, status)
@@ -148,7 +147,6 @@ export async function POST(req: NextRequest) {
       [runId]
     );
 
-    // seed run items
     await client.query(
       `
       insert into app.pricing_daily_run_items (run_id, offer_id, status)
@@ -229,7 +227,6 @@ export async function POST(req: NextRequest) {
     let batches = 0;
     let claimed_total = 0;
 
-    // stats adicionales
     let scraped_groups = 0;
     let scraped_ok = 0;
     let scraped_fail = 0;
@@ -251,7 +248,6 @@ export async function POST(req: NextRequest) {
       batches++;
       claimed_total += batchRows.length;
 
-      // 1) separar inválidos rápido (motor/url/presentacion faltante)
       const valid: ClaimedRow[] = [];
       for (const row of batchRows) {
         const runItemId = Number(row.run_item_id);
@@ -304,7 +300,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // 2) incrementar attempts para TODO el batch válido (1 query)
       const allRunItemIds = valid.map((v) => Number(v.run_item_id));
       await client.query(
         `
@@ -320,7 +315,6 @@ export async function POST(req: NextRequest) {
 
       if (!timeLeftOk()) break;
 
-      // 3) agrupar por (motor_id,url)
       const groups = new Map<string, ClaimedRow[]>();
       for (const row of valid) {
         const motorId = Number(row.motor_id);
@@ -334,7 +328,6 @@ export async function POST(req: NextRequest) {
       const groupEntries = Array.from(groups.entries());
       scraped_groups += groupEntries.length;
 
-      // 4) SCRAPE concurrente SIN DB
       const scrapeTasks = groupEntries.map(([key, rows]) =>
         limit(async (): Promise<GroupScrapeOut | null> => {
           if (!timeLeftOk()) return null;
@@ -382,10 +375,9 @@ export async function POST(req: NextRequest) {
 
       const groupResults = (await Promise.all(scrapeTasks)).filter(Boolean) as GroupScrapeOut[];
 
-      // 5) aplicar resultados a DB en bulk
       const okInserts: Array<[number, string, number, number, string, number]> = [];
       const okRunItemIds: number[] = [];
-      const failRunItems: Array<[number, string]> = []; // [run_item_id, err]
+      const failRunItems: Array<[number, string]> = [];
 
       for (const gr of groupResults) {
         const rows = groups.get(gr.key) ?? [];
@@ -423,7 +415,6 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 5a) upsert prices en chunks
       for (const part of chunkArray(okInserts, 300)) {
         if (!timeLeftOk()) break;
         if (part.length === 0) continue;
@@ -454,7 +445,6 @@ export async function POST(req: NextRequest) {
 
       inserted_rows += okInserts.length;
 
-      // 5b) marcar OK en bulk
       for (const part of chunkArray(okRunItemIds, 1000)) {
         if (!timeLeftOk()) break;
         if (part.length === 0) continue;
@@ -469,7 +459,6 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // 5c) marcar FAIL en bulk (values join)
       for (const part of chunkArray(failRunItems, 300)) {
         if (!timeLeftOk()) break;
         if (part.length === 0) continue;
@@ -494,11 +483,9 @@ export async function POST(req: NextRequest) {
       processed_ok += okRunItemIds.length;
       processed_fail += failRunItems.length;
 
-      // alternar extremos
       mode = mode === "asc" ? "desc" : "asc";
     }
 
-    // actualizar counts
     await client.query(
       `
       update app.pricing_daily_runs r
@@ -523,7 +510,6 @@ export async function POST(req: NextRequest) {
     const pendingRemaining = Number(finalCounts.rows?.[0]?.pending ?? 0);
     const failCount = Number(finalCounts.rows?.[0]?.fail ?? 0);
 
-    // Cerrar SIEMPRE el run al final de la invocación (evita RUNNING eterno)
     const finalStatus = pendingRemaining === 0 && failCount === 0 ? "DONE" : "PARTIAL";
     await client.query(`update app.pricing_daily_runs set status=$2, finished_at=now() where id=$1;`, [
       runId,

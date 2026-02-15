@@ -1,5 +1,5 @@
-// cron/manual-costs-daily/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { Pool } from "pg";
 
 export const runtime = "nodejs";
@@ -24,7 +24,6 @@ function assertCronAuth(req: NextRequest) {
 }
 
 async function run() {
-  const started = Date.now();
   const client = await pool.connect();
   try {
     const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
@@ -32,32 +31,36 @@ async function run() {
 
     const q = await client.query(
       `
-      insert into app.cost_option_snapshot
-        (cost_option_id, as_of_date, costo_ars, fuente, created_at)
+      insert into app.item_formulado_snapshot
+        (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
       select
-        c.cost_option_id,
+        f.item_formulado_id,
         $1::date as as_of_date,
-        coalesce(c.manual_costo_ars, 0) as costo_ars,
+        (
+          coalesce(c.costo_variable_por_kg_ars, 0)
+          + case
+              when coalesce(c.lote_ref_kg, 0) > 0
+                then coalesce(c.costo_fijo_por_lote_ars, 0) / c.lote_ref_kg
+              else 0
+            end
+        ) as precio_unitario_ars,
         'CRON'::text as fuente,
         now() as created_at
-      from app.cost_option c
-      where c.activo = true
-        and c.tipo = 'MANUAL_PRESENTACION'
-      on conflict (cost_option_id, as_of_date)
+      from app.item_formulado f
+      left join app.producto_costos_produccion c
+        on c.producto_id::int = f.producto_id
+      where f.tipo = 'BULK'
+        and f.activo = true
+      on conflict (item_formulado_id, as_of_date)
       do update set
-        costo_ars = excluded.costo_ars,
+        precio_unitario_ars = excluded.precio_unitario_ars,
         fuente = excluded.fuente,
         created_at = excluded.created_at
       `,
       [asOfDate]
     );
 
-    return {
-      ok: true,
-      as_of_date: asOfDate,
-      rowcount: q.rowCount ?? 0,
-      time_ms: Date.now() - started,
-    };
+    return { ok: true, as_of_date: asOfDate, rowcount: q.rowCount ?? 0 };
   } finally {
     client.release();
   }

@@ -1,3 +1,4 @@
+// cron/pricing-daily/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { Pool, type PoolClient } from "pg";
@@ -21,6 +22,14 @@ const MAX_ATTEMPTS = Number(process.env.PRICING_MAX_ATTEMPTS ?? 3);
 const TIME_BUDGET_MS = Number(process.env.PRICING_TIME_BUDGET_MS ?? 55_000);
 const TIME_MARGIN_MS = Number(process.env.PRICING_TIME_MARGIN_MS ?? 8_000);
 const CONCURRENCY = Math.max(1, Number(process.env.PRICING_CONCURRENCY ?? 8));
+
+// Continuations (para plan Hobby: 1 cron/día, múltiples invocaciones encadenadas)
+const CHAIN_MAX = Number(process.env.PRICING_CHAIN_MAX ?? 12);
+const CHAIN_HEADER = "x-pricing-chain";
+
+// Orquestación opcional: disparar manual/formulado cuando pricing termina (pending=0)
+const TRIGGER_COSTS_AFTER_PRICING =
+  String(process.env.PRICING_TRIGGER_COSTS ?? "1") === "1";
 
 type OrderMode = "asc" | "desc";
 
@@ -103,6 +112,36 @@ type GroupScrapeOut =
     }
   | { key: string; ok: false; motorId: number; url: string; error: string };
 
+function getSelfBaseUrl(): string | null {
+  // En Vercel suele existir VERCEL_URL (sin https)
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) return `https://${vercelUrl}`;
+
+  // Fallback: permitir configurar dominio explícito
+  const appUrl = process.env.APP_URL; // puede venir con https o sin
+  if (!appUrl) return null;
+  if (appUrl.startsWith("http://") || appUrl.startsWith("https://")) return appUrl;
+  return `https://${appUrl}`;
+}
+
+async function fireAndForgetFetch(url: string, headers: Record<string, string>) {
+  // No queremos quedarnos colgados; timeout corto.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 3_500);
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+      signal: ac.signal,
+    });
+  } catch {
+    // ignore
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const started = Date.now();
   let client: PoolClient | null = null;
@@ -121,6 +160,9 @@ export async function POST(req: NextRequest) {
 
   const timeLeftMs = () => TIME_BUDGET_MS - (Date.now() - started);
   const timeLeftOk = () => timeLeftMs() > TIME_MARGIN_MS;
+
+  // chain index actual
+  const chain = Number(req.headers.get(CHAIN_HEADER) ?? "0");
 
   try {
     assertCronAuth(req);
@@ -516,6 +558,45 @@ export async function POST(req: NextRequest) {
       finalStatus,
     ]);
 
+    // ---- Continuation / Orchestration (no bloquea el resultado principal) ----
+    const selfBase = getSelfBaseUrl();
+    const cronSecret = process.env.CRON_SECRET;
+
+    // 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
+    if (
+      pendingRemaining > 0 &&
+      selfBase &&
+      cronSecret &&
+      chain < CHAIN_MAX
+    ) {
+      // Solo disparar si aún tenemos un poco de aire (evita cut-off)
+      if (timeLeftMs() > 1500) {
+        void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
+          Authorization: `Bearer ${cronSecret}`,
+          [CHAIN_HEADER]: String(chain + 1),
+        });
+      }
+    }
+
+    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)
+    if (
+      TRIGGER_COSTS_AFTER_PRICING &&
+      pendingRemaining === 0 &&
+      selfBase &&
+      cronSecret &&
+      // Evitar dispararlos en cada salto del chain: solo en el primero que completa.
+      chain <= CHAIN_MAX
+    ) {
+      if (timeLeftMs() > 1500) {
+        void fireAndForgetFetch(`${selfBase}/api/cron/manual-costs-daily`, {
+          Authorization: `Bearer ${cronSecret}`,
+        });
+        void fireAndForgetFetch(`${selfBase}/api/cron/formulado-costs-daily`, {
+          Authorization: `Bearer ${cronSecret}`,
+        });
+      }
+    }
+
     return NextResponse.json(
       {
         handler_version: HANDLER_VERSION,
@@ -526,6 +607,8 @@ export async function POST(req: NextRequest) {
         max_attempts: MAX_ATTEMPTS,
         time_budget_ms: TIME_BUDGET_MS,
         time_margin_ms: TIME_MARGIN_MS,
+        chain,
+        chain_max: CHAIN_MAX,
         batches,
         claimed_total,
         processed_ok,

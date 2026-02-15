@@ -1,4 +1,3 @@
-// cron/manual-costs-daily/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 
@@ -27,6 +26,7 @@ async function run() {
   const started = Date.now();
   const client = await pool.connect();
   try {
+    // Fecha del día desde DB para evitar TZ issues
     const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
     const asOfDate = d0.rows[0]?.d;
 
