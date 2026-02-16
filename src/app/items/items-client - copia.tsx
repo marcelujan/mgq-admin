@@ -59,13 +59,8 @@ function fmtUpdated(s: string | null) {
   if (!s) return "—";
   const d = new Date(s);
   if (!Number.isFinite(d.getTime())) return String(s);
-  // Formato estándar (compacto): YYYY-MM-DD HH:mm (sin segundos)
-  const yyyy = String(d.getFullYear()).padStart(4, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  // mostrar fecha + hora si viene con hora; si es “date-only” igual queda legible
+  return d.toLocaleString("es-AR");
 }
 
 function makePageButtons(current: number, total: number): Array<number | "…"> {
@@ -376,11 +371,13 @@ export default function ItemsClient() {
         <table style={{ minWidth: 980, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
-              <th style={{ padding: 10, minWidth: 420 }}>Item</th>
+              <th style={{ padding: 10, width: 120 }}>ID</th>
+              <th style={{ padding: 10, minWidth: 360 }}>Item</th>
               <th style={{ padding: 10, width: 220 }}>Fuente</th>
               <th style={{ padding: 10, width: 160 }}>Estado</th>
               <th style={{ padding: 10, width: 180 }}>Actualizado</th>
-              <th style={{ padding: 10, width: 120, textAlign: "center" }}>Acciones</th>
+              <th style={{ padding: 10, width: 44 }}>🔗</th>
+              <th style={{ padding: 10, width: 44 }}>🔍</th>
             </tr>
           </thead>
           <tbody>
@@ -404,14 +401,14 @@ export default function ItemsClient() {
               // Fuente: ahora viene correcto desde API
               const fuente = String(it.proveedor_nombre ?? "—");
 
-              const itemId = String(it.item_id);
-              const itemKind = kind || "ITEM";
-
-              const rowTitle = isProv ? (url ? url : `item_id=${itemId}`) : `${itemKind} · id=${itemId}`;
-
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  {/* Item */}
+                  {/* ID: solo número */}
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.95, fontWeight: 700 }}>
+                    {String(it.item_id)}
+                  </td>
+
+                  {/* Item: solo 1 renglón */}
                   <td style={{ padding: 10 }}>
                     <div
                       style={{
@@ -422,28 +419,9 @@ export default function ItemsClient() {
                         whiteSpace: "nowrap",
                         maxWidth: 620,
                       }}
-                      title={rowTitle}
+                      title={isProv ? url : title}
                     >
                       {title}
-                    </div>
-
-                    {/* Metadatos discretos (kind + id + host) */}
-                    <div
-                      style={{
-                        fontSize: 12,
-                        opacity: 0.65,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      <span title={`kind=${itemKind} · id=${itemId}`}>{itemKind.toLowerCase()} · #{itemId}</span>
-                      {showUrl ? (
-                        <>
-                          {" · "}
-                          <span title={url}>{hostFromUrl(url)}</span>
-                        </>
-                      ) : null}
                     </div>
                   </td>
 
@@ -453,35 +431,25 @@ export default function ItemsClient() {
                     <span style={badgeStyle(it.estado)}>{it.estado}</span>
                   </td>
 
+                  {/* Actualizado: ahora viene “real” desde snapshots (para todos los tipos) */}
                   <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
                     {fmtUpdated(it.updated_at ?? null)}
                   </td>
 
-                  <td style={{ padding: 10, textAlign: "center", whiteSpace: "nowrap" }}>
-                    <div style={{ display: "inline-flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
-                      <Link
-                        href={`/items/${encodeURIComponent(it.item_key)}`}
-                        title="Ver detalle"
-                        style={{ opacity: 0.9, textDecoration: "none" }}
-                      >
-                        🔍
-                      </Link>
-                      {showUrl ? (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={url}
-                          style={{ opacity: 0.9, textDecoration: "none" }}
-                        >
-                          🔗
-                        </a>
-                      ) : (
-                        <span style={{ opacity: 0.3 }} title="Sin URL">
-                          🔗
-                        </span>
-                      )}
-                    </div>
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    {showUrl ? (
+                      <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9 }}>
+                        🔗
+                      </a>
+                    ) : (
+                      <span style={{ opacity: 0.3 }}>🔗</span>
+                    )}
+                  </td>
+
+                  <td style={{ padding: 10, textAlign: "center" }}>
+                    <Link href={`/items/${encodeURIComponent(it.item_key)}`} title="Ver detalle" style={{ opacity: 0.9 }}>
+                      🔍
+                    </Link>
                   </td>
                 </tr>
               );
@@ -489,7 +457,7 @@ export default function ItemsClient() {
 
             {!loading && items.length === 0 ? (
               <tr>
-                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={5}>
+                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={7}>
                   Sin resultados
                 </td>
               </tr>
