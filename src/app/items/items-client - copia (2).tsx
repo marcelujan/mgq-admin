@@ -21,9 +21,6 @@ type ItemRow = {
   manual_uom?: string | null;
   manual_cantidad?: number | null;
   manual_costo_ars?: number | null;
-  ok_count?: number | null;
-  fail_count?: number | null;
-  pending_count?: number | null;
 };
 
 function hostFromUrl(url: string): string {
@@ -35,26 +32,9 @@ function hostFromUrl(url: string): string {
   }
 }
 
-function nameFromUrl(url: string): string | null {
-  try {
-    const u = new URL(String(url));
-    const parts = u.pathname.split("/").filter(Boolean);
-    const last = parts.length ? parts[parts.length - 1] : "";
-    if (!last) return null;
-
-    const cleaned = decodeURIComponent(last)
-      .replace(/\.(html|htm)$/i, "")
-      .replace(/[_]+/g, " ")
-      .replace(/[-]+/g, " ")
-      .trim();
-
-    if (!cleaned) return null;
-    if (cleaned.length < 3) return null;
-
-    return cleaned;
-  } catch {
-    return null;
-  }
+function productTitleFromUrl(url: string): string {
+  // heurística simple (mantengo como estaba)
+  return url.replace(/^https?:\/\//i, "").split(/[/?#]/)[0] || url;
 }
 
 function badgeStyle(estado: any) {
@@ -79,7 +59,7 @@ function fmtUpdated(s: string | null) {
   if (!s) return "—";
   const d = new Date(s);
   if (!Number.isFinite(d.getTime())) return String(s);
-
+  // Formato estándar (compacto): YYYY-MM-DD HH:mm (sin segundos)
   const yyyy = String(d.getFullYear()).padStart(4, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -118,6 +98,7 @@ export default function ItemsClient() {
   const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>("");
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
 
+  // DEFAULT 100
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
 
@@ -294,6 +275,7 @@ export default function ItemsClient() {
         </div>
       </div>
 
+      {/* Paginación mejorada */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button
           style={{
@@ -391,79 +373,89 @@ export default function ItemsClient() {
       </div>
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "auto" }}>
-        <table style={{ minWidth: 1100, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+        <table style={{ minWidth: 980, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
-              <th style={{ padding: 10, width: 90, textAlign: "right" }}>Item #</th>
-              <th style={{ padding: 10, minWidth: 420 }}>Nombre</th>
+              <th style={{ padding: 10, minWidth: 420 }}>Item</th>
               <th style={{ padding: 10, width: 220 }}>Fuente</th>
-              <th style={{ padding: 10, width: 220 }}>Estado</th>
+              <th style={{ padding: 10, width: 160 }}>Estado</th>
               <th style={{ padding: 10, width: 180 }}>Actualizado</th>
               <th style={{ padding: 10, width: 120, textAlign: "center" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {items.map((it) => {
-              const kind = String(it.kind ?? "").toUpperCase();
-              const itemId = String(it.item_id ?? "");
-
+              const kind = (it.kind || "").toUpperCase();
               const isProv = kind === "PROVEEDOR";
               const isFor = kind === "FORMULADO";
               const isMan = kind === "MANUAL";
 
-              const url = String(it.url_canonica || it.url_original || "").trim();
+              const url = (it.url_canonica || it.url_original || "").trim();
               const showUrl = isProv && !!url;
 
-              let nombre =
-                (isFor ? String(it.producto_nombre ?? "").trim() : "") ||
-                (isMan ? String(it.manual_nombre ?? "").trim() : "") ||
-                (isProv ? (nameFromUrl(url) ?? "") : "") ||
-                (url ? url : "");
+              const title = isProv
+                ? (url ? productTitleFromUrl(url) : `Item ${String(it.item_id)}`)
+                : isFor
+                  ? `Bulk · ${String(it.producto_nombre ?? "").trim() || `Producto ${String(it.item_id)}`}`
+                  : isMan
+                    ? String(it.manual_nombre ?? "").trim() || `Manual ${String(it.item_id)}`
+                    : `Item ${String(it.item_id)}`;
 
-              if (!nombre) nombre = `Item ${itemId}`;
+              // Fuente: ahora viene correcto desde API
+              const fuente = String(it.proveedor_nombre ?? "—");
 
-              const fuente = String(it.proveedor_nombre ?? "—") || "—";
+              const itemId = String(it.item_id);
+              const itemKind = kind || "ITEM";
 
-              const okc = Number(it.ok_count ?? 0);
-              const failc = Number(it.fail_count ?? 0);
-              const pendc = Number(it.pending_count ?? 0);
-
-              const estadoText = isProv
-                ? `OK: ${Number.isFinite(okc) ? okc : 0} | FAIL: ${Number.isFinite(failc) ? failc : 0} | PEND: ${
-                    Number.isFinite(pendc) ? pendc : 0
-                  }`
-                : String(it.estado ?? "—");
+              const rowTitle = isProv ? (url ? url : `item_id=${itemId}`) : `${itemKind} · id=${itemId}`;
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <td style={{ padding: 10, textAlign: "right", whiteSpace: "nowrap", opacity: 0.85 }}>{itemId}</td>
+                  {/* Item */}
+                  <td style={{ padding: 10 }}>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        opacity: 0.95,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 620,
+                      }}
+                      title={rowTitle}
+                    >
+                      {title}
+                    </div>
 
-                  <td
-                    style={{
-                      padding: 10,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      maxWidth: 680,
-                      fontWeight: 650 as any,
-                    }}
-                    title={nombre}
-                  >
-                    {nombre}
+                    {/* Metadatos discretos (kind + id + host) */}
+                    <div
+                      style={{
+                        fontSize: 12,
+                        opacity: 0.65,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      <span title={`kind=${itemKind} · id=${itemId}`}>{itemKind.toLowerCase()} · #{itemId}</span>
+                      {showUrl ? (
+                        <>
+                          {" · "}
+                          <span title={url}>{hostFromUrl(url)}</span>
+                        </>
+                      ) : null}
+                    </div>
                   </td>
 
-                  <td
-                    style={{ padding: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                    title={fuente}
-                  >
-                    {fuente}
-                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>{fuente}</td>
 
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                    {isProv ? <span style={{ opacity: 0.92 }}>{estadoText}</span> : <span style={badgeStyle(it.estado)}>{it.estado}</span>}
+                    <span style={badgeStyle(it.estado)}>{it.estado}</span>
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at ?? null)}</td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
+                    {fmtUpdated(it.updated_at ?? null)}
+                  </td>
 
                   <td style={{ padding: 10, textAlign: "center", whiteSpace: "nowrap" }}>
                     <div style={{ display: "inline-flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
@@ -475,7 +467,13 @@ export default function ItemsClient() {
                         🔍
                       </Link>
                       {showUrl ? (
-                        <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9, textDecoration: "none" }}>
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={url}
+                          style={{ opacity: 0.9, textDecoration: "none" }}
+                        >
                           🔗
                         </a>
                       ) : (
@@ -491,7 +489,7 @@ export default function ItemsClient() {
 
             {!loading && items.length === 0 ? (
               <tr>
-                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={6}>
+                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={5}>
                   Sin resultados
                 </td>
               </tr>

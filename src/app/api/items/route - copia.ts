@@ -18,10 +18,6 @@ function normalizeQueryResult(res: any): any[] {
  * - p:<item_id>
  * - fprod:<producto_id>
  * - mopt:<cost_option_id>
- *
- * Conteos (solo PROVEEDOR):
- * - ok_count / fail_count / pending_count: agregación por item_id a partir del run de pricing del día
- *   (pricing_daily_runs.as_of_date = current_date), via pricing_daily_run_items + offers.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -66,9 +62,6 @@ export async function GET(req: NextRequest) {
             (pd.max_d::timestamptz + interval '12 hours'),
             i.updated_at
           ) as updated_at,
-          coalesce(pc.ok_count, 0)::int as ok_count,
-          coalesce(pc.fail_count, 0)::int as fail_count,
-          coalesce(pc.pending_count, 0)::int as pending_count,
           null::timestamptz as created_at,
           null::text as producto_nombre,
           null::text as oferta_nombre,
@@ -86,25 +79,6 @@ export async function GET(req: NextRequest) {
           from app.item_price_daily_pres p
           where p.item_id = i.item_id
         ) pd on true
-        left join lateral (
-          select
-            count(*) filter (where ri.status='OK')::int as ok_count,
-            count(*) filter (where ri.status='FAIL')::int as fail_count,
-            count(*) filter (where ri.status='PENDING')::int as pending_count
-          from app.offers o
-          join lateral (
-            select id as run_id
-            from app.pricing_daily_runs
-            where as_of_date = current_date
-            order by id desc
-            limit 1
-          ) rr on true
-          join app.pricing_daily_run_items ri
-            on ri.run_id = rr.run_id
-           and ri.offer_id = o.offer_id
-          where o.item_id = i.item_id
-            and o.estado = 'OK'
-        ) pc on true
         where
           ($1::text = '' or $1::text = 'PROVEEDOR')
           and ($2::text = '' or i.estado::text = $2::text)
@@ -145,9 +119,6 @@ export async function GET(req: NextRequest) {
             (fs.max_d::timestamptz + interval '12 hours'),
             null::timestamptz
           ) as updated_at,
-          0::int as ok_count,
-          0::int as fail_count,
-          0::int as pending_count,
           null::timestamptz as created_at,
           coalesce(p.nombre, '') as producto_nombre,
           ''::text as oferta_nombre,
@@ -199,9 +170,6 @@ export async function GET(req: NextRequest) {
             (ms.max_d::timestamptz + interval '12 hours'),
             c.updated_at
           ) as updated_at,
-          0::int as ok_count,
-          0::int as fail_count,
-          0::int as pending_count,
           null::timestamptz as created_at,
           ''::text as producto_nombre,
           ''::text as oferta_nombre,
@@ -264,9 +232,6 @@ export async function GET(req: NextRequest) {
         manual_uom,
         manual_cantidad,
         manual_costo_ars,
-        ok_count,
-        fail_count,
-        pending_count,
         total_count
       from paged;
       `,
