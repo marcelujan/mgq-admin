@@ -405,9 +405,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   async function loadBulks() {
     setBulkLoading(true);
     try {
-      const r = await fetch(`/api/productos/bulks?limit=50&offset=0&search=${encodeURIComponent(bulkSearch)}`, {
+      const qs = new URLSearchParams({
+        limit: "50",
+        offset: "0",
+        search: bulkSearch ?? "",
+        exclude_producto_id: String(productoId), // <-- clave
+      });
+
+      const r = await fetch(`/api/productos/bulks?${qs.toString()}`, {
         cache: "no-store",
       });
+
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
@@ -419,11 +427,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setBulkRows(rows as BulkRow[]);
     } catch (e: any) {
+      console.error("loadBulks error:", e);
       setError(e?.message || "error");
     } finally {
       setBulkLoading(false);
     }
-  }
+  }  
 
   async function loadPackagingItems() {
     const r = await fetch(`/api/packaging-items`, { cache: "no-store" });
