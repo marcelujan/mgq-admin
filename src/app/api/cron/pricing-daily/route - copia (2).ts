@@ -28,7 +28,8 @@ const CHAIN_MAX = Number(process.env.PRICING_CHAIN_MAX ?? 12);
 const CHAIN_HEADER = "x-pricing-chain";
 
 // Orquestación opcional: disparar manual/formulado cuando pricing termina (pending=0)
-const TRIGGER_COSTS_AFTER_PRICING = String(process.env.PRICING_TRIGGER_COSTS ?? "1") === "1";
+const TRIGGER_COSTS_AFTER_PRICING =
+  String(process.env.PRICING_TRIGGER_COSTS ?? "1") === "1";
 
 type OrderMode = "asc" | "desc";
 
@@ -111,23 +112,31 @@ type GroupScrapeOut =
     }
   | { key: string; ok: false; motorId: number; url: string; error: string };
 
-async function fireAndForgetFetch(url: string, headers: Record<string, string>) {
-  // En Vercel puede haber cold start / TLS / routing. 3.5s suele ser poco.
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 15_000);
+function getSelfBaseUrl(): string | null {
+  // En Vercel suele existir VERCEL_URL (sin https)
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) return `https://${vercelUrl}`;
 
+  // Fallback: permitir configurar dominio explícito
+  const appUrl = process.env.APP_URL; // puede venir con https o sin
+  if (!appUrl) return null;
+  if (appUrl.startsWith("http://") || appUrl.startsWith("https://")) return appUrl;
+  return `https://${appUrl}`;
+}
+
+async function fireAndForgetFetch(url: string, headers: Record<string, string>) {
+  // No queremos quedarnos colgados; timeout corto.
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 3_500);
   try {
     await fetch(url, {
       method: "POST",
       headers,
       cache: "no-store",
       signal: ac.signal,
-      // @ ts-expect-error keepalive es válido en fetch web
-      keepalive: true,
     });
-  } catch (e: any) {
-    // Log mínimo para diagnóstico (no rompe el run principal)
-    console.error("fireAndForgetFetch failed:", String(e?.message ?? e));
+  } catch {
+    // ignore
   } finally {
     clearTimeout(t);
   }
@@ -175,9 +184,10 @@ export async function POST(req: NextRequest) {
     );
     const runId = Number(runQ.rows?.[0]?.id);
 
-    await client.query(`update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`, [
-      runId,
-    ]);
+    await client.query(
+      `update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`,
+      [runId]
+    );
 
     await client.query(
       `
@@ -202,7 +212,10 @@ export async function POST(req: NextRequest) {
     );
 
     const claimBatch = async (mode: OrderMode): Promise<ClaimedRow[]> => {
-      const orderSql = mode === "asc" ? "i.updated_at asc nulls first, i.id asc" : "i.updated_at desc nulls last, i.id desc";
+      const orderSql =
+        mode === "asc"
+          ? "i.updated_at asc nulls first, i.id asc"
+          : "i.updated_at desc nulls last, i.id desc";
 
       await client!.query("begin;");
       txOpen = true;
@@ -283,7 +296,8 @@ export async function POST(req: NextRequest) {
         const motorId = row.motor_id === null ? null : Number(row.motor_id);
         const url = row.url ? String(row.url) : null;
         const presWantedRaw = row.presentacion;
-        const presWanted = presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
+        const presWanted =
+          presWantedRaw === null || presWantedRaw === undefined ? null : Number(presWantedRaw);
 
         if (!motorId || !url) {
           skipped_missing_motor_or_url++;
@@ -431,7 +445,14 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          okInserts.push([Number(row.item_id), asOfDate, presWanted, price, gr.sourceUrl, runId]);
+          okInserts.push([
+            Number(row.item_id),
+            asOfDate,
+            presWanted,
+            price,
+            gr.sourceUrl,
+            runId,
+          ]);
           okRunItemIds.push(Number(row.run_item_id));
         }
       }
@@ -538,12 +559,16 @@ export async function POST(req: NextRequest) {
     ]);
 
     // ---- Continuation / Orchestration (no bloquea el resultado principal) ----
-    // Usar el origin real del request evita mismatch de dominios/branches.
-    const selfBase = req.nextUrl.origin;
+    const selfBase = getSelfBaseUrl();
     const cronSecret = process.env.CRON_SECRET;
 
     // 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
-    if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
+    if (
+      pendingRemaining > 0 &&
+      selfBase &&
+      cronSecret &&
+      chain < CHAIN_MAX
+    ) {
       // Solo disparar si aún tenemos un poco de aire (evita cut-off)
       if (timeLeftMs() > 1500) {
         void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
