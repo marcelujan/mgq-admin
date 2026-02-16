@@ -46,7 +46,7 @@ type CostosProduccion =
 type ItemOption = {
   tipo: "ITEM_PRESENTACION";
   item_id: number;
-  presentacion: number; // NOTE: viene del proveedor/job en KG (ej: 1, 5, 25)
+  presentacion: number;
   price_ars: number;
   as_of_date: string;
   proveedor_codigo: string;
@@ -59,7 +59,7 @@ type CostOptionExtra = {
   cost_option_id: number;
   tipo: "MANUAL_PRESENTACION" | "BULK_PRODUCTO" | "ITEM_PRESENTACION";
   item_id: number | null;
-  item_presentacion: number | null; // NOTE: en ITEM_PRESENTACION viene en KG (ej: 1, 5, 25)
+  item_presentacion: number | null;
 
   manual_nombre: string | null;
   manual_uom: "GR" | "ML" | "UN" | null;
@@ -82,7 +82,7 @@ type LineaV2 = {
 
   tipo: "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
   item_id: number | null;
-  item_presentacion: number | null; // NOTE: para ITEM_PRESENTACION viene en KG (ej: 1, 5, 25)
+  item_presentacion: number | null;
 
   job_price_ars: number | null;
   job_as_of_date: string | null;
@@ -193,24 +193,9 @@ function safeText(x: any) {
   return s;
 }
 
-// ====== UNIDADES JOB: el proveedor/job trae presentacion en KG, pero la app muestra GR/ML/UN ======
-
-function kgToGr(kg: number | null): number | null {
-  const n = numOrNull(kg);
-  if (n === null) return null;
-  return n * 1000;
-}
-
-function fmtGrFromKg(kg: number | null, dec = 0): string {
-  const gr = kgToGr(kg);
-  if (gr === null) return "-";
-  return `${gr.toFixed(dec)} g`;
-}
-
-function toARSporKgFromPresentation(priceARS: number | null, presKg: number | null) {
-  // presKg viene del proveedor/job en KG
-  if (priceARS === null || presKg === null || presKg <= 0) return null;
-  return priceARS / presKg;
+function toARSporKgFromPresentation(priceARS: number | null, presGr: number | null) {
+  if (priceARS === null || presGr === null || presGr <= 0) return null;
+  return (priceARS / presGr) * 1000;
 }
 
 function toARSporKgManual(
@@ -559,7 +544,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       if (densUsada !== null && densUsada > 0) masaTotalG = volumen_neto_ml * densUsada;
     } else if (unidades_pack !== null && unidades_pack > 0 && masa_por_unidad_g !== null && masa_por_unidad_g > 0) {
       masaTotalG = unidades_pack * masa_por_unidad_g;
-    } else if (unidades_pack !== null && unidades_pack > 0 && volumen_por_unidad_ml !== null && volumen_por_unidad_ml > 0) {
+    } else if (
+      unidades_pack !== null &&
+      unidades_pack > 0 &&
+      volumen_por_unidad_ml !== null &&
+      volumen_por_unidad_ml > 0
+    ) {
       if (densUsada !== null && densUsada > 0) masaTotalG = unidades_pack * volumen_por_unidad_ml * densUsada;
     }
 
@@ -715,11 +705,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     if (!c.ok) return c;
 
     if (l.tipo === "ITEM_PRESENTACION") {
-      // item_presentacion viene en KG, convertir a GR para ARS/GR
-      const presKg = numOrNull(l.item_presentacion);
-      if (!presKg || presKg <= 0) return { ok: false, err: "presentación inválida" };
-      const presGr = presKg * 1000;
-      return { ok: true, arsPorG: c.ars / presGr };
+      const pres = l.item_presentacion ?? null;
+      if (!pres || pres <= 0) return { ok: false, err: "presentación inválida" };
+      return { ok: true, arsPorG: c.ars / pres };
     }
 
     if (l.tipo === "MANUAL_PRESENTACION") {
@@ -897,7 +885,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }
 
   function lineaLabel(l: LineaV2) {
-    if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${fmtGrFromKg(numOrNull(l.item_presentacion), 0)}`;
+    if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${l.item_presentacion}`;
     if (l.tipo === "MANUAL_PRESENTACION")
       return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
@@ -1043,7 +1031,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
     return itemOptions.slice(0, 200).map((x, idx) => {
-      const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
+      const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion));
       const nombre = x.url_original || x.url_canonica || "";
       const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
       const origen = `Proveedor: ${prov}`;
@@ -1053,7 +1041,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         idLabel: `#${x.item_id}`,
         nombre: safeText(nombre),
         origen,
-        presentacion: fmtGrFromKg(numOrNull(x.presentacion), 0), // mostrar en GR
+        presentacion: `${x.presentacion} g`,
         precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
         densidad: "-",
         fecha: safeText(x.as_of_date),
@@ -1070,7 +1058,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         idLabel: `#${b.producto_id}`,
         nombre: safeText(b.nombre),
         origen: "Bulk",
-        presentacion: "1000 g",
+        presentacion: "1 kg",
         precioUnitario: fmtMaybe(b.ars_por_kg, 2),
         densidad: fmtMaybe(b.densidad_producto_g_ml, 4),
         fecha: "-",
@@ -1082,10 +1070,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const pickRowsManual = useMemo<ComponentPickRow[]>(() => {
     return manualOptions.slice(0, 120).map((m) => {
       const dens = numOrNull(m.densidad_g_ml);
-      const arsKg = toARSporKgManual(numOrNull(m.manual_costo_ars), numOrNull(m.manual_cantidad), m.manual_uom, dens);
+      const arsKg = toARSporKgManual(
+        numOrNull(m.manual_costo_ars),
+        numOrNull(m.manual_cantidad),
+        m.manual_uom,
+        dens
+      );
 
       const pres =
-        m.manual_cantidad !== null && m.manual_uom ? `${fmtMaybe(m.manual_cantidad, 4)} ${m.manual_uom}` : "-";
+        m.manual_cantidad !== null && m.manual_uom
+          ? `${fmtMaybe(m.manual_cantidad, 4)} ${m.manual_uom}`
+          : "-";
 
       return {
         key: `man-${m.cost_option_id}`,
