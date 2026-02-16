@@ -655,14 +655,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   useEffect(() => {
     loadAll();
+    loadBulks();   // <-- agregar acá
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    // Carga inicial de bulks al abrir el editor
-    loadBulks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productoId]);
 
   const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
 
