@@ -409,13 +409,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         limit: "50",
         offset: "0",
         search: bulkSearch ?? "",
-        exclude_producto_id: String(productoId), // <-- clave
+        exclude_producto_id: String(productoId),
       });
 
-      const r = await fetch(`/api/productos/bulks?${qs.toString()}`, {
-        cache: "no-store",
-      });
-
+      const r = await fetch(`/api/productos/bulks?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
@@ -427,12 +424,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setBulkRows(rows as BulkRow[]);
     } catch (e: any) {
-      console.error("loadBulks error:", e);
       setError(e?.message || "error");
     } finally {
       setBulkLoading(false);
     }
-  }  
+  }
 
   async function loadPackagingItems() {
     const r = await fetch(`/api/packaging-items`, { cache: "no-store" });
@@ -661,6 +657,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    // Carga inicial de bulks al abrir el editor
+    loadBulks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoId]);
 
   const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
 
