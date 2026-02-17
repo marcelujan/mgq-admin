@@ -168,8 +168,7 @@ export async function POST(req: NextRequest) {
       insert into app.pricing_daily_runs (as_of_date, status)
       values ($1::date, 'RUNNING')
       on conflict (as_of_date) do update
-        set status = 'RUNNING',
-            finished_at = null
+        set status = app.pricing_daily_runs.status
       returning id::text;
       `,
       [asOfDate]
@@ -189,21 +188,6 @@ export async function POST(req: NextRequest) {
       on conflict (run_id, offer_id) do nothing;
       `,
       [runId]
-    );
-
-
-    // Normalización: no dejar PENDING cuando se agotaron intentos (evita PEND infinito en Items)
-    await client.query(
-      `
-      update app.pricing_daily_run_items
-      set status='FAIL',
-          last_error = coalesce(nullif(last_error,''), 'max_attempts_exhausted'),
-          updated_at=now()
-      where run_id=$1
-        and status='PENDING'
-        and attempts >= $2;
-      `,
-      [runId, MAX_ATTEMPTS]
     );
 
     await client.query(
@@ -562,36 +546,10 @@ export async function POST(req: NextRequest) {
     if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
       // Solo disparar si aún tenemos un poco de aire (evita cut-off)
       if (timeLeftMs() > 1500) {
-        // Si hay margen suficiente, hacer un fetch "real" (mejora la confiabilidad del encadenamiento).
-        // Si no, fallback a fire-and-forget.
-        if (timeLeftMs() > 5000) {
-          const ac = new AbortController();
-          const t = setTimeout(() => ac.abort(), 4500);
-          try {
-            await fetch(`${selfBase}/api/cron/pricing-daily`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${cronSecret}`,
-                [CHAIN_HEADER]: String(chain + 1),
-              },
-              cache: "no-store",
-              signal: ac.signal,
-            });
-          } catch (e: any) {
-            console.error("chain fetch failed:", String(e?.message ?? e));
-            void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
-              Authorization: `Bearer ${cronSecret}`,
-              [CHAIN_HEADER]: String(chain + 1),
-            });
-          } finally {
-            clearTimeout(t);
-          }
-        } else {
-          void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
-            Authorization: `Bearer ${cronSecret}`,
-            [CHAIN_HEADER]: String(chain + 1),
-          });
-        }
+        void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
+          Authorization: `Bearer ${cronSecret}`,
+          [CHAIN_HEADER]: String(chain + 1),
+        });
       }
     }
 
