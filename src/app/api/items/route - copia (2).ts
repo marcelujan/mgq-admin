@@ -9,11 +9,9 @@ function normalizeQueryResult(res: any): any[] {
 }
 
 /**
- * GET /api/items?limit=&offset=&tipo=&estado=&search=&seleccionado=
- *
- * Devuelve una lista unificada de:
+ * Unificación de Items:
  * - PROVEEDOR: app.item_seguimiento
- * - FORMULADO (virtual): productos con fórmula v2 (y su item_formulado BULK)
+ * - FORMULADO (virtual): producto con fórmula v2 (por header o por líneas)
  * - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
  *
  * item_key:
@@ -21,21 +19,15 @@ function normalizeQueryResult(res: any): any[] {
  * - fprod:<producto_id>
  * - mopt:<cost_option_id>
  *
- * Conteos OK/FAIL/PEND:
- * - PROVEEDOR: conteo de offers del item en el pricing run de HOY (pricing_daily_run_items)
- * - FORMULADO: 0/1 según:
- *    OK= existe BULK reutilizable (item_formulado BULK activo) Y snapshot HOY con precio_unitario_ars > 0
- *    PEND= existe BULK reutilizable y NO hay snapshot HOY
- *    FAIL= no existe BULK reutilizable, o hay snapshot HOY pero precio_unitario_ars <= 0
- * - MANUAL: 0/1 según:
- *    OK= snapshot HOY con costo_ars > 0
- *    PEND= no hay snapshot HOY
- *    FAIL= snapshot HOY existe pero costo_ars <= 0
+ * Conteos (solo PROVEEDOR):
+ * - ok_count / fail_count / pending_count: agregación por item_id a partir del run de pricing del día
+ *   (pricing_daily_runs.as_of_date = current_date), via pricing_daily_run_items + offers.
  */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
 
+    // DEFAULT 100 (antes 50)
     const limitRaw = Number(searchParams.get("limit") ?? 100);
     const offsetRaw = Number(searchParams.get("offset") ?? 0);
 
@@ -58,7 +50,6 @@ export async function GET(req: NextRequest) {
     const r: any = await sql.query(
       `
       with
-      -- ========= PROVEEDOR =========
       proveedor as (
         select
           ('p:' || i.item_id::text) as item_key,
@@ -70,12 +61,14 @@ export async function GET(req: NextRequest) {
           i.url_canonica,
           i.seleccionado,
           i.estado::text as estado,
-          coalesce((pd.max_d::timestamptz + interval '12 hours'), i.updated_at) as updated_at,
-
+          -- "Actualizado" real: max(as_of_date) de snapshots de precio; fallback a i.updated_at
+          coalesce(
+            (pd.max_d::timestamptz + interval '12 hours'),
+            i.updated_at
+          ) as updated_at,
           coalesce(pc.ok_count, 0)::int as ok_count,
           coalesce(pc.fail_count, 0)::int as fail_count,
           coalesce(pc.pending_count, 0)::int as pending_count,
-
           null::timestamptz as created_at,
           null::text as producto_nombre,
           null::text as oferta_nombre,
@@ -88,13 +81,11 @@ export async function GET(req: NextRequest) {
           0::int as sort_kind
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
-
         left join lateral (
           select max(as_of_date) as max_d
           from app.item_price_daily_pres p
           where p.item_id = i.item_id
         ) pd on true
-
         left join lateral (
           select
             count(*) filter (where ri.status='OK')::int as ok_count,
@@ -114,7 +105,6 @@ export async function GET(req: NextRequest) {
           where o.item_id = i.item_id
             and o.estado = 'OK'
         ) pc on true
-
         where
           ($1::text = '' or $1::text = 'PROVEEDOR')
           and ($2::text = '' or i.estado::text = $2::text)
@@ -127,7 +117,7 @@ export async function GET(req: NextRequest) {
           )
       ),
 
-      -- ========= FORMULADO =========
+      -- productos con fórmula v2: por header (producto_formula_v2) o por líneas (producto_formula_linea_v2)
       productos_formulados_v2 as (
         select distinct producto_id
         from (
@@ -144,42 +134,20 @@ export async function GET(req: NextRequest) {
           'FORMULADO'::text as kind,
           pf.producto_id::text as item_id,
           ''::text as proveedor_codigo,
+          -- Fuente correcto en UI (antes "Fórmula v2")
           'Formulado'::text as proveedor_nombre,
           ''::text as url_original,
           ''::text as url_canonica,
           false as seleccionado,
           'FORMULADO'::text as estado,
-          coalesce((fs.max_d::timestamptz + interval '12 hours'), null::timestamptz) as updated_at,
-
-          -- Conteos 0/1 para FORMULADO
-          -- bulk reutilizable: existe item_formulado BULK activo
-          (
-            case
-              when fi.item_formulado_id is not null
-               and f_today.has_today = true
-               and f_today.precio_unitario_ars > 0
-              then 1 else 0
-            end
-          )::int as ok_count,
-
-          (
-            case
-              when fi.item_formulado_id is null
-                then 1
-              when f_today.has_today = true and not (f_today.precio_unitario_ars > 0)
-                then 1
-              else 0
-            end
-          )::int as fail_count,
-
-          (
-            case
-              when fi.item_formulado_id is not null
-               and (f_today.has_today is distinct from true)
-              then 1 else 0
-            end
-          )::int as pending_count,
-
+          -- "Actualizado" real: max(as_of_date) de item_formulado_snapshot; fallback null
+          coalesce(
+            (fs.max_d::timestamptz + interval '12 hours'),
+            null::timestamptz
+          ) as updated_at,
+          0::int as ok_count,
+          0::int as fail_count,
+          0::int as pending_count,
           null::timestamptz as created_at,
           coalesce(p.nombre, '') as producto_nombre,
           ''::text as oferta_nombre,
@@ -192,9 +160,8 @@ export async function GET(req: NextRequest) {
           1::int as sort_kind
         from productos_formulados_v2 pf
         left join app.producto p on p.producto_id = pf.producto_id
-
         left join lateral (
-          select f.item_formulado_id
+          select item_formulado_id
           from app.item_formulado f
           where f.producto_id = pf.producto_id::int
             and f.tipo = 'BULK'
@@ -202,31 +169,11 @@ export async function GET(req: NextRequest) {
           order by f.item_formulado_id asc
           limit 1
         ) fi on true
-
         left join lateral (
           select max(as_of_date) as max_d
           from app.item_formulado_snapshot s
           where s.item_formulado_id = fi.item_formulado_id
         ) fs on true
-
-        left join lateral (
-          select
-            exists(
-              select 1
-              from app.item_formulado_snapshot s
-              where s.item_formulado_id = fi.item_formulado_id
-                and s.as_of_date = current_date
-            ) as has_today,
-            coalesce((
-              select s.precio_unitario_ars
-              from app.item_formulado_snapshot s
-              where s.item_formulado_id = fi.item_formulado_id
-                and s.as_of_date = current_date
-              order by s.snapshot_id desc
-              limit 1
-            ), 0::numeric) as precio_unitario_ars
-        ) f_today on true
-
         where
           ($1::text = '' or $1::text = 'FORMULADO')
           and (
@@ -235,42 +182,26 @@ export async function GET(req: NextRequest) {
           )
       ),
 
-      -- ========= MANUAL =========
       manual_catalogo as (
         select
           ('mopt:' || c.cost_option_id::text) as item_key,
           'MANUAL'::text as kind,
           c.cost_option_id::text as item_id,
           ''::text as proveedor_codigo,
+          -- Fuente correcto en UI (antes "Cost option")
           'Manual'::text as proveedor_nombre,
           ''::text as url_original,
           ''::text as url_canonica,
           false as seleccionado,
           'MANUAL'::text as estado,
-          coalesce((ms.max_d::timestamptz + interval '12 hours'), c.updated_at) as updated_at,
-
-          -- Conteos 0/1 para MANUAL
-          (
-            case
-              when m_today.has_today = true and m_today.costo_ars > 0
-              then 1 else 0
-            end
-          )::int as ok_count,
-
-          (
-            case
-              when m_today.has_today = true and not (m_today.costo_ars > 0)
-              then 1 else 0
-            end
-          )::int as fail_count,
-
-          (
-            case
-              when m_today.has_today is distinct from true
-              then 1 else 0
-            end
-          )::int as pending_count,
-
+          -- "Actualizado" real: max(as_of_date) de cost_option_snapshot; fallback a c.updated_at
+          coalesce(
+            (ms.max_d::timestamptz + interval '12 hours'),
+            c.updated_at
+          ) as updated_at,
+          0::int as ok_count,
+          0::int as fail_count,
+          0::int as pending_count,
           null::timestamptz as created_at,
           ''::text as producto_nombre,
           ''::text as oferta_nombre,
@@ -282,31 +213,11 @@ export async function GET(req: NextRequest) {
           c.cost_option_id::bigint as sort_id,
           2::int as sort_kind
         from app.cost_option c
-
         left join lateral (
           select max(as_of_date) as max_d
           from app.cost_option_snapshot s
           where s.cost_option_id = c.cost_option_id
         ) ms on true
-
-        left join lateral (
-          select
-            exists(
-              select 1
-              from app.cost_option_snapshot s
-              where s.cost_option_id = c.cost_option_id
-                and s.as_of_date = current_date
-            ) as has_today,
-            coalesce((
-              select s.costo_ars
-              from app.cost_option_snapshot s
-              where s.cost_option_id = c.cost_option_id
-                and s.as_of_date = current_date
-              order by s.snapshot_id desc
-              limit 1
-            ), 0::numeric) as costo_ars
-        ) m_today on true
-
         where
           c.activo = true
           and c.tipo = 'MANUAL_PRESENTACION'
@@ -363,6 +274,7 @@ export async function GET(req: NextRequest) {
     );
 
     const rows = normalizeQueryResult(r);
+
     const total = rows.length > 0 ? Number(rows[0]?.total_count ?? rows.length) : 0;
     const items = rows.map(({ total_count, ...rest }) => rest);
 
