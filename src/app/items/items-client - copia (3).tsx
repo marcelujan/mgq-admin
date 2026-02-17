@@ -26,6 +26,15 @@ type ItemRow = {
   pending_count?: number | null;
 };
 
+function hostFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.host || url;
+  } catch {
+    return url;
+  }
+}
+
 function nameFromUrl(url: string): string | null {
   try {
     const u = new URL(String(url));
@@ -39,7 +48,9 @@ function nameFromUrl(url: string): string | null {
       .replace(/[-]+/g, " ")
       .trim();
 
-    if (!cleaned || cleaned.length < 3) return null;
+    if (!cleaned) return null;
+    if (cleaned.length < 3) return null;
+
     return cleaned;
   } catch {
     return null;
@@ -59,7 +70,7 @@ function badgeStyle(estado: any) {
   };
 
   if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.55)" };
-  if (s.includes("ERROR") || s.includes("FAIL")) return { ...base, borderColor: "rgba(239,68,68,0.55)" };
+  if (s.includes("ERROR")) return { ...base, borderColor: "rgba(239,68,68,0.55)" };
   if (s.includes("PENDING") || s.includes("WAIT")) return { ...base, borderColor: "rgba(234,179,8,0.55)" };
   return base;
 }
@@ -87,6 +98,7 @@ function makePageButtons(current: number, total: number): Array<number | "…"> 
   if (current + 1 <= total) set.add(current + 1);
 
   const arr = Array.from(set).sort((a, b) => a - b);
+
   const out: Array<number | "…"> = [];
   for (let i = 0; i < arr.length; i++) {
     const n = arr[i];
@@ -94,19 +106,6 @@ function makePageButtons(current: number, total: number): Array<number | "…"> 
     out.push(n);
   }
   return out;
-}
-
-function hasCounts(it: ItemRow): boolean {
-  // Conteos vienen para PROVEEDOR/MANUAL/FORMULADO luego del cambio de API.
-  // Consideramos "válido" si al menos uno no es null/undefined.
-  return (
-    it.ok_count !== null &&
-    it.ok_count !== undefined &&
-    it.fail_count !== null &&
-    it.fail_count !== undefined &&
-    it.pending_count !== null &&
-    it.pending_count !== undefined
-  );
 }
 
 export default function ItemsClient() {
@@ -121,6 +120,7 @@ export default function ItemsClient() {
 
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
+
   const [total, setTotal] = useState(0);
 
   const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
@@ -193,6 +193,7 @@ export default function ItemsClient() {
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo</label>
           <select
+            className="items-filter-select"
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
@@ -218,6 +219,7 @@ export default function ItemsClient() {
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Estado (scrape)</label>
           <select
+            className="items-filter-select"
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
@@ -247,6 +249,7 @@ export default function ItemsClient() {
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Seleccionado</label>
           <select
+            className="items-filter-select"
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
@@ -394,39 +397,42 @@ export default function ItemsClient() {
               <th style={{ padding: 10, width: 90, textAlign: "right" }}>Item #</th>
               <th style={{ padding: 10, minWidth: 420 }}>Nombre</th>
               <th style={{ padding: 10, width: 220 }}>Fuente</th>
-              <th style={{ padding: 10, width: 240 }}>Estado</th>
+              <th style={{ padding: 10, width: 220 }}>Estado</th>
               <th style={{ padding: 10, width: 180 }}>Actualizado</th>
               <th style={{ padding: 10, width: 120, textAlign: "center" }}>Acciones</th>
             </tr>
           </thead>
-
           <tbody>
             {items.map((it) => {
               const kind = String(it.kind ?? "").toUpperCase();
               const itemId = String(it.item_id ?? "");
 
               const isProv = kind === "PROVEEDOR";
+              const isFor = kind === "FORMULADO";
+              const isMan = kind === "MANUAL";
+
               const url = String(it.url_canonica || it.url_original || "").trim();
               const showUrl = isProv && !!url;
 
               let nombre =
-                (kind === "FORMULADO" ? String(it.producto_nombre ?? "").trim() : "") ||
-                (kind === "MANUAL" ? String(it.manual_nombre ?? "").trim() : "") ||
-                (isProv ? nameFromUrl(url) ?? "" : "") ||
+                (isFor ? String(it.producto_nombre ?? "").trim() : "") ||
+                (isMan ? String(it.manual_nombre ?? "").trim() : "") ||
+                (isProv ? (nameFromUrl(url) ?? "") : "") ||
                 (url ? url : "");
 
               if (!nombre) nombre = `Item ${itemId}`;
 
               const fuente = String(it.proveedor_nombre ?? "—") || "—";
 
-              const showCounts = hasCounts(it);
               const okc = Number(it.ok_count ?? 0);
               const failc = Number(it.fail_count ?? 0);
               const pendc = Number(it.pending_count ?? 0);
 
-              const estadoCountsText = `OK: ${Number.isFinite(okc) ? okc : 0} | FAIL: ${
-                Number.isFinite(failc) ? failc : 0
-              } | PEND: ${Number.isFinite(pendc) ? pendc : 0}`;
+              const estadoText = isProv
+                ? `OK: ${Number.isFinite(okc) ? okc : 0} | FAIL: ${Number.isFinite(failc) ? failc : 0} | PEND: ${
+                    Number.isFinite(pendc) ? pendc : 0
+                  }`
+                : String(it.estado ?? "—");
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -454,16 +460,10 @@ export default function ItemsClient() {
                   </td>
 
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                    {showCounts ? (
-                      <span style={{ opacity: 0.92 }}>{estadoCountsText}</span>
-                    ) : (
-                      <span style={badgeStyle(it.estado)}>{it.estado ?? "—"}</span>
-                    )}
+                    {isProv ? <span style={{ opacity: 0.92 }}>{estadoText}</span> : <span style={badgeStyle(it.estado)}>{it.estado}</span>}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
-                    {fmtUpdated(it.updated_at ?? null)}
-                  </td>
+                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>{fmtUpdated(it.updated_at ?? null)}</td>
 
                   <td style={{ padding: 10, textAlign: "center", whiteSpace: "nowrap" }}>
                     <div style={{ display: "inline-flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
@@ -475,13 +475,7 @@ export default function ItemsClient() {
                         🔍
                       </Link>
                       {showUrl ? (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={url}
-                          style={{ opacity: 0.9, textDecoration: "none" }}
-                        >
+                        <a href={url} target="_blank" rel="noreferrer" title={url} style={{ opacity: 0.9, textDecoration: "none" }}>
                           🔗
                         </a>
                       ) : (
