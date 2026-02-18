@@ -161,9 +161,9 @@ function parsePrecioArsByPresentacionFromHtml(
   return byPres;
 }
 
-async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
+async function fetchHtml(url: string): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
   try {
     const res = await fetch(url, {
@@ -184,16 +184,13 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
 
 export async function runMotorForPricesByPresentacion(
   motorId: bigint,
-  url: string,
-  opts?: { timeoutMs?: number }
+  url: string
 ): Promise<RunMotorForPricesResult> {
   if (motorId !== BigInt(1)) {
     throw new Error(`motor_not_implemented:${motorId.toString()}`);
   }
 
-  const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
-
-  const html = await fetchHtml(url, timeoutMs);
+  const html = await fetchHtml(url);
   const byPres = parsePrecioArsByPresentacionFromHtml(html);
 
   if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");

@@ -57,8 +57,8 @@ type MotorScrapeResult = {
   prices: Array<{ presentacion: number; priceArs: number }>;
 };
 
-async function scrapeWithMotor(motorId: number, url: string, timeoutMs: number): Promise<MotorScrapeResult> {
-  return await runMotorForPricesByPresentacion(BigInt(motorId), url, { timeoutMs });
+async function scrapeWithMotor(motorId: number, url: string): Promise<MotorScrapeResult> {
+  return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
 function pLimit(concurrency: number) {
@@ -220,8 +220,6 @@ export async function POST(req: NextRequest) {
     const claimBatch = async (mode: OrderMode): Promise<ClaimedRow[]> => {
       const orderSql = mode === "asc" ? "i.updated_at asc nulls first, i.id asc" : "i.updated_at desc nulls last, i.id desc";
 
-      const effectiveLimit = Math.max(1, Math.min(BATCH_SIZE, Math.floor((timeLeftMs() - TIME_MARGIN_MS) / 4000) * CONCURRENCY));
-
       await client!.query("begin;");
       txOpen = true;
 
@@ -257,7 +255,7 @@ export async function POST(req: NextRequest) {
         from upd u
         join app.offers o on o.offer_id = u.offer_id;
         `,
-        [runId, MAX_ATTEMPTS, effectiveLimit]
+        [runId, MAX_ATTEMPTS, BATCH_SIZE]
       );
 
       await client!.query("commit;");
@@ -382,10 +380,7 @@ export async function POST(req: NextRequest) {
           const url = String(rows[0].url);
 
           try {
-            const timeoutMs = Math.max(1_000, Math.min(15_000, timeLeftMs() - TIME_MARGIN_MS));
-            if (timeoutMs <= 1_000) throw new Error('time_budget_exhausted');
-
-            const { sourceUrl, prices } = await scrapeWithMotor(motorId, url, timeoutMs);
+            const { sourceUrl, prices } = await scrapeWithMotor(motorId, url);
 
             if (!Array.isArray(prices) || prices.length === 0) {
               throw new Error("no_prices_by_presentacion");
@@ -565,40 +560,42 @@ export async function POST(req: NextRequest) {
 
     // 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
     if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
-      // Best-effort: si hay margen, intentar fetch con timeout corto (mejor feedback en logs).
-      // Si no hay margen, fallback inmediato a keepalive (para maximizar probabilidad antes del cut-off).
-      if (timeLeftMs() > 3000) {
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), 2500);
-        try {
-          await fetch(`${selfBase}/api/cron/pricing-daily`, {
-            method: "POST",
-            headers: {
+      // Solo disparar si aún tenemos un poco de aire (evita cut-off)
+      if (timeLeftMs() > 1500) {
+        // Si hay margen suficiente, hacer un fetch "real" (mejora la confiabilidad del encadenamiento).
+        // Si no, fallback a fire-and-forget.
+        if (timeLeftMs() > 5000) {
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), 4500);
+          try {
+            await fetch(`${selfBase}/api/cron/pricing-daily`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cronSecret}`,
+                [CHAIN_HEADER]: String(chain + 1),
+              },
+              cache: "no-store",
+              signal: ac.signal,
+            });
+          } catch (e: any) {
+            console.error("chain fetch failed:", String(e?.message ?? e));
+            void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
               Authorization: `Bearer ${cronSecret}`,
               [CHAIN_HEADER]: String(chain + 1),
-            },
-            cache: "no-store",
-            signal: ac.signal,
-          });
-        } catch (e: any) {
-          console.error("chain fetch failed:", String(e?.message ?? e));
+            });
+          } finally {
+            clearTimeout(t);
+          }
+        } else {
           void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
             Authorization: `Bearer ${cronSecret}`,
             [CHAIN_HEADER]: String(chain + 1),
           });
-        } finally {
-          clearTimeout(t);
         }
-      } else {
-        void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
-          Authorization: `Bearer ${cronSecret}`,
-          [CHAIN_HEADER]: String(chain + 1),
-        });
       }
     }
 
     // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)
-, disparar snapshots de costos (idempotentes)
     if (
       TRIGGER_COSTS_AFTER_PRICING &&
       pendingRemaining === 0 &&
