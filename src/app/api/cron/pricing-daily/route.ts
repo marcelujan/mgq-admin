@@ -597,8 +597,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)
-, disparar snapshots de costos (idempotentes)
+    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)S, disparar snapshots de costos (idempotentes)
     if (
       TRIGGER_COSTS_AFTER_PRICING &&
       pendingRemaining === 0 &&
