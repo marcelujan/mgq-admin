@@ -662,8 +662,7 @@ if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
   }
 }
 
-    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)
-, disparar snapshots de costos (idempotentes)
+    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes), disparar snapshots de costos (idempotentes)
     if (
       TRIGGER_COSTS_AFTER_PRICING &&
       pendingRemaining === 0 &&
