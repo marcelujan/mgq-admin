@@ -1,0 +1,28 @@
+name: pricing-daily-pinger
+
+on:
+  schedule:
+    # Cada 5 min entre 03:00 y 05:55 UTC (cubre ventana flexible del cron Hobby + margen)
+    - cron: "*/5 3-5 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: pricing-daily-pinger
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call pricing-daily
+        env:
+          BASE_URL: ${{ secrets.MGQ_BASE_URL }}
+          CRON_SECRET: ${{ secrets.MGQ_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          echo "POST $BASE_URL/api/cron/pricing-daily"
+          curl -sS -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE_URL/api/cron/pricing-daily"
+          echo ""

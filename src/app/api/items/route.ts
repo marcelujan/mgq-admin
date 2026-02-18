@@ -1,316 +1,377 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "../../../lib/db";
-
-// ===== util: canonicalizar URL =====
-function canonicalizeUrl(raw: string): string | null {
-  try {
-    const u = new URL(raw.trim());
-    u.hash = "";
-    u.hostname = u.hostname.toLowerCase();
-
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
-      u.pathname = u.pathname.slice(0, -1);
-    }
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
-// Helper: agrega cláusulas con placeholders correctos ($1..$n)
-// Soporta 0, 1 o múltiples valores (reemplaza cada '?' en orden).
-function addWhere(where: string[], params: any[], clause: string, values?: any | any[]) {
-  if (values === undefined) {
-    where.push(clause);
-    return;
-  }
-  const vs = Array.isArray(values) ? values : [values];
-  for (const v of vs) params.push(v);
-
-  let i = params.length - vs.length + 1; // índice del 1er param recién agregado (1-based)
-  const replaced = clause.replace(/\?/g, () => `$${i++}`);
-  where.push(replaced);
-}
+import { db } from "@/lib/db";
 
 function normalizeQueryResult(res: any): any[] {
-  // Neon/serverless puede devolver { rows: [...] } o directamente un array
   if (!res) return [];
   if (Array.isArray(res)) return res;
   if (Array.isArray(res.rows)) return res.rows;
   return [];
 }
 
-// ===== GET /api/items =====
+/**
+ * GET /api/items?limit=&offset=&tipo=&estado=&search=&seleccionado=
+ *
+ * Devuelve una lista unificada de:
+ * - PROVEEDOR: app.item_seguimiento
+ * - FORMULADO (virtual): productos con fórmula v2 (y su item_formulado BULK)
+ * - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
+ *
+ * item_key:
+ * - p:<item_id>
+ * - fprod:<producto_id>
+ * - mopt:<cost_option_id>
+ *
+ * Conteos OK/FAIL/PEND:
+ * - PROVEEDOR: conteo de offers del item en el pricing run de HOY (pricing_daily_run_items)
+ * - FORMULADO: 0/1 según:
+ *    OK= existe BULK reutilizable (item_formulado BULK activo) Y snapshot HOY con precio_unitario_ars > 0
+ *    PEND= existe BULK reutilizable y NO hay snapshot HOY
+ *    FAIL= no existe BULK reutilizable, o hay snapshot HOY pero precio_unitario_ars <= 0
+ * - MANUAL: 0/1 según:
+ *    OK= snapshot HOY con costo_ars > 0
+ *    PEND= no hay snapshot HOY
+ *    FAIL= snapshot HOY existe pero costo_ars <= 0
+ */
 export async function GET(req: NextRequest) {
   try {
-    const sql = db();
     const { searchParams } = new URL(req.url);
 
-    const search = (searchParams.get("search") || "").trim();
-    const estado = (searchParams.get("estado") || "").trim();
-    const seleccionadoStr = (searchParams.get("seleccionado") || "").trim();
+    const limitRaw = Number(searchParams.get("limit") ?? 100);
+    const offsetRaw = Number(searchParams.get("offset") ?? 0);
 
-    const limitRaw = Number(searchParams.get("limit") || 50);
-    const offsetRaw = Number(searchParams.get("offset") || 0);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
-    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
-    const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+    const tipo = (searchParams.get("tipo") ?? "").trim().toUpperCase(); // "" | PROVEEDOR | MANUAL | FORMULADO
+    const estado = (searchParams.get("estado") ?? "").trim(); // solo proveedor
+    const search = (searchParams.get("search") ?? "").trim();
+    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
 
-    const where: string[] = [];
-    const params: any[] = [];
+    let seleccionado: boolean | null = null;
+    if (seleccionadoRaw === "true") seleccionado = true;
+    if (seleccionadoRaw === "false") seleccionado = false;
 
-    // ✅ FIX: search con 4 placeholders (sin '?' sueltos)
-    if (search) {
-      const like = `%${search}%`;
-      addWhere(
-        where,
-        params,
-        `(i.url_original ILIKE ? OR i.url_canonica ILIKE ? OR p.codigo ILIKE ? OR p.nombre ILIKE ?)`,
-        [like, like, like, like]
-      );
-    }
+    const searchLike = search ? `%${search}%` : null;
 
-    if (estado) addWhere(where, params, `i.estado::text = ?`, estado);
-
-    if (seleccionadoStr === "true") addWhere(where, params, `i.seleccionado = ?`, true);
-    if (seleccionadoStr === "false") addWhere(where, params, `i.seleccionado = ?`, false);
-
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-    // Intento 1: traer también el “último job” (si el schema lo soporta)
-    try {
-      const q = `
-        SELECT
-          i.item_id,
-          i.proveedor_id,
-          p.codigo  AS proveedor_codigo,
-          p.nombre  AS proveedor_nombre,
-          i.motor_id,
-          i.url_original,
-          i.url_canonica,
-          i.seleccionado,
-          i.estado::text AS estado,
-          i.created_at,
-          i.updated_at,
-          j.job_id AS ultimo_job_id,
-          j.estado::text AS ultimo_job_estado
-        FROM app.item_seguimiento i
-        JOIN app.proveedor p ON p.proveedor_id = i.proveedor_id
-        LEFT JOIN LATERAL (
-          SELECT job_id, estado
-          FROM app.job
-          WHERE item_id = i.item_id
-          ORDER BY created_at DESC, job_id DESC
-          LIMIT 1
-        ) j ON true
-        ${whereSql}
-        ORDER BY i.updated_at DESC, i.item_id DESC
-        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-      `;
-
-      const res: any = await sql.query(q, [...params, limit, offset]);
-      const items = normalizeQueryResult(res);
-
-      return NextResponse.json({
-        ok: true,
-        limit,
-        offset,
-        count: items.length,
-        items,
-      });
-    } catch {
-      // Intento 2: sin job (más compatible)
-      const q = `
-        SELECT
-          i.item_id,
-          i.proveedor_id,
-          p.codigo  AS proveedor_codigo,
-          p.nombre  AS proveedor_nombre,
-          i.motor_id,
-          i.url_original,
-          i.url_canonica,
-          i.seleccionado,
-          i.estado::text AS estado,
-          i.created_at,
-          i.updated_at
-        FROM app.item_seguimiento i
-        JOIN app.proveedor p ON p.proveedor_id = i.proveedor_id
-        ${whereSql}
-        ORDER BY i.updated_at DESC, i.item_id DESC
-        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-      `;
-
-      const res: any = await sql.query(q, [...params, limit, offset]);
-      const items = normalizeQueryResult(res);
-
-      return NextResponse.json({
-        ok: true,
-        limit,
-        offset,
-        count: items.length,
-        items,
-      });
-    }
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
-  }
-}
-
-// ===== POST /api/items =====
-// Acepta ambos formatos:
-// - viejo:  { url, proveedor_codigo, seleccionado }
-// - nuevo:  { urlOriginal, proveedorCodigo, seleccionado }
-export async function POST(req: NextRequest) {
-  try {
     const sql = db();
-    const body = await req.json().catch(() => ({} as any));
 
-    const urlRaw =
-      typeof body?.url === "string"
-        ? body.url.trim()
-        : typeof body?.urlOriginal === "string"
-        ? body.urlOriginal.trim()
-        : typeof body?.url_original === "string"
-        ? body.url_original.trim()
-        : "";
-
-    const proveedorCodigo =
-      typeof body?.proveedor_codigo === "string"
-        ? body.proveedor_codigo.trim()
-        : typeof body?.proveedorCodigo === "string"
-        ? body.proveedorCodigo.trim()
-        : "";
-
-    const seleccionado = body?.seleccionado === true || body?.seleccionado === "true";
-
-    if (!urlRaw) return NextResponse.json({ ok: false, error: "url requerida" }, { status: 400 });
-    if (!proveedorCodigo) {
-      return NextResponse.json(
-        { ok: false, error: "proveedor_codigo requerido (ej: TD)" },
-        { status: 400 }
-      );
-    }
-
-    const urlCanonica = canonicalizeUrl(urlRaw);
-    if (!urlCanonica) {
-      return NextResponse.json({ ok: false, error: "URL inválida" }, { status: 400 });
-    }
-
-    // 1) resolver proveedor_id + motor_id (robusto: si no existe motor_id_default, usa motor_proveedor)
-    let prov: any = null;
-
-    // intento A: motor_id_default (si existe)
-    try {
-      const a: any = await sql.query(
-        `
-        SELECT proveedor_id, motor_id_default
-        FROM app.proveedor
-        WHERE codigo = $1
-        LIMIT 1
-        `,
-        [proveedorCodigo]
-      );
-      const rowsA = normalizeQueryResult(a);
-      prov = rowsA[0] ?? null;
-    } catch {
-      prov = null;
-    }
-
-    // intento B: fallback desde motor_proveedor
-    if (!prov || !prov.motor_id_default) {
-      const b: any = await sql.query(
-        `
-        SELECT p.proveedor_id,
-               mp.motor_id AS motor_id_default
-        FROM app.proveedor p
-        LEFT JOIN LATERAL (
-          SELECT motor_id
-          FROM app.motor_proveedor
-          WHERE proveedor_id = p.proveedor_id
-          ORDER BY motor_id ASC
-          LIMIT 1
-        ) mp ON true
-        WHERE p.codigo = $1
-        LIMIT 1
-        `,
-        [proveedorCodigo]
-      );
-      const rowsB = normalizeQueryResult(b);
-      prov = rowsB[0] ?? prov;
-    }
-
-    if (!prov?.proveedor_id) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor inválido: ${proveedorCodigo}` },
-        { status: 400 }
-      );
-    }
-    if (!prov?.motor_id_default) {
-      return NextResponse.json(
-        { ok: false, error: `proveedor ${proveedorCodigo} no tiene motor asociado` },
-        { status: 400 }
-      );
-    }
-
-    // 2) dedupe por url_canonica
-    const dupRes: any = await sql.query(
+    const r: any = await sql.query(
       `
-      SELECT item_id
-      FROM app.item_seguimiento
-      WHERE url_canonica = $1
-      LIMIT 1
+      with
+      -- ========= PROVEEDOR =========
+      proveedor as (
+        select
+          ('p:' || i.item_id::text) as item_key,
+          'PROVEEDOR'::text as kind,
+          i.item_id::text as item_id,
+          ''::text as proveedor_codigo,
+          coalesce(pr.nombre, '') as proveedor_nombre,
+          i.url_original,
+          i.url_canonica,
+          i.seleccionado,
+          i.estado::text as estado,
+          coalesce((pd.max_d::timestamptz + interval '12 hours'), i.updated_at) as updated_at,
+
+          coalesce(pc.ok_count, 0)::int as ok_count,
+          coalesce(pc.fail_count, 0)::int as fail_count,
+          coalesce(pc.pending_count, 0)::int as pending_count,
+
+          null::timestamptz as created_at,
+          null::text as producto_nombre,
+          null::text as oferta_nombre,
+          null::text as tipo_formulado,
+          null::text as manual_nombre,
+          null::text as manual_uom,
+          null::numeric as manual_cantidad,
+          null::numeric as manual_costo_ars,
+          i.item_id::bigint as sort_id,
+          0::int as sort_kind
+        from app.item_seguimiento i
+        left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
+
+        left join lateral (
+          select max(as_of_date) as max_d
+          from app.item_price_daily_pres p
+          where p.item_id = i.item_id
+        ) pd on true
+
+        left join lateral (
+          select
+            count(*) filter (where ri.status='OK')::int as ok_count,
+            count(*) filter (where ri.status='FAIL')::int as fail_count,
+            count(*) filter (where ri.status='PENDING')::int as pending_count
+          from app.offers o
+          join lateral (
+            select id as run_id
+            from app.pricing_daily_runs
+            where as_of_date = current_date
+            order by id desc
+            limit 1
+          ) rr on true
+          join app.pricing_daily_run_items ri
+            on ri.run_id = rr.run_id
+           and ri.offer_id = o.offer_id
+          where o.item_id = i.item_id
+            and o.estado = 'OK'
+        ) pc on true
+
+        where
+          ($1::text = '' or $1::text = 'PROVEEDOR')
+          and ($2::text = '' or i.estado::text = $2::text)
+          and ($3::boolean is null or i.seleccionado = $3::boolean)
+          and (
+            $4::text is null
+            or coalesce(pr.nombre,'') ilike $4::text
+            or coalesce(i.url_original,'') ilike $4::text
+            or coalesce(i.url_canonica,'') ilike $4::text
+          )
+      ),
+
+      -- ========= FORMULADO =========
+      productos_formulados_v2 as (
+        select distinct producto_id
+        from (
+          select producto_id from app.producto_formula_v2
+          union
+          select producto_id from app.producto_formula_linea_v2
+        ) x
+        where producto_id is not null
+      ),
+
+      formulado_virtual as (
+        select
+          ('fprod:' || pf.producto_id::text) as item_key,
+          'FORMULADO'::text as kind,
+          pf.producto_id::text as item_id,
+          ''::text as proveedor_codigo,
+          'Formulado'::text as proveedor_nombre,
+          ''::text as url_original,
+          ''::text as url_canonica,
+          false as seleccionado,
+          'FORMULADO'::text as estado,
+          coalesce((fs.max_d::timestamptz + interval '12 hours'), null::timestamptz) as updated_at,
+
+          -- Conteos 0/1 para FORMULADO
+          -- bulk reutilizable: existe item_formulado BULK activo
+          (
+            case
+              when fi.item_formulado_id is not null
+               and f_today.has_today = true
+               and f_today.precio_unitario_ars > 0
+              then 1 else 0
+            end
+          )::int as ok_count,
+
+          (
+            case
+              when fi.item_formulado_id is null
+                then 1
+              when f_today.has_today = true and not (f_today.precio_unitario_ars > 0)
+                then 1
+              else 0
+            end
+          )::int as fail_count,
+
+          (
+            case
+              when fi.item_formulado_id is not null
+               and (f_today.has_today is distinct from true)
+              then 1 else 0
+            end
+          )::int as pending_count,
+
+          null::timestamptz as created_at,
+          coalesce(p.nombre, '') as producto_nombre,
+          ''::text as oferta_nombre,
+          'BULK'::text as tipo_formulado,
+          null::text as manual_nombre,
+          null::text as manual_uom,
+          null::numeric as manual_cantidad,
+          null::numeric as manual_costo_ars,
+          pf.producto_id::bigint as sort_id,
+          1::int as sort_kind
+        from productos_formulados_v2 pf
+        left join app.producto p on p.producto_id = pf.producto_id
+
+        left join lateral (
+          select f.item_formulado_id
+          from app.item_formulado f
+          where f.producto_id = pf.producto_id::int
+            and f.tipo = 'BULK'
+            and f.activo = true
+          order by f.item_formulado_id asc
+          limit 1
+        ) fi on true
+
+        left join lateral (
+          select max(as_of_date) as max_d
+          from app.item_formulado_snapshot s
+          where s.item_formulado_id = fi.item_formulado_id
+        ) fs on true
+
+        left join lateral (
+          select
+            exists(
+              select 1
+              from app.item_formulado_snapshot s
+              where s.item_formulado_id = fi.item_formulado_id
+                and s.as_of_date = current_date
+            ) as has_today,
+            coalesce((
+              select s.precio_unitario_ars
+              from app.item_formulado_snapshot s
+              where s.item_formulado_id = fi.item_formulado_id
+                and s.as_of_date = current_date
+              order by s.snapshot_id desc
+              limit 1
+            ), 0::numeric) as precio_unitario_ars
+        ) f_today on true
+
+        where
+          ($1::text = '' or $1::text = 'FORMULADO')
+          and (
+            $4::text is null
+            or coalesce(p.nombre,'') ilike $4::text
+          )
+      ),
+
+      -- ========= MANUAL =========
+      manual_catalogo as (
+        select
+          ('mopt:' || c.cost_option_id::text) as item_key,
+          'MANUAL'::text as kind,
+          c.cost_option_id::text as item_id,
+          ''::text as proveedor_codigo,
+          'Manual'::text as proveedor_nombre,
+          ''::text as url_original,
+          ''::text as url_canonica,
+          false as seleccionado,
+          'MANUAL'::text as estado,
+          coalesce((ms.max_d::timestamptz + interval '12 hours'), c.updated_at) as updated_at,
+
+          -- Conteos 0/1 para MANUAL
+          (
+            case
+              when m_today.has_today = true and m_today.costo_ars > 0
+              then 1 else 0
+            end
+          )::int as ok_count,
+
+          (
+            case
+              when m_today.has_today = true and not (m_today.costo_ars > 0)
+              then 1 else 0
+            end
+          )::int as fail_count,
+
+          (
+            case
+              when m_today.has_today is distinct from true
+              then 1 else 0
+            end
+          )::int as pending_count,
+
+          null::timestamptz as created_at,
+          ''::text as producto_nombre,
+          ''::text as oferta_nombre,
+          'MANUAL_PRESENTACION'::text as tipo_formulado,
+          c.manual_nombre::text as manual_nombre,
+          c.manual_uom::text as manual_uom,
+          c.manual_cantidad as manual_cantidad,
+          c.manual_costo_ars as manual_costo_ars,
+          c.cost_option_id::bigint as sort_id,
+          2::int as sort_kind
+        from app.cost_option c
+
+        left join lateral (
+          select max(as_of_date) as max_d
+          from app.cost_option_snapshot s
+          where s.cost_option_id = c.cost_option_id
+        ) ms on true
+
+        left join lateral (
+          select
+            exists(
+              select 1
+              from app.cost_option_snapshot s
+              where s.cost_option_id = c.cost_option_id
+                and s.as_of_date = current_date
+            ) as has_today,
+            coalesce((
+              select s.costo_ars
+              from app.cost_option_snapshot s
+              where s.cost_option_id = c.cost_option_id
+                and s.as_of_date = current_date
+              order by s.snapshot_id desc
+              limit 1
+            ), 0::numeric) as costo_ars
+        ) m_today on true
+
+        where
+          c.activo = true
+          and c.tipo = 'MANUAL_PRESENTACION'
+          and ($1::text = '' or $1::text = 'MANUAL')
+          and (
+            $4::text is null
+            or coalesce(c.manual_nombre,'') ilike $4::text
+            or coalesce(c.manual_uom,'') ilike $4::text
+          )
+      ),
+
+      all_items as (
+        select * from proveedor
+        union all
+        select * from formulado_virtual
+        union all
+        select * from manual_catalogo
+      ),
+
+      paged as (
+        select
+          *,
+          count(*) over()::int as total_count
+        from all_items
+        order by sort_kind asc, sort_id desc
+        limit $5 offset $6
+      )
+
+      select
+        item_key,
+        kind,
+        item_id,
+        proveedor_codigo,
+        proveedor_nombre,
+        url_original,
+        url_canonica,
+        seleccionado,
+        estado,
+        updated_at,
+        producto_nombre,
+        oferta_nombre,
+        tipo_formulado,
+        manual_nombre,
+        manual_uom,
+        manual_cantidad,
+        manual_costo_ars,
+        ok_count,
+        fail_count,
+        pending_count,
+        total_count
+      from paged;
       `,
-      [urlCanonica]
+      [tipo, estado, seleccionado, searchLike, limit, offset]
     );
-    const dupRows = normalizeQueryResult(dupRes);
-    if (dupRows?.[0]?.item_id) {
-      return NextResponse.json(
-        { ok: false, error: "URL ya registrada", item_id: String(dupRows[0].item_id) },
-        { status: 409 }
-      );
-    }
 
-    // 3) insertar item
-    const insItemRes: any = await sql.query(
-      `
-      INSERT INTO app.item_seguimiento
-        (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado)
-      VALUES
-        ($1, $2, $3, $4, $5, 'PENDING_SCRAPE')
-      RETURNING item_id
-      `,
-      [prov.proveedor_id, prov.motor_id_default, urlRaw, urlCanonica, seleccionado]
-    );
-    const insItemRows = normalizeQueryResult(insItemRes);
-    const item_id = insItemRows?.[0]?.item_id;
+    const rows = normalizeQueryResult(r);
+    const total = rows.length > 0 ? Number(rows[0]?.total_count ?? rows.length) : 0;
+    const items = rows.map(({ total_count, ...rest }) => rest);
 
-    if (!item_id) {
-      return NextResponse.json({ ok: false, error: "no se pudo crear item" }, { status: 500 });
-    }
-
-    // 4) insertar job (si la tabla permite)
-    let job_id: any = null;
-    try {
-      const insJobRes: any = await sql.query(
-        `
-        INSERT INTO app.job
-          (tipo, estado, item_id, proveedor_id, prioridad)
-        VALUES
-          ('SCRAPE_URL', 'PENDING', $1, $2, 0)
-        RETURNING job_id
-        `,
-        [item_id, prov.proveedor_id]
-      );
-      const insJobRows = normalizeQueryResult(insJobRes);
-      job_id = insJobRows?.[0]?.job_id ?? null;
-    } catch {
-      job_id = null;
-    }
-
-    return NextResponse.json(
-      { ok: true, item_id: String(item_id), job_id: job_id ? String(job_id) : null },
-      { status: 201 }
-    );
+    return NextResponse.json({
+      ok: true,
+      total,
+      count: items.length,
+      items,
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

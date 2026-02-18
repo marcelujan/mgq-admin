@@ -40,3 +40,13 @@ a {
     color-scheme: dark;
   }
 }
+
+/* Dropdowns en tema oscuro (Chrome/Windows) */
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: #0f0f0f;
+  color: rgba(255,255,255,0.92);
+}
