@@ -21,8 +21,6 @@ const BATCH_SIZE = Number(process.env.PRICING_BATCH_SIZE ?? 120);
 const MAX_ATTEMPTS = Number(process.env.PRICING_MAX_ATTEMPTS ?? 3);
 const TIME_BUDGET_MS = Number(process.env.PRICING_TIME_BUDGET_MS ?? 55_000);
 const TIME_MARGIN_MS = Number(process.env.PRICING_TIME_MARGIN_MS ?? 8_000);
-// Reservar tiempo mínimo para disparar encadenamiento verificable (evita fire-and-forget al filo)
-const CHAIN_RESERVE_MS = Number(process.env.PRICING_CHAIN_RESERVE_MS ?? 4_000);
 const CONCURRENCY = Math.max(1, Number(process.env.PRICING_CONCURRENCY ?? 8));
 
 // Continuations (para plan Hobby: 1 cron/día, múltiples invocaciones encadenadas)
@@ -54,28 +52,13 @@ function errJson(e: any) {
   };
 }
 
-async function appendRunLastError(client: PoolClient, runId: number, line: string) {
-  // Persistir evidencia del chain sin depender de logs del runtime.
-  // Truncar a 4000 para evitar crecimiento sin control.
-  const payload = `${line}\n`;
-  await client.query(
-    `
-    update app.pricing_daily_runs
-    set last_error = substring(coalesce(last_error, '') || $2 from 1 for 4000)
-    where id = $1;
-    `,
-    [runId, payload]
-  );
-}
-
-
 type MotorScrapeResult = {
   sourceUrl: string | null;
   prices: Array<{ presentacion: number; priceArs: number }>;
 };
 
-async function scrapeWithMotor(motorId: number, url: string, timeoutMs: number): Promise<MotorScrapeResult> {
-  return await runMotorForPricesByPresentacion(BigInt(motorId), url, { timeoutMs });
+async function scrapeWithMotor(motorId: number, url: string): Promise<MotorScrapeResult> {
+  return await runMotorForPricesByPresentacion(BigInt(motorId), url);
 }
 
 function pLimit(concurrency: number) {
@@ -167,7 +150,7 @@ export async function POST(req: NextRequest) {
   };
 
   const timeLeftMs = () => TIME_BUDGET_MS - (Date.now() - started);
-  const timeLeftOk = () => timeLeftMs() > (TIME_MARGIN_MS + CHAIN_RESERVE_MS);
+  const timeLeftOk = () => timeLeftMs() > TIME_MARGIN_MS;
 
   // chain index actual
   const chain = Number(req.headers.get(CHAIN_HEADER) ?? "0");
@@ -192,6 +175,29 @@ export async function POST(req: NextRequest) {
       [asOfDate]
     );
     const runId = Number(runQ.rows?.[0]?.id);
+
+    const appendRunNote = async (note: string) => {
+      // Instrumentación persistente mínima para diagnosticar chain/continuaciones.
+      // Se guarda en pricing_daily_runs.last_error (truncado) para poder auditar sin depender de logs.
+      try {
+        await client!.query(
+          `
+          update app.pricing_daily_runs
+          set last_error = left(
+            case
+              when last_error is null or last_error = '' then $2
+              else last_error || E'\n' || $2
+            end,
+            4000
+          )
+          where id = $1;
+          `,
+          [runId, note]
+        );
+      } catch (e: any) {
+        console.error("appendRunNote failed:", String(e?.message ?? e));
+      }
+    };
 
     await client.query(`update app.pricing_daily_runs set started_at = coalesce(started_at, now()) where id=$1;`, [
       runId,
@@ -237,8 +243,6 @@ export async function POST(req: NextRequest) {
     const claimBatch = async (mode: OrderMode): Promise<ClaimedRow[]> => {
       const orderSql = mode === "asc" ? "i.updated_at asc nulls first, i.id asc" : "i.updated_at desc nulls last, i.id desc";
 
-      const effectiveLimit = Math.max(1, Math.min(BATCH_SIZE, Math.floor((timeLeftMs() - TIME_MARGIN_MS) / 4000) * CONCURRENCY));
-
       await client!.query("begin;");
       txOpen = true;
 
@@ -274,7 +278,7 @@ export async function POST(req: NextRequest) {
         from upd u
         join app.offers o on o.offer_id = u.offer_id;
         `,
-        [runId, MAX_ATTEMPTS, effectiveLimit]
+        [runId, MAX_ATTEMPTS, BATCH_SIZE]
       );
 
       await client!.query("commit;");
@@ -399,10 +403,7 @@ export async function POST(req: NextRequest) {
           const url = String(rows[0].url);
 
           try {
-            const timeoutMs = Math.max(1_000, Math.min(15_000, timeLeftMs() - TIME_MARGIN_MS));
-            if (timeoutMs <= 1_000) throw new Error('time_budget_exhausted');
-
-            const { sourceUrl, prices } = await scrapeWithMotor(motorId, url, timeoutMs);
+            const { sourceUrl, prices } = await scrapeWithMotor(motorId, url);
 
             if (!Array.isArray(prices) || prices.length === 0) {
               throw new Error("no_prices_by_presentacion");
@@ -580,89 +581,64 @@ export async function POST(req: NextRequest) {
     const selfBase = req.nextUrl.origin;
     const cronSecret = process.env.CRON_SECRET;
 
-    
-// 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
-if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
-  const nextChain = chain + 1;
-  const url = `${selfBase}/api/cron/pricing-daily`;
+    // 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
+    if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
+      // Solo disparar si aún tenemos un poco de aire (evita cut-off)
+      if (timeLeftMs() > 1500) {
+        // Si hay margen suficiente, hacer un fetch "real" (mejora la confiabilidad del encadenamiento).
+        // Si no, fallback a fire-and-forget.
+        if (timeLeftMs() > 5000) {
+          const nextChain = chain + 1;
+          await appendRunNote(
+            `[chain] attempt=${nextChain} mode=await pending=${pendingRemaining} ts=${new Date().toISOString()}`
+          );
 
-  // Registrar intento de chain en DB (verificable).
-  // Nota: esto ocurre después de marcar status/finalizar el run; NO cambia idempotencia del pricing.
-  try {
-    await appendRunLastError(
-      client,
-      runId,
-      `[chain] attempt=${nextChain} mode=pending url=${url} pending=${pendingRemaining} ts=${new Date().toISOString()}`
-    );
-  } catch {
-    // no bloquear por diagnóstico
-  }
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), 4500);
+          try {
+            const r = await fetch(`${selfBase}/api/cron/pricing-daily`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cronSecret}`,
+                [CHAIN_HEADER]: String(nextChain),
+              },
+              cache: "no-store",
+              signal: ac.signal,
+            });
 
-  // Preferir await con timeout corto siempre que haya margen suficiente.
-  // El "fire-and-forget" en serverless es frágil si el proceso termina al instante.
-  const left = timeLeftMs();
-  const canAwait = left > 900;
-  if (canAwait) {
-    const timeout = Math.min(1200, Math.max(200, left - 200));
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), timeout);
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${cronSecret}`,
-          [CHAIN_HEADER]: String(nextChain),
-        },
-        cache: "no-store",
-        signal: ac.signal,
-      });
-      try {
-        await appendRunLastError(
-          client,
-          runId,
-          `[chain] attempt=${nextChain} mode=await ok=${res.ok} status=${res.status} timeout_ms=${timeout} ts=${new Date().toISOString()}`
-        );
-      } catch {
-        // ignore
+            await appendRunNote(
+              `[chain] attempt=${nextChain} result=ok http=${r.status} ts=${new Date().toISOString()}`
+            );
+          } catch (e: any) {
+            const msg = String(e?.message ?? e);
+            console.error("chain fetch failed:", msg);
+
+            await appendRunNote(
+              `[chain] attempt=${nextChain} result=error err=${msg} ts=${new Date().toISOString()}`
+            );
+
+            void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
+              Authorization: `Bearer ${cronSecret}`,
+              [CHAIN_HEADER]: String(nextChain),
+            });
+          } finally {
+            clearTimeout(t);
+          }
+        } else {
+          const nextChain = chain + 1;
+          await appendRunNote(
+            `[chain] attempt=${nextChain} mode=fire pending=${pendingRemaining} ts=${new Date().toISOString()}`
+          );
+
+          void fireAndForgetFetch(`${selfBase}/api/cron/pricing-daily`, {
+            Authorization: `Bearer ${cronSecret}`,
+            [CHAIN_HEADER]: String(nextChain),
+          });
+        }
       }
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      try {
-        await appendRunLastError(
-          client,
-          runId,
-          `[chain] attempt=${nextChain} mode=await error=${msg} timeout_ms=${timeout} ts=${new Date().toISOString()}`
-        );
-      } catch {
-        // ignore
-      }
-      // Fallback best-effort (último recurso)
-      void fireAndForgetFetch(url, {
-        Authorization: `Bearer ${cronSecret}`,
-        [CHAIN_HEADER]: String(nextChain),
-      });
-    } finally {
-      clearTimeout(t);
     }
-  } else {
-    // Último recurso: no hay margen ni para un await corto.
-    try {
-      await appendRunLastError(
-        client,
-        runId,
-        `[chain] attempt=${nextChain} mode=fire pending=${pendingRemaining} ts=${new Date().toISOString()}`
-      );
-    } catch {
-      // ignore
-    }
-    void fireAndForgetFetch(url, {
-      Authorization: `Bearer ${cronSecret}`,
-      [CHAIN_HEADER]: String(nextChain),
-    });
-  }
-}
 
-    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes), disparar snapshots de costos (idempotentes)
+    // 2) Si ya no quedan pendientes, disparar snapshots de costos (idempotentes)
     if (
       TRIGGER_COSTS_AFTER_PRICING &&
       pendingRemaining === 0 &&
