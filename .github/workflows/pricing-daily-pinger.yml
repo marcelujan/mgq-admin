@@ -3,7 +3,7 @@ name: pricing-daily-pinger
 on:
   schedule:
     # Cada 5 min entre 03:00 y 05:55 UTC (cubre ventana flexible del cron Hobby + margen)
-    - cron: "*/5 3-5 * * *"
+    - cron: "*/5 3-6 * * *"
   workflow_dispatch: {}
 
 concurrency:
