@@ -23,11 +23,16 @@ const TIME_BUDGET_MS = Number(process.env.PRICING_TIME_BUDGET_MS ?? 55_000);
 const TIME_MARGIN_MS = Number(process.env.PRICING_TIME_MARGIN_MS ?? 8_000);
 // Reservar tiempo mínimo para disparar encadenamiento verificable (evita fire-and-forget al filo)
 const CHAIN_RESERVE_MS = Number(process.env.PRICING_CHAIN_RESERVE_MS ?? 4_000);
+// Timeout máximo para el fetch de encadenamiento (ms). Debe ser <= CHAIN_RESERVE_MS - margen.
+const CHAIN_FETCH_TIMEOUT_MS = Number(process.env.PRICING_CHAIN_FETCH_TIMEOUT_MS ?? 3_500);
 const CONCURRENCY = Math.max(1, Number(process.env.PRICING_CONCURRENCY ?? 8));
 
 // Continuations (para plan Hobby: 1 cron/día, múltiples invocaciones encadenadas)
 const CHAIN_MAX = Number(process.env.PRICING_CHAIN_MAX ?? 12);
 const CHAIN_HEADER = "x-pricing-chain";
+
+// En Vercel Hobby, el self-chain puede disparar 508 (loop detected). Permite desactivarlo y usar un scheduler externo.
+const DISABLE_SELF_CHAIN = String(process.env.PRICING_DISABLE_SELF_CHAIN ?? "0") === "1";
 
 // Orquestación opcional: disparar manual/formulado cuando pricing termina (pending=0)
 const TRIGGER_COSTS_AFTER_PRICING = String(process.env.PRICING_TRIGGER_COSTS ?? "1") === "1";
@@ -582,7 +587,20 @@ export async function POST(req: NextRequest) {
 
     
 // 1) Si quedan pendientes, encadenar otra invocación (hasta CHAIN_MAX)
-if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
+// Si self-chain está deshabilitado, dejar evidencia verificable y salir.
+if (pendingRemaining > 0 && DISABLE_SELF_CHAIN) {
+  try {
+    await appendRunLastError(
+      client,
+      runId,
+      `[chain] disabled pending=${pendingRemaining} ts=${new Date().toISOString()}`
+    );
+  } catch {
+    // ignore
+  }
+}
+
+if (pendingRemaining > 0 && !DISABLE_SELF_CHAIN && selfBase && cronSecret && chain < CHAIN_MAX) {
   const nextChain = chain + 1;
   const url = `${selfBase}/api/cron/pricing-daily`;
 
@@ -603,7 +621,12 @@ if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
   const left = timeLeftMs();
   const canAwait = left > 900;
   if (canAwait) {
-    const timeout = Math.min(1200, Math.max(200, left - 200));
+    // Si el timeout es demasiado bajo, la continuation suele abortar (cold start / red / TLS).
+    // Elegimos un timeout dinámico, acotado por CHAIN_FETCH_TIMEOUT_MS y por el tiempo restante.
+    const timeout = Math.min(
+      CHAIN_FETCH_TIMEOUT_MS,
+      Math.max(900, left - 600)
+    );
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), timeout);
     try {
@@ -699,6 +722,8 @@ if (pendingRemaining > 0 && selfBase && cronSecret && chain < CHAIN_MAX) {
         processed_fail,
         inserted_rows,
         pending_remaining: pendingRemaining,
+        chain_disabled: DISABLE_SELF_CHAIN,
+        should_continue: pendingRemaining > 0,
         scrape: {
           groups: scraped_groups,
           ok: scraped_ok,
