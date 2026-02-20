@@ -1,5 +1,5 @@
-"  const [reloadKey, setReloadKey] = useState(0);
-use client";
+"const [reloadKey, setReloadKey] = useState(0)";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
