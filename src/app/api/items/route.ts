@@ -191,7 +191,7 @@ export async function GET(req: NextRequest) {
           pf.producto_id::bigint as sort_id,
           1::int as sort_kind
         from productos_formulados_v2 pf
-        left join app.producto p on p.producto_id = pf.producto_id
+        join app.producto p on p.producto_id = pf.producto_id and p.activo = true
 
         left join lateral (
           select f.item_formulado_id

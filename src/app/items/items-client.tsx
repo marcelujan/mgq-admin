@@ -122,6 +122,7 @@ export default function ItemsClient() {
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
 
@@ -162,7 +163,41 @@ export default function ItemsClient() {
         setLoading(false);
       }
     })();
-  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled]);
+  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled, reloadKey]);
+
+
+  async function deleteItem(it: ItemRow) {
+    const key = String(it.item_key ?? "").trim();
+    if (!key) return;
+
+    const kind = String(it.kind ?? "").toUpperCase();
+    const label =
+      kind === "FORMULADO"
+        ? `FORMULADO fprod:${it.item_id}`
+        : kind === "MANUAL"
+          ? `MANUAL mopt:${it.item_id}`
+          : `PROVEEDOR p:${it.item_id}`;
+
+    const ok = window.confirm(
+      `Eliminar ${label}?\n\n` +
+        `PROVEEDOR: borra físicamente item + offers + jobs + snapshots de precio.\n` +
+        `FORMULADO/MANUAL: desactiva (activo=false).\n\n` +
+        `Esta acción no tiene deshacer desde la UI.`
+    );
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/items/${encodeURIComponent(key)}`, { method: "DELETE" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) {
+        window.alert(j?.error ?? `http_${res.status}`);
+        return;
+      }
+      setReloadKey((x) => x + 1);
+    } catch (e: any) {
+      window.alert(String(e?.message ?? e));
+    }
+  }
 
   const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
 
@@ -489,6 +524,21 @@ export default function ItemsClient() {
                           🔗
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => deleteItem(it)}
+                        title="Eliminar"
+                        style={{
+                          background: "transparent",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                          borderRadius: 8,
+                          padding: "2px 6px",
+                          cursor: "pointer",
+                          opacity: 0.9,
+                        }}
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </td>
                 </tr>
