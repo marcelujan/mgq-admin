@@ -1,129 +1,193 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-type ParsedKey =
-  | { kind: "PROVEEDOR"; item_id: number; item_key: string }
-  | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
-  | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
+function parseItemKey(itemKey: string): { kind: "PROVEEDOR" | "FORMULADO" | "MANUAL"; id: number } | null {
+  const s = String(itemKey || "").trim();
 
-function decodeRepeated(s: string, maxRounds = 3): string {
-  let out = String(s ?? "");
-  for (let i = 0; i < maxRounds; i++) {
-    try {
-      const next = decodeURIComponent(out);
-      if (next === out) break;
-      out = next;
-    } catch {
-      break;
-    }
-  }
-  return out;
-}
+  const m = s.match(/^(p|fprod|mopt):(\d+)$/i);
+  if (!m) return null;
 
-function parseItemKey(raw: string): ParsedKey | null {
-  const s = decodeRepeated(String(raw ?? "").trim());
+  const prefix = m[1].toLowerCase();
+  const id = Number(m[2]);
+  if (!Number.isFinite(id) || id <= 0) return null;
 
-  if (/^\d+$/.test(s)) {
-    const id = Number(s);
-    if (id > 0) return { kind: "PROVEEDOR", item_id: id, item_key: `p:${id}` };
-  }
-
-  const mp = s.match(/^p:(\d+)$/i);
-  if (mp) return { kind: "PROVEEDOR", item_id: Number(mp[1]), item_key: `p:${mp[1]}` };
-
-  const mf = s.match(/^fprod:(\d+)$/i);
-  if (mf) return { kind: "FORMULADO_PRODUCTO", producto_id: Number(mf[1]), item_key: `fprod:${mf[1]}` };
-
-  const mm = s.match(/^mopt:(\d+)$/i);
-  if (mm) return { kind: "MANUAL_COST_OPTION", cost_option_id: Number(mm[1]), item_key: `mopt:${mm[1]}` };
-
+  if (prefix === "p") return { kind: "PROVEEDOR", id };
+  if (prefix === "fprod") return { kind: "FORMULADO", id };
+  if (prefix === "mopt") return { kind: "MANUAL", id };
   return null;
 }
 
-/**
- * DELETE /api/items/:item_key
- *
- * item_key esperado:
- * - p:<item_id> (PROVEEDOR)
- * - fprod:<producto_id> (FORMULADO)
- * - mopt:<cost_option_id> (MANUAL)
- *
- * Semántica:
- * - PROVEEDOR: borrado físico del item y sus dependencias operativas (offers, jobs, etc).
- * - FORMULADO: desactivación (producto.activo=false y item_formulado.activo=false).
- * - MANUAL: desactivación (cost_option.activo=false).
- */
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ item_id: string }> }) {
-  const { item_id } = await ctx.params;
-  const parsed = parseItemKey(item_id);
-
-  if (!parsed) {
-    return NextResponse.json({ ok: false, error: "invalid_item_key", raw: item_id }, { status: 400 });
+async function begin(sql: any) {
+  await sql.query("begin");
+}
+async function commit(sql: any) {
+  await sql.query("commit");
+}
+async function rollback(sql: any) {
+  try {
+    await sql.query("rollback");
+  } catch {
+    // ignore
   }
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { item_id: string } }) {
+  const parsed = parseItemKey(params.item_id);
+  if (!parsed) {
+    return NextResponse.json({ error: "item_id inválido. Se espera p:<id> | fprod:<id> | mopt:<id>." }, { status: 400 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const force = searchParams.get("force") === "1" || searchParams.get("force") === "true";
 
   const sql = db();
 
   try {
-    await sql.query("BEGIN");
+    await begin(sql);
 
-    if (parsed.kind === "PROVEEDOR") {
-      const id = parsed.item_id;
+    if (parsed.kind === "MANUAL") {
+      // Dependencias: producto_formula_linea_v2(cost_option_id) -> cost_option
+      const dep = await sql.query(
+        `select distinct producto_id::bigint as producto_id
+         from app.producto_formula_linea_v2
+         where cost_option_id = $1
+         order by producto_id asc`,
+        [parsed.id]
+      );
+      const deps = Array.isArray(dep?.rows) ? dep.rows : dep;
 
-      // pricing runs (dependen de offers)
+      if (deps?.length && !force) {
+        await rollback(sql);
+        return NextResponse.json(
+          {
+            error: "cost_option está en uso por fórmulas v2. Para borrar igual, reintentar con ?force=1.",
+            dependencies: { producto_ids: deps.map((r: any) => Number(r.producto_id)).filter((n: any) => Number.isFinite(n)) },
+          },
+          { status: 409 }
+        );
+      }
+
+      // Si force, se eliminan líneas v2 que referencian el cost_option
+      if (deps?.length) {
+        await sql.query(`delete from app.producto_formula_linea_v2 where cost_option_id = $1`, [parsed.id]);
+
+        // Limpieza: remover encabezados de formula_v2 que quedaron sin líneas
+        await sql.query(
+          `
+          delete from app.producto_formula_v2 pf
+          where pf.producto_id in (
+            select x.producto_id
+            from (select unnest($1::bigint[]) as producto_id) x
+            left join app.producto_formula_linea_v2 l on l.producto_id = x.producto_id
+            where l.linea_id is null
+          )
+        `,
+          [deps.map((r: any) => Number(r.producto_id))]
+        );
+      }
+
+      // Borrar historial y registro principal
+      await sql.query(`delete from app.cost_option_snapshot where cost_option_id = $1`, [parsed.id]);
+      await sql.query(`delete from app.cost_option where cost_option_id = $1`, [parsed.id]);
+
+      await commit(sql);
+      return NextResponse.json({ ok: true, deleted: { kind: "MANUAL", cost_option_id: parsed.id } });
+    }
+
+    if (parsed.kind === "FORMULADO") {
+      const productoId = parsed.id;
+
+      // Dependencias principales (sin contar tablas que vamos a limpiar en cascada por orden):
+      // - producto_oferta -> puede estar usado por insumo_fuente / item_formulado
+      // - producto_base / producto_costos_produccion / producto_formula* (legacy) / formula v2
+      // En modo no-force podríamos bloquear si hay ofertas activas, pero tu requerimiento pide borrado total.
+      // Aun así, si hay ofertas activas vinculadas a insumo_fuente, se limpian primero.
+
+      // 1) limpiar insumo_fuente que apunta a ofertas del producto
       await sql.query(
         `
-        delete from app.pricing_daily_run_items pri
-        using app.offers o
-        where pri.offer_id = o.offer_id
-          and o.item_id = $1
-        `,
-        [id]
+        delete from app.insumo_fuente
+        where oferta_id in (select oferta_id from app.producto_oferta where producto_id = $1)
+      `,
+        [productoId]
       );
 
-      await sql.query(`delete from app.offers where item_id = $1`, [id]);
-      await sql.query(`delete from app.oferta_proveedor where item_id = $1`, [id]);
-      await sql.query(`delete from app.insumo_fuente where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_price_daily_pres where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_price_daily where item_id = $1`, [id]);
-      await sql.query(`delete from app.job where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_seguimiento where item_id = $1`, [id]);
+      // 2) snapshots y items formulados
+      await sql.query(
+        `
+        delete from app.item_formulado_snapshot
+        where item_formulado_id in (select item_formulado_id from app.item_formulado where producto_id = $1)
+      `,
+        [productoId]
+      );
+      await sql.query(`delete from app.item_formulado where producto_id = $1`, [productoId]);
 
-      await sql.query("COMMIT");
-      return NextResponse.json({ ok: true, kind: "PROVEEDOR", deleted: { item_id: id } });
+      // 3) ofertas del producto
+      await sql.query(`delete from app.producto_oferta where producto_id = $1`, [productoId]);
+
+      // 4) formulas (v2 y legacy) y otros adjuntos
+      await sql.query(`delete from app.producto_formula_linea_v2 where producto_id = $1`, [productoId]);
+      await sql.query(`delete from app.producto_formula_v2 where producto_id = $1`, [productoId]);
+
+      await sql.query(`delete from app.producto_formula_linea where producto_id = $1`, [productoId]);
+      await sql.query(`delete from app.producto_formula where producto_id = $1`, [productoId]);
+
+      await sql.query(`delete from app.producto_base where producto_id = $1`, [productoId]);
+      await sql.query(`delete from app.producto_costos_produccion where producto_id = $1`, [productoId]);
+
+      // 5) finalmente el producto
+      await sql.query(`delete from app.producto where producto_id = $1`, [productoId]);
+
+      await commit(sql);
+      return NextResponse.json({ ok: true, deleted: { kind: "FORMULADO", producto_id: productoId } });
     }
 
-    if (parsed.kind === "FORMULADO_PRODUCTO") {
-      const producto_id = parsed.producto_id;
+    // PROVEEDOR
+    {
+      const itemId = parsed.id;
 
-      await sql.query(
-        `update app.producto set activo=false, updated_at=now() where producto_id=$1`,
-        [producto_id]
+      // Dependencias de dominio detectables por FK:
+      // - producto_base.item_id puede referenciar items como base (impacta productos)
+      const depPb = await sql.query(
+        `select producto_id::bigint as producto_id from app.producto_base where item_id = $1 order by producto_id asc`,
+        [itemId]
       );
-      await sql.query(
-        `update app.item_formulado set activo=false, updated_at=now() where producto_id=$1`,
-        [producto_id]
-      );
+      // NOTE: keep safe parsing
+      const pbRows = Array.isArray(depPb?.rows) ? depPb.rows : depPb;
+      if (pbRows?.length && !force) {
+        await rollback(sql);
+        return NextResponse.json(
+          {
+            error: "item PROVEEDOR está referenciado por producto_base. Para borrar igual, reintentar con ?force=1.",
+            dependencies: { producto_ids: pbRows.map((r: any) => Number(r.producto_id)).filter((n: any) => Number.isFinite(n)) },
+          },
+          { status: 409 }
+        );
+      }
 
-      await sql.query("COMMIT");
-      return NextResponse.json({ ok: true, kind: "FORMULADO", deleted: { producto_id } });
+      if (pbRows?.length) {
+        await sql.query(`delete from app.producto_base where item_id = $1`, [itemId]);
+      }
+
+      // limpiar dependencias operativas
+      await sql.query(`delete from app.pricing_daily_run_items where offer_id in (select offer_id from app.offers where item_id = $1)`, [itemId]);
+      await sql.query(`delete from app.item_price_daily_pres where offer_id in (select offer_id from app.offers where item_id = $1)`, [itemId]);
+      await sql.query(`delete from app.item_price_daily where offer_id in (select offer_id from app.offers where item_id = $1)`, [itemId]);
+
+      await sql.query(`delete from app.job where item_id = $1`, [itemId]);
+
+      await sql.query(`delete from app.insumo_fuente where item_id = $1`, [itemId]);
+
+      await sql.query(`delete from app.oferta_proveedor where item_id = $1`, [itemId]);
+      await sql.query(`delete from app.offers where item_id = $1`, [itemId]);
+
+      await sql.query(`delete from app.item_seguimiento where item_id = $1`, [itemId]);
+
+      await commit(sql);
+      return NextResponse.json({ ok: true, deleted: { kind: "PROVEEDOR", item_id: itemId } });
     }
-
-    // MANUAL_COST_OPTION
-    const cost_option_id = parsed.cost_option_id;
-
-    await sql.query(
-      `update app.cost_option set activo=false, updated_at=now() where cost_option_id=$1`,
-      [cost_option_id]
-    );
-
-    await sql.query("COMMIT");
-    return NextResponse.json({ ok: true, kind: "MANUAL", deleted: { cost_option_id } });
   } catch (e: any) {
-    try {
-      await sql.query("ROLLBACK");
-    } catch {
-      // ignore
-    }
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+    await rollback(sql);
+    return NextResponse.json({ error: e?.message || "Error al eliminar item" }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
-"use client";
+"  const [reloadKey, setReloadKey] = useState(0);
+use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -122,7 +123,6 @@ export default function ItemsClient() {
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [reloadKey, setReloadKey] = useState(0);
 
   const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
 
@@ -165,41 +165,52 @@ export default function ItemsClient() {
     })();
   }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled, reloadKey]);
 
+  const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
 
-  async function deleteItem(it: ItemRow) {
-    const key = String(it.item_key ?? "").trim();
+  async function deleteItem(itemKey: string) {
+    const key = String(itemKey || "").trim();
     if (!key) return;
 
-    const kind = String(it.kind ?? "").toUpperCase();
-    const label =
-      kind === "FORMULADO"
-        ? `FORMULADO fprod:${it.item_id}`
-        : kind === "MANUAL"
-          ? `MANUAL mopt:${it.item_id}`
-          : `PROVEEDOR p:${it.item_id}`;
+    const first = confirm(`Eliminar item ${key}.\n\nEsto borrará el registro y su historial (snapshots / precios).`);
+    if (!first) return;
 
-    const ok = window.confirm(
-      `Eliminar ${label}?\n\n` +
-        `PROVEEDOR: borra físicamente item + offers + jobs + snapshots de precio.\n` +
-        `FORMULADO/MANUAL: desactiva (activo=false).\n\n` +
-        `Esta acción no tiene deshacer desde la UI.`
-    );
-    if (!ok) return;
-
-    try {
-      const res = await fetch(`/api/items/${encodeURIComponent(key)}`, { method: "DELETE" });
+    async function call(force: boolean) {
+      const url = `/api/items/${encodeURIComponent(key)}${force ? "?force=1" : ""}`;
+      const res = await fetch(url, { method: "DELETE" });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) {
-        window.alert(j?.error ?? `http_${res.status}`);
+      return { res, j };
+    }
+
+    const r1 = await call(false);
+
+    if (r1.res.status === 409 && r1.j?.dependencies) {
+      const deps = r1.j.dependencies;
+      const prodIds = Array.isArray(deps?.producto_ids) ? deps.producto_ids.join(", ") : "";
+      const second = confirm(
+        `El item tiene dependencias.\n\n${r1.j?.error ?? "No se puede eliminar sin forzar."}` +
+          (prodIds ? `\n\nProductos afectados: ${prodIds}` : "") +
+          `\n\n¿Forzar eliminación igualmente?`
+      );
+      if (!second) return;
+
+      const r2 = await call(true);
+      if (!r2.res.ok || !r2.j?.ok) {
+        alert(r2.j?.error ?? `http_${r2.res.status}`);
         return;
       }
-      setReloadKey((x) => x + 1);
-    } catch (e: any) {
-      window.alert(String(e?.message ?? e));
+
+      setReloadKey((k) => k + 1);
+      return;
     }
+
+    if (!r1.res.ok || !r1.j?.ok) {
+      alert(r1.j?.error ?? `http_${r1.res.status}`);
+      return;
+    }
+
+    setReloadKey((k) => k + 1);
   }
 
-  const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -525,19 +536,19 @@ export default function ItemsClient() {
                         </span>
                       )}
                       <button
-                        type="button"
-                        onClick={() => deleteItem(it)}
+                        onClick={() => deleteItem(it.item_key)}
                         title="Eliminar"
                         style={{
+                          marginLeft: 10,
                           background: "transparent",
-                          border: "1px solid rgba(255,255,255,0.12)",
+                          border: "1px solid rgba(255,255,255,0.15)",
                           borderRadius: 8,
-                          padding: "2px 6px",
+                          padding: "4px 8px",
                           cursor: "pointer",
                           opacity: 0.9,
                         }}
                       >
-                        🗑️
+                        🗑
                       </button>
                     </div>
                   </td>
