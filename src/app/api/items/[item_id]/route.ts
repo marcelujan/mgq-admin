@@ -16,10 +16,11 @@ function jsonError(status: number, error: string, details?: any) {
  * Semántica: hard-delete (incluye historial/snapshots) para el entity subyacente.
  * Nota: esta operación es destructiva.
  */
-export async function DELETE(req: NextRequest, ctx: { params: { item_id: string } }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ item_id: string }> }) {
   const sql = db();
   try {
-    const rawKey = decodeURIComponent(ctx.params.item_id ?? "").trim();
+    const { item_id } = await ctx.params;
+    const rawKey = decodeURIComponent(item_id ?? "").trim();
     if (!rawKey) return jsonError(400, "missing_item_id");
 
     // force=1 permite borrar aunque haya dependencias de fórmula/base.
