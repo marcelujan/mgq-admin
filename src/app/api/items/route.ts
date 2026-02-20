@@ -229,7 +229,7 @@ export async function GET(req: NextRequest) {
 
         where
           ($1::text = '' or $1::text = 'FORMULADO')
-          and p.activo = true
+          and coalesce(p.activo, true) = true
           and (
             $4::text is null
             or coalesce(p.nombre,'') ilike $4::text

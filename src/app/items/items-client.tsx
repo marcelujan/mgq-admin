@@ -1,4 +1,3 @@
-"const [reloadKey, setReloadKey] = useState(0)";
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -126,11 +125,69 @@ export default function ItemsClient() {
 
   const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
 
+async function loadItems() {
+  setLoading(true);
+  setError(null);
+
+  try {
+    const sp = new URLSearchParams();
+    sp.set("limit", String(limit));
+    sp.set("offset", String(offset));
+    if (tipo) sp.set("tipo", tipo);
+    if (!estadoDisabled && estadoProv) sp.set("estado", estadoProv);
+    if (search.trim()) sp.set("search", search.trim());
+    if (seleccionado) sp.set("seleccionado", seleccionado);
+
+    const res = await fetch(`/api/items?${sp.toString()}`, { cache: "no-store" });
+    const j = await res.json().catch(() => ({}));
+
+    if (!res.ok || !j?.ok) {
+      setError(j?.error ?? `http_${res.status}`);
+      setItems([]);
+      setTotal(0);
+      return;
+    }
+
+    setItems(Array.isArray(j?.items) ? (j.items as ItemRow[]) : []);
+    setTotal(Number(j?.total ?? 0));
+  } catch (e: any) {
+    setError(String(e?.message ?? e));
+    setItems([]);
+    setTotal(0);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function handleDeleteFormulado(itemKey: string, nombre: string) {
+  const ok = window.confirm(
+    `Eliminar FORMULADO en forma permanente?\n\n${nombre}\n\nEsto borra el producto, su fórmula y su historial (snapshots).`
+  );
+  if (!ok) return;
+
+  try {
+    setError(null);
+    const res = await fetch(`/api/items/${encodeURIComponent(itemKey)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error ?? `DELETE failed (${res.status})`);
+    }
+
+    // refresh list
+    await loadItems();
+  } catch (e: any) {
+    setError(e?.message ?? String(e));
+  }
+}
+
+
   const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit) || 1), [total, limit]);
 
   useEffect(() => {
-    (async () => {
+    loadItems().catch(() => {});
+
       setLoading(true);
       setError(null);
 
@@ -163,54 +220,9 @@ export default function ItemsClient() {
         setLoading(false);
       }
     })();
-  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled, reloadKey]);
+  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled]);
 
   const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
-
-  async function deleteItem(itemKey: string) {
-    const key = String(itemKey || "").trim();
-    if (!key) return;
-
-    const first = confirm(`Eliminar item ${key}.\n\nEsto borrará el registro y su historial (snapshots / precios).`);
-    if (!first) return;
-
-    async function call(force: boolean) {
-      const url = `/api/items/${encodeURIComponent(key)}${force ? "?force=1" : ""}`;
-      const res = await fetch(url, { method: "DELETE" });
-      const j = await res.json().catch(() => ({}));
-      return { res, j };
-    }
-
-    const r1 = await call(false);
-
-    if (r1.res.status === 409 && r1.j?.dependencies) {
-      const deps = r1.j.dependencies;
-      const prodIds = Array.isArray(deps?.producto_ids) ? deps.producto_ids.join(", ") : "";
-      const second = confirm(
-        `El item tiene dependencias.\n\n${r1.j?.error ?? "No se puede eliminar sin forzar."}` +
-          (prodIds ? `\n\nProductos afectados: ${prodIds}` : "") +
-          `\n\n¿Forzar eliminación igualmente?`
-      );
-      if (!second) return;
-
-      const r2 = await call(true);
-      if (!r2.res.ok || !r2.j?.ok) {
-        alert(r2.j?.error ?? `http_${r2.res.status}`);
-        return;
-      }
-
-      setReloadKey((k) => k + 1);
-      return;
-    }
-
-    if (!r1.res.ok || !r1.j?.ok) {
-      alert(r1.j?.error ?? `http_${r1.res.status}`);
-      return;
-    }
-
-    setReloadKey((k) => k + 1);
-  }
-
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -535,22 +547,38 @@ export default function ItemsClient() {
                           🔗
                         </span>
                       )}
-                      <button
-                        onClick={() => deleteItem(it.item_key)}
-                        title="Eliminar"
-                        style={{
-                          marginLeft: 10,
-                          background: "transparent",
-                          border: "1px solid rgba(255,255,255,0.15)",
-                          borderRadius: 8,
-                          padding: "4px 8px",
-                          cursor: "pointer",
-                          opacity: 0.9,
-                        }}
-                      >
-                        🗑
-                      </button>
-                    </div>
+                    
+{kind === "FORMULADO" ? (
+  <button
+    type="button"
+    onClick={() => handleDeleteFormulado(it.item_key, nombre)}
+    title="Eliminar formulado (hard delete)"
+    style={{
+      background: "transparent",
+      border: "1px solid rgba(255,255,255,0.18)",
+      borderRadius: 8,
+      padding: "2px 8px",
+      cursor: "pointer",
+      opacity: 0.9,
+    }}
+  >
+    🗑️
+  </button>
+) : (
+  <span
+    title="Eliminar no disponible para este tipo"
+    style={{
+      display: "inline-block",
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 8,
+      padding: "2px 8px",
+      opacity: 0.25,
+    }}
+  >
+    🗑️
+  </span>
+)}
+</div>
                   </td>
                 </tr>
               );
