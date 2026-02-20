@@ -1291,9 +1291,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     step="0.01"
                     key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}-${loteRefG}`}
                     defaultValue={
-                      costosProd?.costo_variable_por_kg_ars === null
+                      (costosProd?.costo_variable_por_kg_ars ?? null) === null
                         ? ""
-                        : String((Number(costosProd.costo_variable_por_kg_ars) * loteRefKg).toFixed(2))
+                        : String((Number(costosProd?.costo_variable_por_kg_ars) * loteRefKg).toFixed(2))
                     }
                     placeholder="(opcional)"
                     onBlur={async (e) => {
