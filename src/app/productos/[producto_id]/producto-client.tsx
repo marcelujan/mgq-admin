@@ -82,6 +82,8 @@ type LineaV2 = {
   pct_peso: number | null;
   is_csp: boolean;
   orden: number;
+  item_url_original?: string | null;
+  item_url_canonica?: string | null;  
 
   tipo: "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
   item_id: number | null;
@@ -1320,9 +1322,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)} · ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}
               </div>
             </div>
-
-            
->
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
