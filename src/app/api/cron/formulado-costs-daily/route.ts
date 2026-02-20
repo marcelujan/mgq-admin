@@ -271,7 +271,9 @@ async function computeBulkCost(client: PoolClient, producto_id: number, stack: n
   };
 }
 
-async function run() {
+type RunOpts = { dryRun: boolean; productoIds: number[] };
+
+async function run(opts: RunOpts) {
   const started = Date.now();
   const client = await pool.connect();
 
