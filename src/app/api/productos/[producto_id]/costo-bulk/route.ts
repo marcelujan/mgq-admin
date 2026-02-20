@@ -67,7 +67,8 @@ async function arsPorGramoDeLinea(
     const price = itemPriceByKey.get(keyItem(item_id, pres));
     if (price === undefined) return { ok: false, err: "precio job no encontrado" };
 
-    // Unidad confirmada en datos: presentacion = kilos del pack (ej: 1, 5, 25, 21) -> convertir a gramos
+    // Unidad: presentacion está en KG (según item_price_daily_pres.presentacion y los motores de proveedor).
+    // Convertimos a ARS/g.
     return { ok: true, arsPorG: price / (pres * 1000) };
   }
 

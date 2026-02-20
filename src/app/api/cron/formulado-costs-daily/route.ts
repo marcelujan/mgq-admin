@@ -1,7 +1,7 @@
 // cron/formulado-costs-daily/route.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +31,6 @@ function numOrNull(v: any): number | null {
 }
 
 type TipoLinea = "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
-
 function asTipo(v: any): TipoLinea {
   const s = String(v ?? "");
   if (s === "ITEM_PRESENTACION" || s === "MANUAL_PRESENTACION" || s === "BULK_PRODUCTO") return s;
@@ -70,7 +69,7 @@ function keyItem(item_id: number, pres: number) {
 }
 
 async function arsPorGramoDeLinea(
-  client: PoolClient,
+  client: { query: Function },
   linea: Linea,
   itemPriceByKey: Map<string, number>,
   bulkResolver: (bulk_producto_id: number) => Promise<BulkCost>
@@ -83,7 +82,8 @@ async function arsPorGramoDeLinea(
     const price = itemPriceByKey.get(keyItem(item_id, pres));
     if (price === undefined) return { ok: false, err: "precio job no encontrado" };
 
-    // Unidad confirmada en datos: presentacion = kilos del pack (ej: 1, 5, 25, 21) -> convertir a gramos
+    // Unidad: presentacion está en KG (según item_price_daily_pres.presentacion y los motores de proveedor).
+    // Convertimos a ARS/g.
     return { ok: true, arsPorG: price / (pres * 1000) };
   }
 
@@ -121,17 +121,12 @@ async function arsPorGramoDeLinea(
   return { ok: false, err: "tipo no soportado" };
 }
 
-/**
- * Replica de la lógica de /api/productos/[producto_id]/costo-bulk,
- * usada por el cron para persistir snapshots diarios de BULK.
- *
- * Dependencias:
- * - item_price_daily_pres (fuente PROVEEDOR)
- * - cost_option (MANUAL_PRESENTACION)
- * - producto_costos_produccion (costo prod fijo/variable)
- * - producto_formula_v2 + producto_formula_linea_v2 (materiales)
- */
-async function computeBulkCost(client: PoolClient, producto_id: number, stack: number[], depth: number): Promise<BulkCost> {
+async function computeBulkCost(
+  client: { query: Function },
+  producto_id: number,
+  stack: number[],
+  depth: number
+): Promise<BulkCost> {
   if (depth > 10) throw new Error("bulk: profundidad máxima excedida");
   if (stack.includes(producto_id)) throw new Error("bulk: ciclo detectado");
   const nextStack = [...stack, producto_id];
@@ -142,7 +137,7 @@ async function computeBulkCost(client: PoolClient, producto_id: number, stack: n
      WHERE producto_id=$1`,
     [producto_id]
   );
-  const lote_ref_g = fRes.rows?.[0]?.lote_ref_g ? Number(fRes.rows[0].lote_ref_g) : 1000;
+  const lote_ref_g = fRes?.rows?.[0]?.lote_ref_g ? Number(fRes.rows[0].lote_ref_g) : 1000;
   if (!Number.isFinite(lote_ref_g) || lote_ref_g <= 0) throw new Error("lote_ref_g inválido");
 
   const lRes = await client.query(
@@ -271,85 +266,121 @@ async function computeBulkCost(client: PoolClient, producto_id: number, stack: n
   };
 }
 
-async function run() {
-  const started = Date.now();
-  const client = await pool.connect();
+type RunOpts = {
+  dryRun: boolean;
+  productoIds: number[] | null;
+};
 
+async function run(opts: RunOpts) {
+  const client = await pool.connect();
   try {
     const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
     const asOfDate = d0.rows[0]?.d;
 
-    // Productos con fórmula v2 + BULK activo (según dominio, 0/1 por producto).
-    const rProd = await client.query(
+    // BULK activos + fórmula v2 existente
+    const rProd = await client.query<{
+      producto_id: number;
+      item_formulado_id: number;
+    }>(
       `
-      SELECT f.producto_id, i.item_formulado_id
-      FROM app.producto_formula_v2 f
-      JOIN app.item_formulado i
-        ON i.producto_id = f.producto_id
-       AND i.tipo = 'BULK'
-       AND i.activo = true
+      SELECT f.producto_id::int as producto_id, f.item_formulado_id::int as item_formulado_id
+      FROM app.item_formulado f
+      JOIN app.producto_formula_v2 pf ON pf.producto_id = f.producto_id
+      WHERE f.tipo='BULK'
+        AND f.activo=true
+        AND (
+          $1::int[] IS NULL
+          OR f.producto_id = ANY($1::int[])
+        )
       ORDER BY f.producto_id ASC
-      `
+      `,
+      [opts.productoIds]
     );
 
-    const errors: Array<{ producto_id: number; item_formulado_id: number; error: string }> = [];
-    let ok = 0;
+    const results: any[] = [];
+    const errors: any[] = [];
+    let upserts = 0;
 
     for (const row of rProd.rows ?? []) {
       const producto_id = Number(row.producto_id);
       const item_formulado_id = Number(row.item_formulado_id);
-      if (!Number.isFinite(producto_id) || !Number.isFinite(item_formulado_id)) continue;
 
       try {
-        const bc = await computeBulkCost(client, producto_id, [], 0);
+        const cost = await computeBulkCost(client, producto_id, [], 0);
 
-        // Persistir snapshot diario (idempotente por (item_formulado_id, as_of_date))
-        await client.query(
-          `
-          insert into app.item_formulado_snapshot
-            (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
-          values
-            ($1, $2::date, $3::float8, 'CRON'::text, now())
-          on conflict (item_formulado_id, as_of_date)
-          do update set
-            precio_unitario_ars = excluded.precio_unitario_ars,
-            fuente = excluded.fuente,
-            created_at = excluded.created_at
-          `,
-          [item_formulado_id, asOfDate, bc.ars_por_kg]
-        );
+        results.push({
+          producto_id,
+          item_formulado_id,
+          ars_por_kg: Number(cost.ars_por_kg),
+          prod_ars_por_kg: Number(cost.prod_ars_por_kg),
+          material_ars_por_kg: Number(cost.material_ars_por_kg),
+        });
 
-        ok++;
+        if (!opts.dryRun) {
+          const q = await client.query(
+            `
+            INSERT INTO app.item_formulado_snapshot
+              (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
+            VALUES
+              ($1::bigint, $2::date, $3::numeric, 'CRON'::text, now())
+            ON CONFLICT (item_formulado_id, as_of_date)
+            DO UPDATE SET
+              precio_unitario_ars = excluded.precio_unitario_ars,
+              fuente = excluded.fuente,
+              created_at = excluded.created_at
+            `,
+            [item_formulado_id, asOfDate, cost.ars_por_kg]
+          );
+          upserts += q.rowCount ?? 0;
+        }
       } catch (e: any) {
         errors.push({
           producto_id,
           item_formulado_id,
-          error: String(e?.message ?? e ?? "error"),
+          error: String(e?.message ?? e),
         });
       }
     }
 
     return {
-      ok: true,
+      ok: errors.length === 0,
       as_of_date: asOfDate,
-      productos_total: (rProd.rows ?? []).length,
-      productos_ok: ok,
-      productos_error: errors.length,
+      dry_run: opts.dryRun,
+      producto_ids: opts.productoIds,
+      computed: results.length,
+      upserts,
+      results,
       errors,
-      time_ms: Date.now() - started,
     };
   } finally {
     client.release();
   }
 }
 
+function parseProductoIds(param: string | null): number[] | null {
+  if (!param) return null;
+  const parts = param
+    .split(",")
+    .map((s) => Number(String(s).trim()))
+    .filter((n) => Number.isFinite(n));
+  return parts.length ? parts : null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     assertCronAuth(req);
-    const payload = await run();
+
+    const url = new URL(req.url);
+    const dryRun = url.searchParams.get("dry_run") === "1";
+    const productoIds = parseProductoIds(url.searchParams.get("producto_ids"));
+
+    const payload = await run({ dryRun, productoIds });
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: e?.statusCode ?? 500 });
+    return NextResponse.json(
+      { ok: false, error: String(e?.message ?? e) },
+      { status: e?.statusCode ?? 500 }
+    );
   }
 }
 
