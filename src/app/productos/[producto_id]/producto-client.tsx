@@ -61,6 +61,9 @@ type CostOptionExtra = {
   item_id: number | null;
   item_presentacion: number | null; // NOTE: en ITEM_PRESENTACION viene en KG (ej: 1, 5, 25)
 
+  item_url_original: string | null;
+  item_url_canonica: string | null;
+
   manual_nombre: string | null;
   manual_uom: "GR" | "ML" | "UN" | null;
   manual_cantidad: number | null;
@@ -207,6 +210,25 @@ function fmtGrFromKg(kg: number | null, dec = 0): string {
   return `${gr.toFixed(dec)} g`;
 }
 
+function urlLastSegment(url: string) {
+  try {
+    const noHash = url.split("#")[0];
+    const noQuery = noHash.split("?")[0];
+    const trimmed = noQuery.replace(/\/+$/, "");
+    const parts = trimmed.split("/");
+    const last = parts[parts.length - 1] || "";
+    return decodeURIComponent(last);
+  } catch {
+    return url;
+  }
+}
+
+function fmtFixed(n: number | null | undefined, decimals: number) {
+  if (n === null || n === undefined || !Number.isFinite(n as any)) return "-";
+  return Number(n).toFixed(decimals);
+}
+
+
 function toARSporKgFromPresentation(priceARS: number | null, presKg: number | null) {
   // presKg viene del proveedor/job en KG
   if (priceARS === null || presKg === null || presKg <= 0) return null;
@@ -257,6 +279,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   // Manuales (solo selección; no crear aquí)
   const [manualSearch, setManualSearch] = useState("");
+
+  const searchOptRef = useRef<HTMLInputElement | null>(null);
+  const bulkSearchRef = useRef<HTMLInputElement | null>(null);
+  const manualSearchRef = useRef<HTMLInputElement | null>(null);
+
 
   // Packaging
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
@@ -663,6 +690,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }, [productoId]);
 
   const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
+  const loteRefKg = loteRefG / 1000;
+
 
   const cspLinea = useMemo(() => lineasV2.find((l) => l.is_csp), [lineasV2]);
   const pctFijos = useMemo(() => {
@@ -806,9 +835,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       costo_variable_por_kg_ars: number | null;
     }>
   ) {
+    const loteRefG_eff = patch.lote_ref_g ?? (formulaV2?.lote_ref_g ?? 1000);
+    const loteRefKg_eff = loteRefG_eff / 1000;
+
     const body = {
-      lote_ref_g: patch.lote_ref_g ?? (formulaV2?.lote_ref_g ?? 1000),
-      lote_ref_kg: patch.lote_ref_kg ?? costosProd?.lote_ref_kg ?? null,
+      lote_ref_g: loteRefG_eff,
+      lote_ref_kg: patch.lote_ref_kg ?? costosProd?.lote_ref_kg ?? loteRefKg_eff,
       costo_fijo_por_lote_ars: patch.costo_fijo_por_lote_ars ?? costosProd?.costo_fijo_por_lote_ars ?? null,
       costo_variable_por_kg_ars: patch.costo_variable_por_kg_ars ?? costosProd?.costo_variable_por_kg_ars ?? null,
     };
@@ -906,7 +938,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }
 
   function lineaLabel(l: LineaV2) {
-    if (l.tipo === "ITEM_PRESENTACION") return `Item ${l.item_id} — Pres ${fmtGrFromKg(numOrNull(l.item_presentacion), 0)}`;
+    if (l.tipo === "ITEM_PRESENTACION") {
+      const url = l.item_url_canonica || l.item_url_original || "";
+      const nombre = url ? urlLastSegment(url) : `Item ${l.item_id}`;
+      return `${nombre} — ${fmtGrFromKg(numOrNull(l.item_presentacion), 0)}`;
+    }
     if (l.tipo === "MANUAL_PRESENTACION")
       return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
@@ -969,7 +1005,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     rows,
     footer,
   }: {
-    title: string;
+    title?: string;
     subtitle?: string;
     controls?: React.ReactNode;
     rows: ComponentPickRow[];
@@ -977,12 +1013,14 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }) {
     return (
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
-          <div style={{ display: "grid", gap: 2 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
-            {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
+        {title || subtitle ? (
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <div style={{ display: "grid", gap: 2 }}>
+              {title ? <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div> : null}
+              {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {controls ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{controls}</div> : null}
 
@@ -1053,7 +1091,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
     return itemOptions.slice(0, 200).map((x, idx) => {
       const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
-      const nombre = x.url_original || x.url_canonica || "";
+      const url = x.url_canonica || x.url_original || "";
+      const nombre = url ? urlLastSegment(url) : "";
       const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
       const origen = `Proveedor: ${prov}`;
       return {
@@ -1116,8 +1155,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "grid", gap: 4 }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{producto?.nombre ?? `Producto ${productoId}`}</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Editor + ofertas + costeo</div>
-        </div>
+                  </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
           {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
@@ -1151,9 +1189,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Fórmula v2</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Lote referencia: {loteRefG} g</div>
-        </div>
+                            </div>
 
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
@@ -1166,7 +1202,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 onBlur={async (e) => {
                   const v = clamp(Number(e.target.value), 1, 1_000_000);
                   try {
-                    await saveHeaderV2({ lote_ref_g: v });
+                    await saveHeaderV2({ lote_ref_g: v, lote_ref_kg: v / 1000 });
                   } catch (err: any) {
                     setError(err?.message || "error");
                   }
@@ -1221,31 +1257,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción</div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                  Lote ref (kg)
-                  <input
-                    type="number"
-                    step="0.0001"
-                    key={`cp-lote-${costosProd?.lote_ref_kg ?? ""}`}
-                    defaultValue={String(costosProd?.lote_ref_kg ?? "")}
-                    placeholder="(opcional)"
-                    onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
-                      try {
-                        await saveHeaderV2({ lote_ref_kg: v });
-                      } catch (err: any) {
-                        setError(err?.message || "error");
-                      }
-                    }}
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      background: "rgba(255,255,255,0.03)",
-                      width: 130,
-                    }}
-                  />
-                </label>
 
                 <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
                   Fijo por lote (ARS)
@@ -1258,7 +1269,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     onBlur={async (e) => {
                       const v = parseBlurNumber(e.target.value);
                       try {
-                        await saveHeaderV2({ costo_fijo_por_lote_ars: v });
+                        await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_fijo_por_lote_ars: v });
                       } catch (err: any) {
                         setError(err?.message || "error");
                       }
@@ -1274,17 +1285,22 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 </label>
 
                 <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                  Variable (ARS/kg)
+                  Variable por lote (ARS)
                   <input
                     type="number"
                     step="0.01"
-                    key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}`}
-                    defaultValue={String(costosProd?.costo_variable_por_kg_ars ?? "")}
+                    key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}-${loteRefG}`}
+                    defaultValue={
+                      costosProd?.costo_variable_por_kg_ars === null
+                        ? ""
+                        : String((Number(costosProd.costo_variable_por_kg_ars) * loteRefKg).toFixed(2))
+                    }
                     placeholder="(opcional)"
                     onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
+                      const v = parseBlurNumber(e.target.value); // ARS por lote
+                      const vKg = v === null ? null : v / loteRefKg;
                       try {
-                        await saveHeaderV2({ costo_variable_por_kg_ars: v });
+                        await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_variable_por_kg_ars: vKg });
                       } catch (err: any) {
                         setError(err?.message || "error");
                       }
@@ -1305,26 +1321,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               </div>
             </div>
 
-            <div
-              style={{
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 12,
-                padding: "10px 12px",
-                display: "grid",
-                gap: 4,
-                background: "rgba(255,255,255,0.02)",
-              }}
-            >
-              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Bulk (info)</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (sin prod): {fmtMaybe(bulkARSkg_sin, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/kg (con prod): {fmtMaybe(bulkARSkg_con, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>Dens g/ml: {fmtMaybe(densProd, 4)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (sin prod): {fmtMaybe(bulkARSl_sin, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.85 }}>ARS/L (con prod): {fmtMaybe(bulkARSl_con, 2)}</div>
-              <div style={{ fontSize: 12, opacity: 0.65 }}>
-                endpoint ARS/kg: {fmtMaybe(bulkEndpointARSkg, 2)} · ARS/L: {fmtMaybe(bulkEndpointARSl, 2)}
-              </div>
-            </div>
+            
+>
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
@@ -1411,11 +1409,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     />
                   </td>
 
-                  <td style={{ padding: 10 }}>{r.masa_g === null ? "-" : r.masa_g.toFixed(4)}</td>
+                  <td style={{ padding: 10 }}>{r.masa_g === null ? "-" : r.masa_g.toFixed(2)}</td>
 
                   <td style={{ padding: 10 }}>
                     <input
-                      defaultValue={String(r.l.densidad_g_ml ?? "")}
+                      defaultValue={r.l.densidad_g_ml === null ? "" : Number(r.l.densidad_g_ml).toFixed(3)}
                       placeholder="(opción)"
                       onBlur={async (e) => {
                         const v = e.target.value.trim() === "" ? null : Number(e.target.value);
@@ -1435,7 +1433,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     />
                   </td>
 
-                  <td style={{ padding: 10 }}>{r.vol_ml === null ? "-" : r.vol_ml.toFixed(4)}</td>
+                  <td style={{ padding: 10 }}>{r.vol_ml === null ? "-" : r.vol_ml.toFixed(2)}</td>
                   <td style={{ padding: 10 }}>{r.costo_linea === null ? "-" : r.costo_linea.toFixed(2)}</td>
 
                   <td style={{ padding: 10 }}>
@@ -1473,13 +1471,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
         {/* TABLAS UNIFICADAS */}
         <CommonPickTable
-          title="Opciones proveedor (job)"
-          subtitle="Columnas unificadas (sin 2 líneas por renglón)"
+          title={""}
           controls={
             <>
               <input
+                ref={searchOptRef}
                 value={searchOpt}
-                onChange={(e) => setSearchOpt(e.target.value)}
+                onChange={(e) => {
+                  const was = typeof document !== "undefined" && document.activeElement === searchOptRef.current;
+                  setSearchOpt(e.target.value);
+                  if (was) queueMicrotask(() => searchOptRef.current?.focus());
+                }}
                 placeholder="buscar proveedor/url"
                 style={{
                   padding: "8px 10px",
@@ -1511,12 +1513,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title="Bulks (productos formulados)"
+          title={""}
           controls={
             <>
               <input
+                ref={bulkSearchRef}
                 value={bulkSearch}
-                onChange={(e) => setBulkSearch(e.target.value)}
+                onChange={(e) => {
+                  const was = typeof document !== "undefined" && document.activeElement === bulkSearchRef.current;
+                  setBulkSearch(e.target.value);
+                  if (was) queueMicrotask(() => bulkSearchRef.current?.focus());
+                }}
                 placeholder="buscar producto"
                 style={{
                   padding: "8px 10px",
@@ -1545,13 +1552,17 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title="Componentes manuales (reusar)"
-          subtitle="Creación: /items/new"
+          title={""}
           controls={
             <>
               <input
+                ref={manualSearchRef}
                 value={manualSearch}
-                onChange={(e) => setManualSearch(e.target.value)}
+                onChange={(e) => {
+                  const was = typeof document !== "undefined" && document.activeElement === manualSearchRef.current;
+                  setManualSearch(e.target.value);
+                  if (was) queueMicrotask(() => manualSearchRef.current?.focus());
+                }}
                 placeholder="buscar manual por nombre"
                 style={{
                   padding: "8px 10px",

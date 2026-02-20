@@ -23,6 +23,8 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
         l.linea_id, l.producto_id, l.cost_option_id, l.pct_peso, l.is_csp, l.orden,
         co.tipo,
         co.item_id, co.item_presentacion,
+        isg.url_original as item_url_original,
+        isg.url_canonica as item_url_canonica,
         co.manual_nombre, co.manual_uom, co.manual_cantidad, co.manual_costo_ars,
         co.bulk_producto_id,
         co.densidad_g_ml,
@@ -32,6 +34,8 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
 
       FROM app.producto_formula_linea_v2 l
       JOIN app.cost_option co ON co.cost_option_id = l.cost_option_id
+
+      LEFT JOIN app.item_seguimiento isg ON isg.item_id = co.item_id
 
       LEFT JOIN last_rows lr
         ON lr.item_id = co.item_id AND lr.presentacion = co.item_presentacion
