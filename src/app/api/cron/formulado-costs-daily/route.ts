@@ -83,8 +83,8 @@ async function arsPorGramoDeLinea(
     const price = itemPriceByKey.get(keyItem(item_id, pres));
     if (price === undefined) return { ok: false, err: "precio job no encontrado" };
 
-    // Asunción actual: presentacion = gramos del pack
-    return { ok: true, arsPorG: price / pres };
+    // Unidad confirmada en datos: presentacion = kilos del pack (ej: 1, 5, 25, 21) -> convertir a gramos
+    return { ok: true, arsPorG: price / (pres * 1000) };
   }
 
   if (linea.tipo === "MANUAL_PRESENTACION") {
@@ -271,9 +271,7 @@ async function computeBulkCost(client: PoolClient, producto_id: number, stack: n
   };
 }
 
-type RunOpts = { dryRun: boolean; productoIds: number[] };
-
-async function run(opts: RunOpts) {
+async function run() {
   const started = Date.now();
   const client = await pool.connect();
 
@@ -282,7 +280,6 @@ async function run(opts: RunOpts) {
     const asOfDate = d0.rows[0]?.d;
 
     // Productos con fórmula v2 + BULK activo (según dominio, 0/1 por producto).
-    const productoIds = (opts.productoIds ?? []).filter((n) => Number.isFinite(n)) as number[];
     const rProd = await client.query(
       `
       SELECT f.producto_id, i.item_formulado_id
@@ -291,15 +288,11 @@ async function run(opts: RunOpts) {
         ON i.producto_id = f.producto_id
        AND i.tipo = 'BULK'
        AND i.activo = true
-      ${productoIds.length ? "WHERE f.producto_id = ANY($1::int[])" : ""}
       ORDER BY f.producto_id ASC
-      `,
-      productoIds.length ? [productoIds] : []
+      `
     );
 
-
     const errors: Array<{ producto_id: number; item_formulado_id: number; error: string }> = [];
-    const results: Array<{ producto_id: number; item_formulado_id: number; bulk_cost: BulkCost }> = [];
     let ok = 0;
 
     for (const row of rProd.rows ?? []) {
@@ -310,27 +303,23 @@ async function run(opts: RunOpts) {
       try {
         const bc = await computeBulkCost(client, producto_id, [], 0);
 
-        if (!opts.dryRun) {
-          // Persistir snapshot diario (idempotente por (item_formulado_id, as_of_date))
-          await client.query(
-            `
-            insert into app.item_formulado_snapshot
-              (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
-            values
-              ($1, $2::date, $3::float8, 'CRON'::text, now())
-            on conflict (item_formulado_id, as_of_date)
-            do update set
-              precio_unitario_ars = excluded.precio_unitario_ars,
-              fuente = excluded.fuente,
-              created_at = excluded.created_at
-            `,
-            [item_formulado_id, asOfDate, bc.ars_por_kg]
-          );
-        }
+        // Persistir snapshot diario (idempotente por (item_formulado_id, as_of_date))
+        await client.query(
+          `
+          insert into app.item_formulado_snapshot
+            (item_formulado_id, as_of_date, precio_unitario_ars, fuente, created_at)
+          values
+            ($1, $2::date, $3::float8, 'CRON'::text, now())
+          on conflict (item_formulado_id, as_of_date)
+          do update set
+            precio_unitario_ars = excluded.precio_unitario_ars,
+            fuente = excluded.fuente,
+            created_at = excluded.created_at
+          `,
+          [item_formulado_id, asOfDate, bc.ars_por_kg]
+        );
 
-        results.push({ producto_id, item_formulado_id, bulk_cost: bc });
         ok++;
-
       } catch (e: any) {
         errors.push({
           producto_id,
@@ -342,12 +331,10 @@ async function run(opts: RunOpts) {
 
     return {
       ok: true,
-      dry_run: opts.dryRun,
       as_of_date: asOfDate,
       productos_total: (rProd.rows ?? []).length,
       productos_ok: ok,
       productos_error: errors.length,
-      results,
       errors,
       time_ms: Date.now() - started,
     };
@@ -359,22 +346,7 @@ async function run(opts: RunOpts) {
 export async function POST(req: NextRequest) {
   try {
     assertCronAuth(req);
-    const url = new URL(req.url);
-    const dryRun =
-      url.searchParams.get("dry_run") === "1" ||
-      url.searchParams.get("dry_run") === "true" ||
-      url.searchParams.get("dryRun") === "1" ||
-      url.searchParams.get("dryRun") === "true";
-
-    const rawIds = [
-      ...url.searchParams.getAll("producto_id"),
-      ...(url.searchParams.get("producto_ids")?.split(",") ?? []),
-    ];
-    const productoIds = rawIds
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n) && n > 0);
-
-    const payload = await run({ dryRun, productoIds });
+    const payload = await run();
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message ?? e) }, { status: e?.statusCode ?? 500 });
