@@ -114,7 +114,6 @@ export default function ItemsClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [tipo, setTipo] = useState<TipoFiltro>("");
@@ -166,27 +165,38 @@ export default function ItemsClient() {
     })();
   }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled, reloadToken]);
 
-  const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
+  async function handleDelete(item: ItemRow) {
+    // Por ahora: hard-delete sólo para FORMULADO (fprod:<producto_id>).
+    if (item.kind !== "FORMULADO") {
+      setError("Eliminar definitivo sólo está habilitado para FORMULADO en esta versión.");
+      return;
+    }
 
-  async function handleDeleteItem(itemKey: string, displayName: string) {
-    const confirmed = window.confirm(`Eliminar definitivamente "${displayName}"?\n\nEsto borra también el historial.`);
-    if (!confirmed) return;
+    const ok = confirm(
+      `Eliminar definitivamente este FORMULADO?\n\n` +
+        `Esto borra: producto, fórmula, item_formulado y snapshots.\n` +
+        `Acción irreversible.`
+    );
+    if (!ok) return;
+
+    setError(null);
     try {
-      setError(null);
-      setDeletingKey(itemKey);
-      const res = await fetch(`/api/items/${encodeURIComponent(itemKey)}`, { method: "DELETE" });
+      const res = await fetch(`/api/items/${encodeURIComponent(item.item_key)}`, { method: "DELETE" });
       const j = await res.json().catch(() => null);
+
       if (!res.ok || !j?.ok) {
         setError(j?.error ?? `http_${res.status}`);
         return;
       }
+
+      // refrescar listado
       setReloadToken((x) => x + 1);
     } catch (e: any) {
-      setError(String(e?.message ?? e));
-    } finally {
-      setDeletingKey(null);
+      setError(typeof e?.message === "string" ? e.message : String(e));
     }
   }
+
+  const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -512,18 +522,15 @@ export default function ItemsClient() {
                         </span>
                       )}
                       <button
-                        type="button"
-                        onClick={() => void handleDeleteItem(it.item_key, nombre)}
-                        title="Eliminar"
-                        disabled={deletingKey === it.item_key}
+                        onClick={() => void handleDelete(it)}
+                        title={it.kind === "FORMULADO" ? "Eliminar definitivamente" : "Eliminar definitivo solo para FORMULADO"}
+                        disabled={it.kind !== "FORMULADO"}
                         style={{
-                          border: "1px solid rgba(255,255,255,0.14)",
-                          borderRadius: 10,
-                          padding: "4px 8px",
-                          background: "rgba(255,255,255,0.03)",
-                          color: "rgba(255,255,255,0.92)",
-                          cursor: deletingKey === it.item_key ? "not-allowed" : "pointer",
-                          opacity: deletingKey === it.item_key ? 0.5 : 0.9,
+                          opacity: it.kind === "FORMULADO" ? 0.9 : 0.3,
+                          cursor: it.kind === "FORMULADO" ? "pointer" : "not-allowed",
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
                         }}
                       >
                         🗑️

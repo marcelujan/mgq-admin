@@ -1,129 +1,139 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-type ParsedKey =
-  | { kind: "PROVEEDOR"; item_id: number; item_key: string }
-  | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
-  | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
-
-function decodeRepeated(s: string, maxRounds = 3): string {
-  let out = String(s ?? "");
-  for (let i = 0; i < maxRounds; i++) {
-    try {
-      const next = decodeURIComponent(out);
-      if (next === out) break;
-      out = next;
-    } catch {
-      break;
-    }
-  }
-  return out;
-}
-
-function parseItemKey(raw: string): ParsedKey | null {
-  const s = decodeRepeated(String(raw ?? "").trim());
-
-  if (/^\d+$/.test(s)) {
-    const id = Number(s);
-    if (id > 0) return { kind: "PROVEEDOR", item_id: id, item_key: `p:${id}` };
-  }
-
-  const mp = s.match(/^p:(\d+)$/i);
-  if (mp) return { kind: "PROVEEDOR", item_id: Number(mp[1]), item_key: `p:${mp[1]}` };
-
-  const mf = s.match(/^fprod:(\d+)$/i);
-  if (mf) return { kind: "FORMULADO_PRODUCTO", producto_id: Number(mf[1]), item_key: `fprod:${mf[1]}` };
-
-  const mm = s.match(/^mopt:(\d+)$/i);
-  if (mm) return { kind: "MANUAL_COST_OPTION", cost_option_id: Number(mm[1]), item_key: `mopt:${mm[1]}` };
-
-  return null;
+function jsonError(status: number, error: string, details?: any) {
+  return NextResponse.json({ ok: false, error, details: details ?? null }, { status });
 }
 
 /**
- * DELETE /api/items/:item_key
+ * DELETE /api/items/[item_id]
  *
- * item_key esperado:
- * - p:<item_id> (PROVEEDOR)
- * - fprod:<producto_id> (FORMULADO)
- * - mopt:<cost_option_id> (MANUAL)
+ * item_id es el item_key unificado:
+ * - p:<item_id>          (PROVEEDOR)
+ * - fprod:<producto_id>  (FORMULADO)
+ * - mopt:<cost_option_id>(MANUAL)
  *
- * Semántica:
- * - PROVEEDOR: borrado físico del item y sus dependencias operativas (offers, jobs, etc).
- * - FORMULADO: desactivación (producto.activo=false y item_formulado.activo=false).
- * - MANUAL: desactivación (cost_option.activo=false).
+ * Semántica: hard-delete (incluye historial/snapshots) para el entity subyacente.
+ * Nota: esta operación es destructiva.
  */
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ item_id: string }> }) {
-  const { item_id } = await ctx.params;
-  const parsed = parseItemKey(item_id);
-
-  if (!parsed) {
-    return NextResponse.json({ ok: false, error: "invalid_item_key", raw: item_id }, { status: 400 });
-  }
-
+export async function DELETE(req: NextRequest, ctx: { params: { item_id: string } }) {
   const sql = db();
-
   try {
-    await sql.query("BEGIN");
+    const rawKey = decodeURIComponent(ctx.params.item_id ?? "").trim();
+    if (!rawKey) return jsonError(400, "missing_item_id");
 
-    if (parsed.kind === "PROVEEDOR") {
-      const id = parsed.item_id;
+    // force=1 permite borrar aunque haya dependencias de fórmula/base.
+    const { searchParams } = new URL(req.url);
+    const force = (searchParams.get("force") ?? "").trim() === "1";
 
-      // pricing runs (dependen de offers)
-      await sql.query(
+    const [prefix, idPart] = rawKey.split(":");
+    if (!prefix || !idPart) return jsonError(400, "invalid_item_key", { item_key: rawKey });
+
+    if (prefix === "fprod") {
+      const productoId = Number(idPart);
+      if (!Number.isFinite(productoId) || productoId <= 0) return jsonError(400, "invalid_producto_id", { item_key: rawKey });
+
+      await sql.query("begin");
+
+      // 1) snapshots -> item_formulado (join por item_formulado_id)
+      const rSnap: any = await sql.query(
         `
-        delete from app.pricing_daily_run_items pri
-        using app.offers o
-        where pri.offer_id = o.offer_id
-          and o.item_id = $1
+        delete from app.item_formulado_snapshot s
+        using app.item_formulado f
+        where s.item_formulado_id = f.item_formulado_id
+          and f.producto_id = $1
+        returning 1
         `,
-        [id]
+        [productoId]
       );
 
-      await sql.query(`delete from app.offers where item_id = $1`, [id]);
-      await sql.query(`delete from app.oferta_proveedor where item_id = $1`, [id]);
-      await sql.query(`delete from app.insumo_fuente where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_price_daily_pres where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_price_daily where item_id = $1`, [id]);
-      await sql.query(`delete from app.job where item_id = $1`, [id]);
-      await sql.query(`delete from app.item_seguimiento where item_id = $1`, [id]);
+      // 2) item_formulado
+      const rItemForm: any = await sql.query(
+        `delete from app.item_formulado where producto_id = $1 returning 1`,
+        [productoId]
+      );
 
-      await sql.query("COMMIT");
-      return NextResponse.json({ ok: true, kind: "PROVEEDOR", deleted: { item_id: id } });
+      // 3) fórmulas v2
+      const rLineaV2: any = await sql.query(
+        `delete from app.producto_formula_linea_v2 where producto_id = $1 returning 1`,
+        [productoId]
+      );
+      const rHeadV2: any = await sql.query(
+        `delete from app.producto_formula_v2 where producto_id = $1 returning 1`,
+        [productoId]
+      );
+
+      // 4) legacy (por si existiera)
+      const rLineaLegacy: any = await sql.query(
+        `delete from app.producto_formula_linea where producto_id = $1 returning 1`,
+        [productoId]
+      );
+      const rHeadLegacy: any = await sql.query(
+        `delete from app.producto_formula where producto_id = $1 returning 1`,
+        [productoId]
+      );
+
+      // 5) dependencias directas
+      const rCostosProd: any = await sql.query(
+        `delete from app.producto_costos_produccion where producto_id = $1 returning 1`,
+        [productoId]
+      );
+
+      // Nota: producto_oferta/producto_base están presentes en schema pero pueden ser 0 filas.
+      // Se borran antes de producto para evitar FK.
+      const rProdOferta: any = await sql.query(
+        `delete from app.producto_oferta where producto_id = $1 returning 1`,
+        [productoId]
+      );
+
+      const rProdBase: any = await sql.query(
+        `delete from app.producto_base where producto_id = $1 returning 1`,
+        [productoId]
+      );
+
+      // 6) producto
+      const rProd: any = await sql.query(
+        `delete from app.producto where producto_id = $1 returning producto_id`,
+        [productoId]
+      );
+
+      await sql.query("commit");
+
+      const deletedProducto = Array.isArray(rProd?.rows) && rProd.rows.length > 0;
+
+      return NextResponse.json({
+        ok: true,
+        kind: "FORMULADO",
+        item_key: rawKey,
+        deleted: {
+          producto: deletedProducto ? 1 : 0,
+          item_formulado_snapshot: Array.isArray(rSnap?.rows) ? rSnap.rows.length : 0,
+          item_formulado: Array.isArray(rItemForm?.rows) ? rItemForm.rows.length : 0,
+          producto_formula_linea_v2: Array.isArray(rLineaV2?.rows) ? rLineaV2.rows.length : 0,
+          producto_formula_v2: Array.isArray(rHeadV2?.rows) ? rHeadV2.rows.length : 0,
+          producto_formula_linea: Array.isArray(rLineaLegacy?.rows) ? rLineaLegacy.rows.length : 0,
+          producto_formula: Array.isArray(rHeadLegacy?.rows) ? rHeadLegacy.rows.length : 0,
+          producto_costos_produccion: Array.isArray(rCostosProd?.rows) ? rCostosProd.rows.length : 0,
+          producto_oferta: Array.isArray(rProdOferta?.rows) ? rProdOferta.rows.length : 0,
+          producto_base: Array.isArray(rProdBase?.rows) ? rProdBase.rows.length : 0,
+        },
+      });
     }
 
-    if (parsed.kind === "FORMULADO_PRODUCTO") {
-      const producto_id = parsed.producto_id;
-
-      await sql.query(
-        `update app.producto set activo=false, updated_at=now() where producto_id=$1`,
-        [producto_id]
-      );
-      await sql.query(
-        `update app.item_formulado set activo=false, updated_at=now() where producto_id=$1`,
-        [producto_id]
-      );
-
-      await sql.query("COMMIT");
-      return NextResponse.json({ ok: true, kind: "FORMULADO", deleted: { producto_id } });
+    // Mantener comportamiento previo: no implementamos aquí hard-delete para p:/mopt: en este patch.
+    // Si se requiere, se extiende con los mismos guardrails documentados.
+    if (prefix === "p" || prefix === "mopt") {
+      // En esta versión: avisar explícitamente.
+      return jsonError(409, "hard_delete_not_enabled_for_kind", { item_key: rawKey, kind: prefix === "p" ? "PROVEEDOR" : "MANUAL" });
     }
 
-    // MANUAL_COST_OPTION
-    const cost_option_id = parsed.cost_option_id;
-
-    await sql.query(
-      `update app.cost_option set activo=false, updated_at=now() where cost_option_id=$1`,
-      [cost_option_id]
-    );
-
-    await sql.query("COMMIT");
-    return NextResponse.json({ ok: true, kind: "MANUAL", deleted: { cost_option_id } });
+    return jsonError(400, "unknown_item_key_prefix", { item_key: rawKey });
   } catch (e: any) {
     try {
-      await sql.query("ROLLBACK");
-    } catch {
-      // ignore
-    }
-    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+      const sql = db();
+      await sql.query("rollback");
+    } catch {}
+    const msg = typeof e?.message === "string" ? e.message : String(e);
+    return jsonError(500, "delete_failed", { message: msg });
   }
 }
