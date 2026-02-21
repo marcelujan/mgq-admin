@@ -28,7 +28,11 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
         co.densidad_g_ml,
 
         ip.price_ars::float8 as job_price_ars,
-        lr.max_date::text as job_as_of_date
+        lr.max_date::text as job_as_of_date,
+
+        iseg.url_original::text as item_url_original,
+        iseg.url_canonica::text as item_url_canonica,
+        pb.nombre::text as bulk_producto_nombre
 
       FROM app.producto_formula_linea_v2 l
       JOIN app.cost_option co ON co.cost_option_id = l.cost_option_id
@@ -38,6 +42,12 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
 
       LEFT JOIN app.item_price_daily_pres ip
         ON ip.item_id = lr.item_id AND ip.presentacion = lr.presentacion AND ip.as_of_date = lr.max_date
+
+      LEFT JOIN app.item_seguimiento iseg
+        ON iseg.item_id = co.item_id
+
+      LEFT JOIN app.producto pb
+        ON pb.producto_id = co.bulk_producto_id
 
       WHERE l.producto_id=$1
       ORDER BY l.orden ASC, l.linea_id ASC

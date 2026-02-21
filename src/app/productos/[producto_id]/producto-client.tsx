@@ -1137,7 +1137,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "grid", gap: 4 }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{producto?.nombre ?? `Producto ${productoId}`}</div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>Editor + ofertas + costeo</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
