@@ -27,6 +27,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
         isg.url_canonica as item_url_canonica,
         co.manual_nombre, co.manual_uom, co.manual_cantidad, co.manual_costo_ars,
         co.bulk_producto_id,
+        pb.nombre as bulk_producto_nombre,
         co.densidad_g_ml,
 
         ip.price_ars::float8 as job_price_ars,
@@ -36,6 +37,8 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
       JOIN app.cost_option co ON co.cost_option_id = l.cost_option_id
 
       LEFT JOIN app.item_seguimiento isg ON isg.item_id = co.item_id
+
+      LEFT JOIN app.producto pb ON pb.producto_id = co.bulk_producto_id
 
       LEFT JOIN last_rows lr
         ON lr.item_id = co.item_id AND lr.presentacion = co.item_presentacion

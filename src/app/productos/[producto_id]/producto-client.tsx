@@ -70,6 +70,8 @@ type CostOptionExtra = {
   manual_costo_ars: number | null;
 
   bulk_producto_id: number | null;
+  bulk_producto_nombre: string | null;
+
 
   densidad_g_ml: number | null;
   activo: boolean;
@@ -82,8 +84,6 @@ type LineaV2 = {
   pct_peso: number | null;
   is_csp: boolean;
   orden: number;
-  item_url_original?: string | null;
-  item_url_canonica?: string | null;  
 
   tipo: "ITEM_PRESENTACION" | "MANUAL_PRESENTACION" | "BULK_PRODUCTO";
   item_id: number | null;
@@ -947,7 +947,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
     if (l.tipo === "MANUAL_PRESENTACION")
       return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
-    if (l.tipo === "BULK_PRODUCTO") return `Bulk producto ${l.bulk_producto_id}`;
+    if (l.tipo === "BULK_PRODUCTO") return l.bulk_producto_nombre ?? (l.bulk_producto_id ? `Bulk producto ${l.bulk_producto_id}` : "Bulk");
     return `Opción ${l.cost_option_id}`;
   }
 
@@ -1033,7 +1033,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             overflow: "auto",
             maxHeight: 360,
           }}
-        >
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             {commonHead}
             <tbody>
@@ -1067,7 +1066,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         border: "1px solid rgba(255,255,255,0.14)",
                         background: "rgba(255,255,255,0.03)",
                       }}
-                    >
                       Agregar
                     </button>
                   </td>
@@ -1175,7 +1173,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
-          >
             Refrescar
           </button>
         </div>
@@ -1189,7 +1186,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           display: "grid",
           gap: 12,
         }}
-      >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
                             </div>
 
@@ -1245,83 +1241,68 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
-            <div
-              style={{
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 12,
-                padding: "10px 12px",
-                display: "grid",
-                gap: 10,
-                background: "rgba(255,255,255,0.02)",
-                minWidth: 360,
-              }}
-            >
-              <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 700 }}>Costos de producción</div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Fijo por lote (ARS)
+              <input
+                type="number"
+                step="0.001"
+                key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
+                defaultValue={
+                  (costosProd?.costo_fijo_por_lote_ars ?? null) === null
+                    ? ""
+                    : String(Number(costosProd?.costo_fijo_por_lote_ars).toFixed(2))
+                }
+                placeholder="(opcional)"
+                onBlur={async (e) => {
+                  const v = parseBlurNumber(e.target.value);
+                  try {
+                    await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_fijo_por_lote_ars: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 170,
+                }}
+              />
+            </label>
 
-                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                  Fijo por lote (ARS)
-                  <input
-                    type="number"
-                    step="0.01"
-                    key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
-                    defaultValue={String(costosProd?.costo_fijo_por_lote_ars ?? "")}
-                    placeholder="(opcional)"
-                    onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value);
-                      try {
-                        await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_fijo_por_lote_ars: v });
-                      } catch (err: any) {
-                        setError(err?.message || "error");
-                      }
-                    }}
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      background: "rgba(255,255,255,0.03)",
-                      width: 170,
-                    }}
-                  />
-                </label>
+            <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              Variable por lote (ARS)
+              <input
+                type="number"
+                step="0.01"
+                key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}-${loteRefG}`}
+                defaultValue={
+                  (costosProd?.costo_variable_por_kg_ars ?? null) === null
+                    ? ""
+                    : String((Number(costosProd?.costo_variable_por_kg_ars) * loteRefKg).toFixed(2))
+                }
+                placeholder="(opcional)"
+                onBlur={async (e) => {
+                  const v = parseBlurNumber(e.target.value); // ARS por lote
+                  const vKg = v === null ? null : v / loteRefKg;
+                  try {
+                    await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_variable_por_kg_ars: vKg });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                  width: 170,
+                }}
+              />
+            </label>
 
-                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                  Variable por lote (ARS)
-                  <input
-                    type="number"
-                    step="0.01"
-                    key={`cp-var-${costosProd?.costo_variable_por_kg_ars ?? ""}-${loteRefG}`}
-                    defaultValue={
-                      (costosProd?.costo_variable_por_kg_ars ?? null) === null
-                        ? ""
-                        : String((Number(costosProd?.costo_variable_por_kg_ars) * loteRefKg).toFixed(2))
-                    }
-                    placeholder="(opcional)"
-                    onBlur={async (e) => {
-                      const v = parseBlurNumber(e.target.value); // ARS por lote
-                      const vKg = v === null ? null : v / loteRefKg;
-                      try {
-                        await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_variable_por_kg_ars: vKg });
-                      } catch (err: any) {
-                        setError(err?.message || "error");
-                      }
-                    }}
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      background: "rgba(255,255,255,0.03)",
-                      width: 170,
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ fontSize: 12, opacity: 0.85 }}>
-                ARS/kg prod: {fmtMaybe(calc.prodARSporKg, 2)} · ARS/kg total: {fmtMaybe(calc.arsPorKgConProd, 2)}
-              </div>
-            </div>
           </div>
 
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, opacity: 0.85 }}>
@@ -1364,10 +1345,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <tr key={r.l.linea_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                   <td style={{ padding: 10 }}>
                     <div style={{ fontWeight: 600 }}>{lineaLabel(r.l)}</div>
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      opt #{r.l.cost_option_id} · tipo {r.l.tipo}
-                      {r.l.tipo === "ITEM_PRESENTACION" && r.l.job_as_of_date ? ` · job ${r.l.job_as_of_date}` : ""}
-                    </div>
                   </td>
 
                   <td style={{ padding: 10 }}>
@@ -1450,7 +1427,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         border: "1px solid rgba(255,255,255,0.14)",
                         background: "rgba(255,80,80,0.10)",
                       }}
-                    >
                       Borrar
                     </button>
                   </td>
@@ -1501,7 +1477,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.03)",
                 }}
-              >
                 Buscar
               </button>
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {itemOptions.length}</div>
@@ -1540,7 +1515,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.03)",
                 }}
-              >
                 Buscar bulks
               </button>
               {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
@@ -1645,7 +1619,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
-          >
             Crear
           </button>
 
@@ -1663,7 +1636,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
-          >
             Refrescar catálogo
           </button>
         </div>
@@ -1784,7 +1756,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                             border: "1px solid rgba(255,255,255,0.14)",
                             background: "rgba(255,255,255,0.03)",
                           }}
-                        >
                           {isOpen ? "Cerrar" : "Packaging"}
                         </button>
 
@@ -1803,7 +1774,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                             border: "1px solid rgba(255,255,255,0.14)",
                             background: "rgba(255,255,255,0.03)",
                           }}
-                        >
                           Snapshot
                         </button>
                       </td>
@@ -1831,7 +1801,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                     background: "rgba(255,255,255,0.03)",
                                     width: 280,
                                   }}
-                                >
                                   <option value="">(seleccionar)</option>
                                   {packagingItems
                                     .filter((x) => x.activo)
@@ -1883,7 +1852,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                   border: "1px solid rgba(255,255,255,0.14)",
                                   background: "rgba(255,255,255,0.03)",
                                 }}
-                              >
                                 Agregar
                               </button>
                             </div>
@@ -1976,7 +1944,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                               border: "1px solid rgba(255,255,255,0.14)",
                                               background: "rgba(255,80,80,0.10)",
                                             }}
-                                          >
                                             Borrar
                                           </button>
                                         </td>
