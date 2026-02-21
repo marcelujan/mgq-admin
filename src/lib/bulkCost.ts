@@ -286,8 +286,10 @@ export async function upsertBulkSnapshotToday(
   producto_id: number,
   fuente: string
 ): Promise<{ item_formulado_id: number; as_of_date: string; precio_unitario_ars: number }> {
-  const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
-  const as_of_date = d0.rows?.[0]?.d;
+  // Nota TS: el cliente SQL usado en el proyecto expone `query(text, params?)` sin genéricos.
+  // Evitar `client.query<T>()` porque rompe el build ("Expected 0 type arguments").
+  const d0 = await client.query(`select current_date::text as d;`);
+  const as_of_date = String(d0.rows?.[0]?.d ?? "").trim();
   if (!as_of_date) throw new Error("no se pudo obtener current_date");
 
   const item_formulado_id = await ensureItemFormuladoBulk(client, producto_id);
