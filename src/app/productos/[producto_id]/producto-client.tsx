@@ -61,17 +61,12 @@ type CostOptionExtra = {
   item_id: number | null;
   item_presentacion: number | null; // NOTE: en ITEM_PRESENTACION viene en KG (ej: 1, 5, 25)
 
-  item_url_original: string | null;
-  item_url_canonica: string | null;
-
   manual_nombre: string | null;
   manual_uom: "GR" | "ML" | "UN" | null;
   manual_cantidad: number | null;
   manual_costo_ars: number | null;
 
   bulk_producto_id: number | null;
-  bulk_producto_nombre: string | null;
-
 
   densidad_g_ml: number | null;
   activo: boolean;
@@ -89,6 +84,10 @@ type LineaV2 = {
   item_id: number | null;
   item_presentacion: number | null; // NOTE: para ITEM_PRESENTACION viene en KG (ej: 1, 5, 25)
 
+
+  item_url_original?: string | null;
+  item_url_canonica?: string | null;
+  bulk_producto_nombre?: string | null;
   job_price_ars: number | null;
   job_as_of_date: string | null;
 
@@ -212,25 +211,6 @@ function fmtGrFromKg(kg: number | null, dec = 0): string {
   return `${gr.toFixed(dec)} g`;
 }
 
-function urlLastSegment(url: string) {
-  try {
-    const noHash = url.split("#")[0];
-    const noQuery = noHash.split("?")[0];
-    const trimmed = noQuery.replace(/\/+$/, "");
-    const parts = trimmed.split("/");
-    const last = parts[parts.length - 1] || "";
-    return decodeURIComponent(last);
-  } catch {
-    return url;
-  }
-}
-
-function fmtFixed(n: number | null | undefined, decimals: number) {
-  if (n === null || n === undefined || !Number.isFinite(n as any)) return "-";
-  return Number(n).toFixed(decimals);
-}
-
-
 function toARSporKgFromPresentation(priceARS: number | null, presKg: number | null) {
   // presKg viene del proveedor/job en KG
   if (priceARS === null || presKg === null || presKg <= 0) return null;
@@ -281,11 +261,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   // Manuales (solo selección; no crear aquí)
   const [manualSearch, setManualSearch] = useState("");
-
-  const searchOptRef = useRef<HTMLInputElement | null>(null);
-  const bulkSearchRef = useRef<HTMLInputElement | null>(null);
-  const manualSearchRef = useRef<HTMLInputElement | null>(null);
-
 
   // Packaging
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
@@ -694,7 +669,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
   const loteRefKg = loteRefG / 1000;
 
-
   const cspLinea = useMemo(() => lineasV2.find((l) => l.is_csp), [lineasV2]);
   const pctFijos = useMemo(() => {
     return lineasV2.filter((l) => !l.is_csp).reduce((acc, l) => acc + (numOrNull(l.pct_peso) ?? 0), 0);
@@ -837,12 +811,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       costo_variable_por_kg_ars: number | null;
     }>
   ) {
-    const loteRefG_eff = patch.lote_ref_g ?? (formulaV2?.lote_ref_g ?? 1000);
-    const loteRefKg_eff = loteRefG_eff / 1000;
-
     const body = {
-      lote_ref_g: loteRefG_eff,
-      lote_ref_kg: patch.lote_ref_kg ?? costosProd?.lote_ref_kg ?? loteRefKg_eff,
+      lote_ref_g: patch.lote_ref_g ?? (formulaV2?.lote_ref_g ?? 1000),
+      lote_ref_kg: patch.lote_ref_kg ?? costosProd?.lote_ref_kg ?? null,
       costo_fijo_por_lote_ars: patch.costo_fijo_por_lote_ars ?? costosProd?.costo_fijo_por_lote_ars ?? null,
       costo_variable_por_kg_ars: patch.costo_variable_por_kg_ars ?? costosProd?.costo_variable_por_kg_ars ?? null,
     };
@@ -939,15 +910,26 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     await loadAll();
   }
 
+  function urlToSlug(u: string) {
+    try {
+      const s = u.split("?")[0].split("#")[0];
+      const parts = s.split("/").filter(Boolean);
+      const last = parts[parts.length - 1] ?? "";
+      return decodeURIComponent(last);
+    } catch {
+      return "";
+    }
+  }
+
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") {
-      const url = l.item_url_canonica || l.item_url_original || "";
-      const nombre = url ? urlLastSegment(url) : `Item ${l.item_id}`;
-      return `${nombre} — ${fmtGrFromKg(numOrNull(l.item_presentacion), 0)}`;
+      const url = (l.item_url_canonica ?? l.item_url_original ?? "").trim();
+      const slug = url ? urlToSlug(url) : "";
+      const pres = fmtGrFromKg(numOrNull(l.item_presentacion), 0);
+      return `${slug || `Item ${l.item_id}`} — ${pres}`;
     }
-    if (l.tipo === "MANUAL_PRESENTACION")
-      return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
-    if (l.tipo === "BULK_PRODUCTO") return l.bulk_producto_nombre ?? (l.bulk_producto_id ? `Bulk producto ${l.bulk_producto_id}` : "Bulk");
+    if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
+    if (l.tipo === "BULK_PRODUCTO") return l.bulk_producto_nombre ?? `Bulk producto ${l.bulk_producto_id}`;
     return `Opción ${l.cost_option_id}`;
   }
 
@@ -1007,7 +989,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     rows,
     footer,
   }: {
-    title?: string;
+    title: string;
     subtitle?: string;
     controls?: React.ReactNode;
     rows: ComponentPickRow[];
@@ -1015,14 +997,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }) {
     return (
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-        {title || subtitle ? (
-          <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
-            <div style={{ display: "grid", gap: 2 }}>
-              {title ? <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div> : null}
-              {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
-            </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
+          <div style={{ display: "grid", gap: 2 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
+            {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
           </div>
-        ) : null}
+        </div>
 
         {controls ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{controls}</div> : null}
 
@@ -1033,6 +1013,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             overflow: "auto",
             maxHeight: 360,
           }}
+        >
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             {commonHead}
             <tbody>
@@ -1066,6 +1047,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         border: "1px solid rgba(255,255,255,0.14)",
                         background: "rgba(255,255,255,0.03)",
                       }}
+                    >
                       Agregar
                     </button>
                   </td>
@@ -1091,8 +1073,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
     return itemOptions.slice(0, 200).map((x, idx) => {
       const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
-      const url = x.url_canonica || x.url_original || "";
-      const nombre = url ? urlLastSegment(url) : "";
+      const url = (x.url_original || x.url_canonica || "").trim();
+      const nombre = url ? urlToSlug(url) : "";
       const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
       const origen = `Proveedor: ${prov}`;
       return {
@@ -1155,7 +1137,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "grid", gap: 4 }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{producto?.nombre ?? `Producto ${productoId}`}</div>
-                  </div>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>Editor + ofertas + costeo</div>
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
           {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
@@ -1173,6 +1156,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
+          >
             Refrescar
           </button>
         </div>
@@ -1186,9 +1170,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           display: "grid",
           gap: 12,
         }}
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-                            </div>
-
+      >
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
@@ -1219,9 +1201,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               Densidad producto (g/ml)
               <input
                 type="number"
-                step="0.0001"
+                step="0.001"
                 key={`dens-prod-${producto?.producto_id ?? "x"}-${producto?.densidad_producto_g_ml ?? ""}`}
-                defaultValue={String(producto?.densidad_producto_g_ml ?? "")}
+                defaultValue={producto?.densidad_producto_g_ml == null ? "" : String(Number(producto.densidad_producto_g_ml).toFixed(3))}
                 placeholder="(opcional)"
                 onBlur={async (e) => {
                   const v = parseBlurNumber(e.target.value);
@@ -1241,18 +1223,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               />
             </label>
 
-
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Fijo por lote (ARS)
               <input
                 type="number"
-                step="0.001"
+                step="0.01"
                 key={`cp-fijo-${costosProd?.costo_fijo_por_lote_ars ?? ""}`}
-                defaultValue={
-                  (costosProd?.costo_fijo_por_lote_ars ?? null) === null
-                    ? ""
-                    : String(Number(costosProd?.costo_fijo_por_lote_ars).toFixed(2))
-                }
+                defaultValue={(costosProd?.costo_fijo_por_lote_ars ?? null) === null ? "" : String(Number(costosProd?.costo_fijo_por_lote_ars).toFixed(2))}
                 placeholder="(opcional)"
                 onBlur={async (e) => {
                   const v = parseBlurNumber(e.target.value);
@@ -1286,7 +1263,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 placeholder="(opcional)"
                 onBlur={async (e) => {
                   const v = parseBlurNumber(e.target.value); // ARS por lote
-                  const vKg = v === null ? null : v / loteRefKg;
+                  const vKg = v == null ? null : v / loteRefKg;
                   try {
                     await saveHeaderV2({ lote_ref_kg: loteRefKg, costo_variable_por_kg_ars: vKg });
                   } catch (err: any) {
@@ -1298,10 +1275,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   borderRadius: 10,
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.03)",
-                  width: 170,
+                  width: 190,
                 }}
               />
             </label>
+
 
           </div>
 
@@ -1389,7 +1367,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
                   <td style={{ padding: 10 }}>
                     <input
-                      defaultValue={r.l.densidad_g_ml === null ? "" : Number(r.l.densidad_g_ml).toFixed(3)}
+                      type="number"
+                      step="0.001"
+                      defaultValue={r.l.densidad_g_ml == null ? "" : String(Number(r.l.densidad_g_ml).toFixed(3))}
                       placeholder="(opción)"
                       onBlur={async (e) => {
                         const v = e.target.value.trim() === "" ? null : Number(e.target.value);
@@ -1427,6 +1407,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         border: "1px solid rgba(255,255,255,0.14)",
                         background: "rgba(255,80,80,0.10)",
                       }}
+                    >
                       Borrar
                     </button>
                   </td>
@@ -1446,17 +1427,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
         {/* TABLAS UNIFICADAS */}
         <CommonPickTable
-          title={""}
+          title="Opciones proveedor (job)"
+          subtitle="Columnas unificadas (sin 2 líneas por renglón)"
           controls={
             <>
               <input
-                ref={searchOptRef}
                 value={searchOpt}
-                onChange={(e) => {
-                  const was = typeof document !== "undefined" && document.activeElement === searchOptRef.current;
-                  setSearchOpt(e.target.value);
-                  if (was) queueMicrotask(() => searchOptRef.current?.focus());
-                }}
+                onChange={(e) => setSearchOpt(e.target.value)}
                 placeholder="buscar proveedor/url"
                 style={{
                   padding: "8px 10px",
@@ -1477,6 +1454,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.03)",
                 }}
+              >
                 Buscar
               </button>
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {itemOptions.length}</div>
@@ -1487,17 +1465,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title={""}
+          title="Bulks (productos formulados)"
           controls={
             <>
               <input
-                ref={bulkSearchRef}
                 value={bulkSearch}
-                onChange={(e) => {
-                  const was = typeof document !== "undefined" && document.activeElement === bulkSearchRef.current;
-                  setBulkSearch(e.target.value);
-                  if (was) queueMicrotask(() => bulkSearchRef.current?.focus());
-                }}
+                onChange={(e) => setBulkSearch(e.target.value)}
                 placeholder="buscar producto"
                 style={{
                   padding: "8px 10px",
@@ -1515,6 +1488,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.03)",
                 }}
+              >
                 Buscar bulks
               </button>
               {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
@@ -1525,17 +1499,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title={""}
+          title="Componentes manuales (reusar)"
+          subtitle="Creación: /items/new"
           controls={
             <>
               <input
-                ref={manualSearchRef}
                 value={manualSearch}
-                onChange={(e) => {
-                  const was = typeof document !== "undefined" && document.activeElement === manualSearchRef.current;
-                  setManualSearch(e.target.value);
-                  if (was) queueMicrotask(() => manualSearchRef.current?.focus());
-                }}
+                onChange={(e) => setManualSearch(e.target.value)}
                 placeholder="buscar manual por nombre"
                 style={{
                   padding: "8px 10px",
@@ -1619,6 +1589,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
+          >
             Crear
           </button>
 
@@ -1636,6 +1607,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               border: "1px solid rgba(255,255,255,0.14)",
               background: "rgba(255,255,255,0.03)",
             }}
+          >
             Refrescar catálogo
           </button>
         </div>
@@ -1756,6 +1728,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                             border: "1px solid rgba(255,255,255,0.14)",
                             background: "rgba(255,255,255,0.03)",
                           }}
+                        >
                           {isOpen ? "Cerrar" : "Packaging"}
                         </button>
 
@@ -1774,6 +1747,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                             border: "1px solid rgba(255,255,255,0.14)",
                             background: "rgba(255,255,255,0.03)",
                           }}
+                        >
                           Snapshot
                         </button>
                       </td>
@@ -1801,6 +1775,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                     background: "rgba(255,255,255,0.03)",
                                     width: 280,
                                   }}
+                                >
                                   <option value="">(seleccionar)</option>
                                   {packagingItems
                                     .filter((x) => x.activo)
@@ -1852,6 +1827,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                   border: "1px solid rgba(255,255,255,0.14)",
                                   background: "rgba(255,255,255,0.03)",
                                 }}
+                              >
                                 Agregar
                               </button>
                             </div>
@@ -1944,6 +1920,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                                               border: "1px solid rgba(255,255,255,0.14)",
                                               background: "rgba(255,80,80,0.10)",
                                             }}
+                                          >
                                             Borrar
                                           </button>
                                         </td>
