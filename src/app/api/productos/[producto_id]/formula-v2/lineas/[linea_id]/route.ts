@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
 import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
+import { ensureItemFormuladoBulk, upsertBulkSnapshotToday } from "@/lib/bulkCost";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
@@ -48,7 +49,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_
     // snapshots automáticos
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_PATCH" });
 
-    return NextResponse.json({ ok: true });
+    // Intentar snapshot BULK HOY (si la fórmula es calculable).
+    let bulk_snapshot_error: string | null = null;
+    try {
+      await ensureItemFormuladoBulk({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
+      await upsertBulkSnapshotToday(
+        { query: (t: string, p?: any[]) => sql.query(t, p) },
+        producto_id,
+        "FORMULA_LINEA_PATCH"
+      );
+    } catch (e: any) {
+      bulk_snapshot_error = String(e?.message ?? e);
+    }
+
+    return NextResponse.json({ ok: true, bulk_snapshot_error });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
@@ -78,7 +92,20 @@ export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_i
     // snapshots automáticos
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_DELETE" });
 
-    return NextResponse.json({ ok: true });
+    // Intentar snapshot BULK HOY (si la fórmula aún es calculable).
+    let bulk_snapshot_error: string | null = null;
+    try {
+      await ensureItemFormuladoBulk({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
+      await upsertBulkSnapshotToday(
+        { query: (t: string, p?: any[]) => sql.query(t, p) },
+        producto_id,
+        "FORMULA_LINEA_DELETE"
+      );
+    } catch (e: any) {
+      bulk_snapshot_error = String(e?.message ?? e);
+    }
+
+    return NextResponse.json({ ok: true, bulk_snapshot_error });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

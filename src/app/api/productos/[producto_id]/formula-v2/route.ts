@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { normalizeQueryResult, numOrNull } from "@/lib/api";
 import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
+import { ensureItemFormuladoBulk, upsertBulkSnapshotToday } from "@/lib/bulkCost";
 
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
@@ -91,7 +92,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
     // snapshots automáticos (todas las ofertas del producto)
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_V2_SAVE" });
 
-    return NextResponse.json({ ok: true });
+    // Garantizar existencia del BULK reutilizable y, si la fórmula es calculable, generar snapshot HOY.
+    // Esto evita que un producto formulado recién creado quede en FAIL por falta de item_formulado.
+    let bulk_snapshot: any = null;
+    let bulk_snapshot_error: string | null = null;
+    try {
+      await ensureItemFormuladoBulk({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
+      bulk_snapshot = await upsertBulkSnapshotToday(
+        { query: (t: string, p?: any[]) => sql.query(t, p) },
+        producto_id,
+        "FORMULA_V2_SAVE"
+      );
+    } catch (e: any) {
+      bulk_snapshot_error = String(e?.message ?? e);
+    }
+
+    return NextResponse.json({ ok: true, bulk_snapshot, bulk_snapshot_error });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

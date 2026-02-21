@@ -250,6 +250,8 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
+  const searchOptRef = useRef<HTMLInputElement | null>(null);
+
 
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
   const [bulkSelf, setBulkSelf] = useState<{ ars_por_kg: number | null } | null>(null);
@@ -258,9 +260,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const bulkSearchRef = useRef<HTMLInputElement | null>(null);
+
 
   // Manuales (solo selección; no crear aquí)
   const [manualSearch, setManualSearch] = useState("");
+  const manualSearchRef = useRef<HTMLInputElement | null>(null);
+
 
   // Packaging
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
@@ -1431,8 +1437,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           controls={
             <>
               <input
+                ref={searchOptRef}
                 value={searchOpt}
-                onChange={(e) => setSearchOpt(e.target.value)}
+                onChange={(e) => {
+                  setSearchOpt(e.target.value);
+                  requestAnimationFrame(() => searchOptRef.current?.focus());
+                }}
                 placeholder="buscar proveedor/url"
                 style={{
                   padding: "8px 10px",
@@ -1468,8 +1478,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           controls={
             <>
               <input
+                ref={bulkSearchRef}
                 value={bulkSearch}
-                onChange={(e) => setBulkSearch(e.target.value)}
+                onChange={(e) => {
+                  setBulkSearch(e.target.value);
+                  requestAnimationFrame(() => bulkSearchRef.current?.focus());
+                }}
                 placeholder="buscar producto"
                 style={{
                   padding: "8px 10px",
@@ -1503,8 +1517,12 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           controls={
             <>
               <input
+                ref={manualSearchRef}
                 value={manualSearch}
-                onChange={(e) => setManualSearch(e.target.value)}
+                onChange={(e) => {
+                  setManualSearch(e.target.value);
+                  requestAnimationFrame(() => manualSearchRef.current?.focus());
+                }}
                 placeholder="buscar manual por nombre"
                 style={{
                   padding: "8px 10px",
