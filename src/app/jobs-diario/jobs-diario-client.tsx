@@ -134,7 +134,7 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) { {
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", color: "rgba(255,255,255,0.92)" }}>
       {!hideHeader ? (
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
         <h1 style={{ margin: 0 }}>Jobs diario</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
           <Link href="/" style={{ color: "inherit", opacity: 0.85 }}>
@@ -148,6 +148,7 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) { {
           </Link>
         </div>
       </div>
+      ) : null}
 
       {err ? (
         <div style={{ marginTop: 12, color: "#ff6b6b" }}>Error: {err}</div>
