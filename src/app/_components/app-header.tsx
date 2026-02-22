@@ -23,10 +23,7 @@ function labelForSegment(seg: string): string {
     case "jobs-diario":
       return "Jobs diario";
     case "insumos":
-      return "Insumos";
-    case "db-health":
-      return "DB health";
-    default:
+      return "Insumos";    default:
       return seg.replace(/-/g, " ");
   }
 }
@@ -67,8 +64,7 @@ export default function AppHeader() {
     { href: "/items-manuales", label: "Items Manuales" },
     { href: "/productos", label: "Items Formulados" },
     { href: "/items-proveedores", label: "Items Proveedores" },
-    { href: "/jobs", label: "Jobs manual" },
-    { href: "/db-health", label: "DB health" },
+    { href: "/jobs", label: "Jobs manual" }
   ];
 
   return (

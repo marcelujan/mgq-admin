@@ -20,9 +20,6 @@ export default function Home() {
         <li>
           <Link href="/jobs">Jobs manual</Link>
         </li>
-        <li>
-          <Link href="/db-health">DB health</Link>
-        </li>
       </ul>
     </div>
   );

@@ -32,7 +32,7 @@ export default function DbHealthIndicator() {
   const ok = health?.ok === true;
 
   return (
-    <span
+    <a href="/api/db-health" target="_blank" rel="noreferrer"
       title={health ? (ok ? "DB: OK" : `DB: FAIL${health.error ? " — " + health.error : ""}`) : "DB: ..."}
       aria-label={health ? (ok ? "DB OK" : "DB FAIL") : "DB ..."}
       style={{
@@ -45,6 +45,9 @@ export default function DbHealthIndicator() {
         background: "rgba(255,255,255,0.02)",
         fontSize: 12,
         opacity: 0.9,
+        cursor: "pointer",
+        textDecoration: "none",
+        color: "inherit",
       }}
     >
       <span
@@ -57,6 +60,6 @@ export default function DbHealthIndicator() {
         }}
       />
       <span style={{ opacity: 0.8 }}>DB</span>
-    </span>
+    </a>
   );
 }
