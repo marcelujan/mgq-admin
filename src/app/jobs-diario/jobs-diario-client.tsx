@@ -75,7 +75,7 @@ function fmtIso(dtIso: string): string {
 
 export type JobsDiarioClientProps = { hideHeader?: boolean };
 
-export default function JobsDiarioClient(props: JobsDiarioClientProps) { {
+export default function JobsDiarioClient(props: JobsDiarioClientProps) {
   const hideHeader = props.hideHeader ?? false;
 
   const [runs, setRuns] = useState<RunRow[]>([]);
