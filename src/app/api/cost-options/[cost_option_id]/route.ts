@@ -37,6 +37,41 @@ async function upsertManualSnapshotToday(sql: any, cost_option_id: number, costo
   );
 }
 
+export async function GET(req: NextRequest, ctx: { params: Promise<{ cost_option_id: string }> }) {
+  try {
+    const { cost_option_id } = await ctx.params;
+    const id = Number(cost_option_id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return NextResponse.json({ ok: false, error: "cost_option_id inválido" }, { status: 400 });
+    }
+
+    const sql = db();
+    const res: any = await sql.query(
+      `
+      SELECT
+        cost_option_id, tipo,
+        item_id, item_presentacion,
+        manual_nombre, manual_uom, manual_cantidad, manual_costo_ars,
+        bulk_producto_id,
+        densidad_g_ml,
+        activo,
+        updated_at
+      FROM app.cost_option
+      WHERE cost_option_id = $1
+      LIMIT 1
+      `,
+      [id]
+    );
+
+    const rows = normalizeQueryResult(res);
+    if (!rows.length) return NextResponse.json({ ok: false, error: "No encontrado" }, { status: 404 });
+
+    return NextResponse.json({ ok: true, cost_option: rows[0] });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ cost_option_id: string }> }) {
   try {
     const { cost_option_id: idStr } = await ctx.params;

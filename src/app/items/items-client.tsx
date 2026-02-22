@@ -109,14 +109,24 @@ function hasCounts(it: ItemRow): boolean {
   );
 }
 
-export default function ItemsClient() {
+export type ItemsClientProps = {
+  initialTipo?: TipoFiltro;
+  lockTipo?: boolean;
+  hideTipoFilter?: boolean;
+};
+
+export default function ItemsClient(props: ItemsClientProps) {
   const [items, setItems] = useState<ItemRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
   const [search, setSearch] = useState("");
-  const [tipo, setTipo] = useState<TipoFiltro>("");
+  const initialTipo = props.initialTipo ?? "";
+  const lockTipo = props.lockTipo ?? false;
+  const hideTipoFilter = props.hideTipoFilter ?? false;
+
+  const [tipo, setTipo] = useState<TipoFiltro>(initialTipo);
   const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>("");
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
 
@@ -222,6 +232,7 @@ export default function ItemsClient() {
           />
         </div>
 
+        {!hideTipoFilter ? (
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo</label>
           <select
@@ -235,7 +246,9 @@ export default function ItemsClient() {
               minWidth: 180,
             }}
             value={tipo}
+            disabled={lockTipo}
             onChange={(e) => {
+              if (lockTipo) return;
               setOffset(0);
               setTipo(e.target.value as TipoFiltro);
             }}
@@ -246,6 +259,7 @@ export default function ItemsClient() {
             <option value="FORMULADO">Formulado</option>
           </select>
         </div>
+        ) : null}
 
         <div style={{ display: "grid", gap: 4 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>Estado (scrape)</label>

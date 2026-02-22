@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
+import DbHealthIndicator from "./db-health-indicator";
 
 type Crumb = { href: string; label: string };
 
@@ -12,13 +13,19 @@ function labelForSegment(seg: string): string {
     case "items":
       return "Items";
     case "productos":
-      return "Productos";
+      return "Items Formulados";
     case "jobs":
       return "Jobs manual";
+    case "items-proveedores":
+      return "Items Proveedores";
+    case "items-manuales":
+      return "Items Manuales";
     case "jobs-diario":
       return "Jobs diario";
     case "insumos":
       return "Insumos";
+    case "db-health":
+      return "DB health";
     default:
       return seg.replace(/-/g, " ");
   }
@@ -56,11 +63,12 @@ export default function AppHeader() {
   }
 
   const nav = [
-    { href: "/", label: "Inicio" },
-    { href: "/productos", label: "Productos" },
     { href: "/items", label: "Items" },
+    { href: "/items-manuales", label: "Items Manuales" },
+    { href: "/productos", label: "Items Formulados" },
+    { href: "/items-proveedores", label: "Items Proveedores" },
     { href: "/jobs", label: "Jobs manual" },
-    { href: "/jobs-diario", label: "Jobs diario" },
+    { href: "/db-health", label: "DB health" },
   ];
 
   return (
@@ -111,7 +119,10 @@ export default function AppHeader() {
           </div>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>mgq-admin</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <DbHealthIndicator />
+          <div style={{ fontSize: 12, opacity: 0.75 }}>mgq-admin</div>
+        </div>
       </div>
 
       <div style={{ fontSize: 12, opacity: 0.7, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

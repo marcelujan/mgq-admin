@@ -8,18 +8,6 @@ export default function ItemsPage() {
         <div style={{ display: "grid", gap: 4 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Items</h1>
         </div>
-
-        <Link
-          href="/items/new"
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 10,
-            padding: "8px 10px",
-            background: "rgba(255,255,255,0.03)",
-          }}
-        >
-          Cargar items
-        </Link>
       </div>
 
       <ItemsClient />

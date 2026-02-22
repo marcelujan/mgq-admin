@@ -6,19 +6,22 @@ export default function Home() {
       <h1 style={{ marginTop: 0 }}>MGq Admin (v2)</h1>
       <ul style={{ lineHeight: 1.9 }}>
         <li>
-          <Link href="/productos">Productos</Link>
+          <Link href="/items">Items</Link>
         </li>
         <li>
-          <Link href="/items">Items</Link>
+          <Link href="/items-manuales">Items Manuales</Link>
+        </li>
+        <li>
+          <Link href="/productos">Items Formulados</Link>
+        </li>
+        <li>
+          <Link href="/items-proveedores">Items Proveedores</Link>
         </li>
         <li>
           <Link href="/jobs">Jobs manual</Link>
         </li>
         <li>
-          <Link href="/jobs-diario">Jobs diario</Link>
-        </li>
-        <li>
-          <Link href="/api/db-health" target="_blank">DB health</Link>
+          <Link href="/db-health">DB health</Link>
         </li>
       </ul>
     </div>
