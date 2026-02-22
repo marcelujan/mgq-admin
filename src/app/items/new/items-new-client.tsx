@@ -314,6 +314,8 @@ export default function ItemsNewClient(props: ItemsNewClientProps) { {
           Manual
         </button>
       </div>
+      ) : null}
+
 
       {/* ====== PROVEEDOR PANEL ====== */}
       {tab === "PROVEEDOR" ? (
