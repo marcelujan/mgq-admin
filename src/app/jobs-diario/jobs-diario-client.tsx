@@ -133,99 +133,100 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) { {
 
   return (
     <div style={{ padding: 16, fontFamily: "system-ui, sans-serif", color: "rgba(255,255,255,0.92)" }}>
-      {!hideHeader ? (
+      {!hideHeader && (
+        <div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-        <h1 style={{ margin: 0 }}>Jobs diario</h1>
-        <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
-          <Link href="/" style={{ color: "inherit", opacity: 0.85 }}>
-            Inicio
-          </Link>
-          <Link href="/items" style={{ color: "inherit", opacity: 0.85 }}>
-            Items
-          </Link>
-          <Link href="/jobs" style={{ color: "inherit", opacity: 0.85 }}>
-            Jobs manual
-          </Link>
-        </div>
-      </div>
-      ) : null}
-
-      {err ? (
-        <div style={{ marginTop: 12, color: "#ff6b6b" }}>Error: {err}</div>
-      ) : null}
-
-      <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ fontWeight: 700, opacity: 0.9 }}>Corrida</div>
-        <select
-          value={runId ?? ""}
-          onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : null)}
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            color: "rgba(255,255,255,0.92)",
-            outline: "none",
-            colorScheme: "dark",
-          }}
-        >
-          {runs.map((r) => (
-            <option key={r.id} value={r.id}>
-              #{r.id} · {r.as_of_date} · {r.status}
-            </option>
-          ))}
-        </select>
-
-        {run ? (
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {run.started_at ? fmtIso(run.started_at) : ""} {run.finished_at ? `→ ${fmtIso(run.finished_at)}` : ""}
-            {typeof run.total_items === "number"
-              ? ` · total ${run.total_items} · ok ${run.ok_count ?? 0} · fail ${run.fail_count ?? 0}`
-              : ""}
+          <h1 style={{ margin: 0 }}>Jobs diario</h1>
+          <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+            <Link href="/" style={{ color: "inherit", opacity: 0.85 }}>
+              Inicio
+            </Link>
+            <Link href="/items" style={{ color: "inherit", opacity: 0.85 }}>
+              Items
+            </Link>
+            <Link href="/jobs" style={{ color: "inherit", opacity: 0.85 }}>
+              Jobs manual
+            </Link>
           </div>
+        </div>
+
+        {err ? (
+          <div style={{ marginTop: 12, color: "#ff6b6b" }}>Error: {err}</div>
         ) : null}
 
-        <div style={{ flex: "1 1 280px" }} />
+        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, opacity: 0.9 }}>Corrida</div>
+          <select
+            value={runId ?? ""}
+            onChange={(e) => setRunId(e.target.value ? Number(e.target.value) : null)}
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(255,255,255,0.92)",
+              outline: "none",
+              colorScheme: "dark",
+            }}
+          >
+            {runs.map((r) => (
+              <option key={r.id} value={r.id}>
+                #{r.id} · {r.as_of_date} · {r.status}
+              </option>
+            ))}
+          </select>
 
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar (producto, proveedor, item_id, offer_id)"
-          style={{
-            minWidth: 280,
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            color: "rgba(255,255,255,0.92)",
-            outline: "none",
-          }}
-        />
+          {run ? (
+            <div style={{ fontSize: 12, opacity: 0.75 }}>
+              {run.started_at ? fmtIso(run.started_at) : ""} {run.finished_at ? `→ ${fmtIso(run.finished_at)}` : ""}
+              {typeof run.total_items === "number"
+                ? ` · total ${run.total_items} · ok ${run.ok_count ?? 0} · fail ${run.fail_count ?? 0}`
+                : ""}
+            </div>
+          ) : null}
 
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          style={{
-            border: "1px solid rgba(255,255,255,0.14)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            background: "rgba(255,255,255,0.03)",
-            color: "rgba(255,255,255,0.92)",
-            outline: "none",
-            colorScheme: "dark",
-          }}
-        >
-          <option value="">Estado (todos)</option>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          <div style={{ flex: "1 1 280px" }} />
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>{filtered.length} filas</div>
-      </div>
-      ) : null}
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar (producto, proveedor, item_id, offer_id)"
+            style={{
+              minWidth: 280,
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(255,255,255,0.92)",
+              outline: "none",
+            }}
+          />
+
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              background: "rgba(255,255,255,0.03)",
+              color: "rgba(255,255,255,0.92)",
+              outline: "none",
+              colorScheme: "dark",
+            }}
+          >
+            <option value="">Estado (todos)</option>
+            {statuses.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ fontSize: 12, opacity: 0.75 }}>{filtered.length} filas</div>
+        </div>
+        </div>
+      )}
 
       
 
