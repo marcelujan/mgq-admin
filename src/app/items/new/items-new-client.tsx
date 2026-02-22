@@ -37,7 +37,7 @@ export type ItemsNewClientProps = {
   backHref?: string;
 };
 
-export default function ItemsNewClient(props: ItemsNewClientProps) { {
+export default function ItemsNewClient(props: ItemsNewClientProps) {
   const forcedTab = props.forcedTab;
   const hideTabs = props.hideTabs ?? false;
   const backHref = props.backHref ?? "/items";
@@ -314,8 +314,6 @@ export default function ItemsNewClient(props: ItemsNewClientProps) { {
           Manual
         </button>
       </div>
-      ) : null}
-
 
       {/* ====== PROVEEDOR PANEL ====== */}
       {tab === "PROVEEDOR" ? (
