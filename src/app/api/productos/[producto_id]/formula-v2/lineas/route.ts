@@ -4,20 +4,6 @@ import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
 import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
 import { ensureItemFormuladoBulk, upsertBulkSnapshotToday } from "@/lib/bulkCost";
 
-async function ensureFormulaHeader(
-  sql: { query: (text: string, params?: any[]) => Promise<any> },
-  producto_id: number
-) {
-  await sql.query(
-    `
-    INSERT INTO app.producto_formula_v2 (producto_id, lote_ref_g)
-    VALUES ($1, 1000)
-    ON CONFLICT (producto_id) DO NOTHING
-    `,
-    [producto_id]
-  );
-}
-
 // GET líneas v2 (incluye job_price_ars / job_as_of_date para ITEM_PRESENTACION)
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
   try {
@@ -94,7 +80,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
 
     const sql = db();
 
-    await ensureFormulaHeader(sql, producto_id);
+    // Invariante operativa: si existen líneas v2 para un producto, debe existir la cabecera
+    // en app.producto_formula_v2. La UI permite agregar líneas antes de tocar el header;
+    // para que el cron y la generación de BULK vean el producto, autocreamos la cabecera
+    // con lote_ref_g por defecto.
+    await sql.query(
+      `
+      INSERT INTO app.producto_formula_v2 (producto_id, lote_ref_g)
+      VALUES ($1, 1000)
+      ON CONFLICT (producto_id) DO NOTHING
+      `,
+      [producto_id]
+    );
 
     if (is_csp) {
       await sql.query(`UPDATE app.producto_formula_linea_v2 SET is_csp=false WHERE producto_id=$1`, [producto_id]);

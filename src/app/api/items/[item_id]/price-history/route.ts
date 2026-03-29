@@ -14,36 +14,6 @@ type ParsedKey =
   | { kind: "FORMULADO_PRODUCTO"; producto_id: number; item_key: string }
   | { kind: "MANUAL_COST_OPTION"; cost_option_id: number; item_key: string };
 
-async function resolveBulkItemFormuladoIdForProducto(producto_id: number): Promise<number | null> {
-  const q = await pool.query(
-    `
-    SELECT
-      f.item_formulado_id::int as item_formulado_id,
-      f.activo,
-      coalesce(s.snap_count, 0)::int as snap_count,
-      s.last_as_of_date::text as last_as_of_date
-    FROM app.item_formulado f
-    LEFT JOIN LATERAL (
-      SELECT count(*)::int as snap_count, max(as_of_date) as last_as_of_date
-      FROM app.item_formulado_snapshot s
-      WHERE s.item_formulado_id = f.item_formulado_id
-    ) s ON true
-    WHERE f.producto_id = $1
-      AND f.tipo = 'BULK'
-    ORDER BY
-      case when f.activo = true then 0 else 1 end,
-      coalesce(s.snap_count, 0) desc,
-      s.last_as_of_date desc nulls last,
-      f.item_formulado_id asc
-    LIMIT 1
-    `,
-    [producto_id]
-  );
-
-  const id = q.rows?.[0]?.item_formulado_id;
-  return id && Number.isFinite(Number(id)) ? Number(id) : null;
-}
-
 function decodeRepeated(s: string, maxRounds = 3): string {
   let out = String(s ?? "");
   for (let i = 0; i < maxRounds; i++) {
@@ -127,7 +97,32 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
   // ========= FORMULADO =========
   if (parsed.kind === "FORMULADO_PRODUCTO") {
     // 1) Resolver item_formulado_id desde producto_id (BULK)
-    const itemFormuladoId = await resolveBulkItemFormuladoIdForProducto(parsed.producto_id);
+    const idQ = await pool.query(
+      `
+      select
+        f.item_formulado_id::int as item_formulado_id
+      from app.item_formulado f
+      left join (
+        select
+          item_formulado_id,
+          count(*)::int as snapshot_count,
+          max(as_of_date) as last_snapshot_date
+        from app.item_formulado_snapshot
+        group by item_formulado_id
+      ) s on s.item_formulado_id = f.item_formulado_id
+      where f.producto_id = $1
+        and f.tipo = 'BULK'
+      order by
+        case when f.activo = true then 0 else 1 end asc,
+        coalesce(s.snapshot_count, 0) desc,
+        coalesce(s.last_snapshot_date, date '1900-01-01') desc,
+        f.item_formulado_id asc
+      limit 1
+      `,
+      [parsed.producto_id]
+    );
+
+    const itemFormuladoId = idQ.rows[0]?.item_formulado_id as number | undefined;
 
     if (!itemFormuladoId) {
       return NextResponse.json(
