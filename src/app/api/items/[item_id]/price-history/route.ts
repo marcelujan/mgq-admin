@@ -99,23 +99,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
     // 1) Resolver item_formulado_id desde producto_id (BULK)
     const idQ = await pool.query(
       `
-      select
-        f.item_formulado_id::int as item_formulado_id
-      from app.item_formulado f
-      left join lateral (
-        select
-          count(*)::int as snapshot_count,
-          max(s.as_of_date) as last_snapshot_date
-        from app.item_formulado_snapshot s
-        where s.item_formulado_id = f.item_formulado_id
-      ) snap on true
-      where f.producto_id = $1
-        and f.tipo = 'BULK'
-      order by
-        case when f.activo = true then 0 else 1 end asc,
-        coalesce(snap.snapshot_count, 0) desc,
-        snap.last_snapshot_date desc nulls last,
-        f.item_formulado_id asc
+      select item_formulado_id::int as item_formulado_id
+      from app.item_formulado
+      where producto_id = $1
+        and tipo = 'BULK'
+      order by item_formulado_id asc
       limit 1
       `,
       [parsed.producto_id]

@@ -80,17 +80,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
 
     const sql = db();
 
-    // Invariante operativa: si existen líneas v2 para un producto, debe existir header v2.
-    // Esto evita que el cron de formulados ignore productos nuevos creados solo desde el editor de líneas.
-    await sql.query(
-      `
-      INSERT INTO app.producto_formula_v2 (producto_id, lote_ref_g)
-      VALUES ($1, 1000)
-      ON CONFLICT (producto_id) DO NOTHING
-      `,
-      [producto_id]
-    );
-
     if (is_csp) {
       await sql.query(`UPDATE app.producto_formula_linea_v2 SET is_csp=false WHERE producto_id=$1`, [producto_id]);
     }
