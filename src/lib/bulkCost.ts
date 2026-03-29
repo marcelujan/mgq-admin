@@ -246,34 +246,43 @@ export async function ensureItemFormuladoBulk(
   client: { query: (text: string, params?: any[]) => Promise<any> },
   producto_id: number
 ): Promise<number> {
-  const existing = await client.query(
+  const existingActive = await client.query(
     `
-    select item_formulado_id::int as item_formulado_id, activo
+    select item_formulado_id::int as item_formulado_id
     from app.item_formulado
     where producto_id = $1
       and tipo = 'BULK'
-    order by
-      case when activo = true then 0 else 1 end asc,
-      item_formulado_id asc
+      and activo = true
+    order by item_formulado_id asc
     limit 1
     `,
     [producto_id]
   );
-  const row0 = existing.rows?.[0];
-  const id0 = row0?.item_formulado_id;
-  if (id0 && Number.isFinite(Number(id0))) {
-    if (row0?.activo !== true) {
-      await client.query(
-        `
-        update app.item_formulado
-        set activo = true,
-            updated_at = now()
-        where item_formulado_id = $1
-        `,
-        [Number(id0)]
-      );
-    }
-    return Number(id0);
+  const activeId = existingActive.rows?.[0]?.item_formulado_id;
+  if (activeId && Number.isFinite(Number(activeId))) return Number(activeId);
+
+  const existingAny = await client.query(
+    `
+    select item_formulado_id::int as item_formulado_id
+    from app.item_formulado
+    where producto_id = $1
+      and tipo = 'BULK'
+    order by item_formulado_id asc
+    limit 1
+    `,
+    [producto_id]
+  );
+  const anyId = existingAny.rows?.[0]?.item_formulado_id;
+  if (anyId && Number.isFinite(Number(anyId))) {
+    await client.query(
+      `
+      update app.item_formulado
+      set activo = true, updated_at = now()
+      where item_formulado_id = $1
+      `,
+      [Number(anyId)]
+    );
+    return Number(anyId);
   }
 
   const prod = await client.query(

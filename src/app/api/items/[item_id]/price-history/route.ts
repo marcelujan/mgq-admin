@@ -102,20 +102,19 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ item_id: s
       select
         f.item_formulado_id::int as item_formulado_id
       from app.item_formulado f
-      left join (
+      left join lateral (
         select
-          item_formulado_id,
           count(*)::int as snapshot_count,
-          max(as_of_date) as last_snapshot_date
-        from app.item_formulado_snapshot
-        group by item_formulado_id
-      ) s on s.item_formulado_id = f.item_formulado_id
+          max(s.as_of_date) as last_snapshot_date
+        from app.item_formulado_snapshot s
+        where s.item_formulado_id = f.item_formulado_id
+      ) snap on true
       where f.producto_id = $1
         and f.tipo = 'BULK'
       order by
         case when f.activo = true then 0 else 1 end asc,
-        coalesce(s.snapshot_count, 0) desc,
-        coalesce(s.last_snapshot_date, date '1900-01-01') desc,
+        coalesce(snap.snapshot_count, 0) desc,
+        snap.last_snapshot_date desc nulls last,
         f.item_formulado_id asc
       limit 1
       `,

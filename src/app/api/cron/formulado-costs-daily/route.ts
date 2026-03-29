@@ -45,17 +45,28 @@ async function run(opts: RunOpts) {
     const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
     const asOfDate = d0.rows[0]?.d;
 
-    // Productos formulados activos detectados por cabecera o por líneas v2.
-    // Nota: si falta item_formulado BULK, este cron lo crea (regla de reutilización).
+    // Productos formulados activos detectables por header o por líneas.
+    // Esto alinea el cron con /api/items y evita dejar en PEND formulados nuevos
+    // creados desde el editor cuando todavía faltaba persistir el header v2.
     const rProd = await client.query<{
       producto_id: number;
       item_formulado_id: number | null;
     }>(
       `
+      WITH productos_formulados_v2 AS (
+        SELECT DISTINCT producto_id::int as producto_id
+        FROM (
+          SELECT producto_id FROM app.producto_formula_v2
+          UNION
+          SELECT producto_id FROM app.producto_formula_linea_v2
+        ) x
+        WHERE producto_id IS NOT NULL
+      )
       SELECT
         p.producto_id::int as producto_id,
         f.item_formulado_id::int as item_formulado_id
       FROM app.producto p
+      JOIN productos_formulados_v2 pf ON pf.producto_id = p.producto_id
       LEFT JOIN LATERAL (
         SELECT item_formulado_id
         FROM app.item_formulado f
@@ -66,18 +77,6 @@ async function run(opts: RunOpts) {
         LIMIT 1
       ) f ON true
       WHERE p.activo = true
-        AND (
-          EXISTS (
-            SELECT 1
-            FROM app.producto_formula_v2 pf
-            WHERE pf.producto_id = p.producto_id
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM app.producto_formula_linea_v2 pl
-            WHERE pl.producto_id = p.producto_id
-          )
-        )
         AND (
           $1::int[] IS NULL
           OR p.producto_id = ANY($1::int[])

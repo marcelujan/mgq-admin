@@ -80,10 +80,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
 
     const sql = db();
 
-    // Invariante operativa: si existen líneas v2 para un producto, debe existir la cabecera
-    // en app.producto_formula_v2. La UI permite agregar líneas antes de tocar el header;
-    // para que el cron y la generación de BULK vean el producto, autocreamos la cabecera
-    // con lote_ref_g por defecto.
+    // Invariante operativa: si existen líneas v2 para un producto, debe existir header v2.
+    // Esto evita que el cron de formulados ignore productos nuevos creados solo desde el editor de líneas.
     await sql.query(
       `
       INSERT INTO app.producto_formula_v2 (producto_id, lote_ref_g)
