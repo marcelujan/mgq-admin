@@ -45,8 +45,8 @@ export async function GET(req: NextRequest) {
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
     // Además de los datos del producto, devolvemos flags para UI:
-    // - tiene_base
-    // - tiene_formula
+    // - tiene_base: presencia de producto_base
+    // - tiene_formula: presencia de líneas de fórmula v2 (estado operativo real del editor)
     const q = `
       SELECT
         p.producto_id,
@@ -58,10 +58,13 @@ export async function GET(req: NextRequest) {
         p.created_at,
         p.updated_at,
         (pb.producto_id IS NOT NULL) AS tiene_base,
-        (pf.producto_id IS NOT NULL) AS tiene_formula
+        EXISTS (
+          SELECT 1
+          FROM app.producto_formula_linea_v2 pfl2
+          WHERE pfl2.producto_id = p.producto_id
+        ) AS tiene_formula
       FROM app.producto p
       LEFT JOIN app.producto_base pb ON pb.producto_id = p.producto_id
-      LEFT JOIN app.producto_formula pf ON pf.producto_id = p.producto_id
       ${whereSql}
       ORDER BY p.updated_at DESC, p.producto_id DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
