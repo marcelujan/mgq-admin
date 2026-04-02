@@ -43,7 +43,11 @@ async function upsertManualSnapshotToday(
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const search = (searchParams.get("search") ?? "").trim();
+    const searchLegacy = (searchParams.get("search") ?? "").trim();
+    const hasSearchItems = searchParams.has("search_items");
+    const hasSearchManual = searchParams.has("search_manual");
+    const searchItems = (hasSearchItems ? searchParams.get("search_items") : searchLegacy ?? "")?.trim() ?? "";
+    const searchManual = (hasSearchManual ? searchParams.get("search_manual") : searchLegacy ?? "")?.trim() ?? "";
     const soloSeleccionados = (searchParams.get("solo_seleccionados") ?? "true").trim() !== "false";
     const limitRaw = Number(searchParams.get("limit") ?? 300);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 300;
@@ -53,8 +57,8 @@ export async function GET(req: NextRequest) {
     const itemParams: any[] = [];
     let whereItem = "WHERE 1=1";
     if (soloSeleccionados) whereItem += " AND i.seleccionado=true AND i.estado='OK'";
-    if (search) {
-      itemParams.push(`%${search}%`);
+    if (searchItems) {
+      itemParams.push(`%${searchItems}%`);
       const p = itemParams.length;
       whereItem += ` AND (
         coalesce(pv.nombre,'') ILIKE $${p} OR
@@ -106,8 +110,8 @@ export async function GET(req: NextRequest) {
 
     const costOptParams: any[] = [];
     let whereCO = "WHERE activo=true AND tipo in ('MANUAL_PRESENTACION','BULK_PRODUCTO','ITEM_PRESENTACION')";
-    if (search) {
-      costOptParams.push(`%${search}%`);
+    if (searchManual) {
+      costOptParams.push(`%${searchManual}%`);
       const p = costOptParams.length;
       whereCO += ` AND (
         coalesce(manual_nombre,'') ILIKE $${p}

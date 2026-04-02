@@ -155,6 +155,111 @@ type ComponentPickRow = {
   onAdd: () => Promise<void>;
 };
 
+const commonPickTableHead = (
+  <thead>
+    <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}>ID</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 150 }}>Origen</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 140 }}>Presentación</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 130 }}>ARS/kg</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Dens (g/ml)</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Fecha</th>
+      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}></th>
+    </tr>
+  </thead>
+);
+
+function CommonPickTable({
+  title,
+  subtitle,
+  controls,
+  rows,
+  footer,
+  onAddError,
+}: {
+  title: string;
+  subtitle?: string;
+  controls?: React.ReactNode;
+  rows: ComponentPickRow[];
+  footer?: React.ReactNode;
+  onAddError?: (message: string) => void;
+}) {
+  return (
+    <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
+        <div style={{ display: "grid", gap: 2 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
+          {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
+        </div>
+      </div>
+
+      {controls ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{controls}</div> : null}
+
+      <div
+        style={{
+          border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 12,
+          overflow: "auto",
+          maxHeight: 360,
+        }}
+      >
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          {commonPickTableHead}
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.idLabel}</td>
+                <td style={{ padding: 10, fontSize: 12 }}>
+                  <div style={{ ...cellEllipsisStyle(620) }}>{r.nombre}</div>
+                </td>
+                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
+                  <div style={{ ...cellEllipsisStyle(150) }}>{r.origen}</div>
+                </td>
+                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
+                  <div style={{ ...cellEllipsisStyle(140) }}>{r.presentacion}</div>
+                </td>
+                <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.precioUnitario}</td>
+                <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.densidad}</td>
+                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.fecha}</td>
+                <td style={{ padding: 10 }}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await r.onAdd();
+                      } catch (err: any) {
+                        onAddError?.(err?.message || "error");
+                      }
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.03)",
+                    }}
+                  >
+                    Agregar
+                  </button>
+                </td>
+              </tr>
+            ))}
+
+            {!rows.length ? (
+              <tr>
+                <td colSpan={8} style={{ padding: 10, opacity: 0.75, fontSize: 12 }}>
+                  Sin resultados.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      {footer ? <div style={{ fontSize: 12, opacity: 0.65 }}>{footer}</div> : null}
+    </div>
+  );
+}
+
 function numOrNull(v: any): number | null {
   if (v === null || v === undefined) return null;
   const n = Number(v);
@@ -296,12 +401,13 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
     setOptionsLoading(true);
     try {
-      const r = await fetch(
-        `/api/cost-options?limit=400&solo_seleccionados=${soloSeleccionados ? "true" : "false"}&search=${encodeURIComponent(
-          search
-        )}`,
-        { cache: "no-store" }
-      );
+      const qs = new URLSearchParams({
+        limit: "400",
+        solo_seleccionados: soloSeleccionados ? "true" : "false",
+        search_items: search,
+        search_manual: "",
+      });
+      const r = await fetch(`/api/cost-options?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
 
@@ -1027,109 +1133,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   // ===== Unificación de tablas (job / bulks / manuales) =====
 
-  const commonHead = (
-    <thead>
-      <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}>ID</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 150 }}>Origen</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 140 }}>Presentación</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 130 }}>ARS/kg</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Dens (g/ml)</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Fecha</th>
-        <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}></th>
-      </tr>
-    </thead>
-  );
-
-  function CommonPickTable({
-    title,
-    subtitle,
-    controls,
-    rows,
-    footer,
-  }: {
-    title: string;
-    subtitle?: string;
-    controls?: React.ReactNode;
-    rows: ComponentPickRow[];
-    footer?: React.ReactNode;
-  }) {
-    return (
-      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 12, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", justifyContent: "space-between" }}>
-          <div style={{ display: "grid", gap: 2 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
-            {subtitle ? <div style={{ fontSize: 12, opacity: 0.7 }}>{subtitle}</div> : null}
-          </div>
-        </div>
-
-        {controls ? <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{controls}</div> : null}
-
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.10)",
-            borderRadius: 12,
-            overflow: "auto",
-            maxHeight: 360,
-          }}
-        >
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            {commonHead}
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.idLabel}</td>
-                  <td style={{ padding: 10, fontSize: 12 }}>
-                    <div style={{ ...cellEllipsisStyle(620) }}>{r.nombre}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                    <div style={{ ...cellEllipsisStyle(150) }}>{r.origen}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                    <div style={{ ...cellEllipsisStyle(140) }}>{r.presentacion}</div>
-                  </td>
-                  <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.precioUnitario}</td>
-                  <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.densidad}</td>
-                  <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.fecha}</td>
-                  <td style={{ padding: 10 }}>
-                    <button
-                      onClick={async () => {
-                        try {
-                          await r.onAdd();
-                        } catch (err: any) {
-                          setError(err?.message || "error");
-                        }
-                      }}
-                      style={{
-                        padding: "6px 8px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.14)",
-                        background: "rgba(255,255,255,0.03)",
-                      }}
-                    >
-                      Agregar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {!rows.length ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: 10, opacity: 0.75, fontSize: 12 }}>
-                    Sin resultados.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        {footer ? <div style={{ fontSize: 12, opacity: 0.65 }}>{footer}</div> : null}
-      </div>
-    );
-  }
-
   const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
     return itemOptions.slice(0, 200).map((x, idx) => {
       const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
@@ -1570,6 +1573,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           }
           rows={pickRowsJob}
           footer={<span>Mostrando hasta 200 filas. Scroll interno fijo.</span>}
+          onAddError={(message) => setError(message)}
         />
 
         <CommonPickTable
@@ -1610,6 +1614,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             </>
           }
           rows={pickRowsBulks}
+          onAddError={(message) => setError(message)}
         />
 
         <CommonPickTable
@@ -1636,6 +1641,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
             </>
           }
           rows={pickRowsManual}
+          onAddError={(message) => setError(message)}
         />
       </div>
 
