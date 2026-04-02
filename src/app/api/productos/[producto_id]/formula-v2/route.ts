@@ -101,7 +101,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
       bulk_snapshot = await upsertBulkSnapshotToday(
         { query: (t: string, p?: any[]) => sql.query(t, p) },
         producto_id,
-        "FORMULA_V2_SAVE"
+        "AUTO"
       );
     } catch (e: any) {
       bulk_snapshot_error = String(e?.message ?? e);

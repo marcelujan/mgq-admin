@@ -56,7 +56,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_
       await upsertBulkSnapshotToday(
         { query: (t: string, p?: any[]) => sql.query(t, p) },
         producto_id,
-        "FORMULA_LINEA_PATCH"
+        "AUTO"
       );
     } catch (e: any) {
       bulk_snapshot_error = String(e?.message ?? e);
@@ -99,7 +99,7 @@ export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_i
       await upsertBulkSnapshotToday(
         { query: (t: string, p?: any[]) => sql.query(t, p) },
         producto_id,
-        "FORMULA_LINEA_DELETE"
+        "AUTO"
       );
     } catch (e: any) {
       bulk_snapshot_error = String(e?.message ?? e);
