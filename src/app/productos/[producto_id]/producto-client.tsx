@@ -1237,7 +1237,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           <div style={{ fontSize: 12, lineHeight: 1.45 }}>{bulkSyncWarning}</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
-              onClick={loadBulks}
+              onClick={() => {
+                void loadBulks();
+              }}
               style={{
                 padding: "8px 10px",
                 borderRadius: 10,
