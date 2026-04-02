@@ -38,6 +38,13 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function rowsOf(res: any): any[] {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray((res as any).rows)) return (res as any).rows;
+  return [];
+}
+
 function asTipo(v: any): TipoLinea {
   const s = String(v ?? "");
   if (s === "ITEM_PRESENTACION" || s === "MANUAL_PRESENTACION" || s === "BULK_PRODUCTO") return s;
@@ -115,7 +122,8 @@ export async function computeBulkCost(
      WHERE producto_id=$1`,
     [producto_id]
   );
-  const lote_ref_g = fRes?.rows?.[0]?.lote_ref_g ? Number(fRes.rows[0].lote_ref_g) : 1000;
+  const fRows = rowsOf(fRes);
+  const lote_ref_g = fRows?.[0]?.lote_ref_g ? Number(fRows[0].lote_ref_g) : 1000;
   if (!Number.isFinite(lote_ref_g) || lote_ref_g <= 0) throw new Error("lote_ref_g inválido");
 
   const lRes = await client.query(
@@ -141,7 +149,8 @@ export async function computeBulkCost(
     [producto_id]
   );
 
-  const lineas: Linea[] = (lRes.rows ?? []).map((r: any) => ({
+  const lRows = rowsOf(lRes);
+  const lineas: Linea[] = lRows.map((r: any) => ({
     linea_id: Number(r.linea_id),
     cost_option_id: Number(r.cost_option_id),
     pct_peso: numOrNull(r.pct_peso),
@@ -191,7 +200,7 @@ export async function computeBulkCost(
       [ids, pres]
     );
 
-    for (const row of r.rows ?? []) {
+    for (const row of rowsOf(r)) {
       itemPriceByKey.set(keyItem(Number(row.item_id), Number(row.presentacion)), Number(row.price_ars));
     }
   }
@@ -221,7 +230,8 @@ export async function computeBulkCost(
      WHERE producto_id=$1`,
     [producto_id]
   );
-  const c = cRes.rows?.[0] ?? null;
+  const cRows = rowsOf(cRes);
+  const c = cRows?.[0] ?? null;
 
   const lote_ref_kg = c ? numOrNull(c.lote_ref_kg) : null;
   const fijo = c ? numOrNull(c.costo_fijo_por_lote_ars) : null;
@@ -257,14 +267,16 @@ export async function ensureItemFormuladoBulk(
     `,
     [producto_id]
   );
-  const id0 = existing.rows?.[0]?.item_formulado_id;
+  const existingRows = rowsOf(existing);
+  const id0 = existingRows?.[0]?.item_formulado_id;
   if (id0 && Number.isFinite(Number(id0))) return Number(id0);
 
   const prod = await client.query(
     `select producto_id::int as producto_id, nombre::text as nombre from app.producto where producto_id=$1`,
     [producto_id]
   );
-  const nombre = String(prod.rows?.[0]?.nombre ?? "").trim();
+  const prodRows = rowsOf(prod);
+  const nombre = String(prodRows?.[0]?.nombre ?? "").trim();
   if (!nombre) throw new Error("producto no encontrado o sin nombre");
 
   const ins = await client.query(
@@ -276,7 +288,8 @@ export async function ensureItemFormuladoBulk(
     [producto_id, nombre]
   );
 
-  const id1 = ins.rows?.[0]?.item_formulado_id;
+  const insRows = rowsOf(ins);
+  const id1 = insRows?.[0]?.item_formulado_id;
   if (!id1 || !Number.isFinite(Number(id1))) throw new Error("no se pudo crear item_formulado BULK");
   return Number(id1);
 }
@@ -289,7 +302,8 @@ export async function upsertBulkSnapshotToday(
   // Nota TS: el cliente SQL usado en el proyecto expone `query(text, params?)` sin genéricos.
   // Evitar `client.query<T>()` porque rompe el build ("Expected 0 type arguments").
   const d0 = await client.query(`select current_date::text as d;`);
-  const as_of_date = String(d0.rows?.[0]?.d ?? "").trim();
+  const dRows = rowsOf(d0);
+  const as_of_date = String(dRows?.[0]?.d ?? "").trim();
   if (!as_of_date) throw new Error("no se pudo obtener current_date");
 
   const item_formulado_id = await ensureItemFormuladoBulk(client, producto_id);
