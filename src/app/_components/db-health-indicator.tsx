@@ -12,7 +12,8 @@ export default function DbHealthIndicator() {
     fetch("/api/db-health", { cache: "no-store" })
       .then(async (r) => {
         const j = (await r.json().catch(() => null)) as Health | null;
-        if (!r.ok || !j) throw new Error((j as any)?.error || `HTTP ${r.status}`);
+        if (!r.ok || !j)
+          throw new Error((j as any)?.error || `HTTP ${r.status}`);
         return j;
       })
       .then((j) => {
@@ -32,8 +33,14 @@ export default function DbHealthIndicator() {
   const ok = health?.ok === true;
 
   return (
-    <a href="/api/db-health" target="_blank" rel="noreferrer"
-      title={health ? (ok ? "DB: OK" : `DB: FAIL${health.error ? " — " + health.error : ""}`) : "DB: ..."}
+    <span
+      title={
+        health
+          ? ok
+            ? "DB: OK"
+            : `DB: FAIL${health.error ? " — " + health.error : ""}`
+          : "DB: ..."
+      }
       aria-label={health ? (ok ? "DB OK" : "DB FAIL") : "DB ..."}
       style={{
         display: "inline-flex",
@@ -45,9 +52,6 @@ export default function DbHealthIndicator() {
         background: "rgba(255,255,255,0.02)",
         fontSize: 12,
         opacity: 0.9,
-        cursor: "pointer",
-        textDecoration: "none",
-        color: "inherit",
       }}
     >
       <span
@@ -60,6 +64,6 @@ export default function DbHealthIndicator() {
         }}
       />
       <span style={{ opacity: 0.8 }}>DB</span>
-    </a>
+    </span>
   );
 }

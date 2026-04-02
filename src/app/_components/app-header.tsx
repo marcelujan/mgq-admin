@@ -21,9 +21,12 @@ function labelForSegment(seg: string): string {
     case "items-manuales":
       return "Items Manuales";
     case "jobs-diario":
-      return "Jobs diario";
+      return "Corrida diaria";
+    case "new":
+      return "Nuevo";
     case "insumos":
-      return "Insumos";    default:
+      return "Insumos";
+    default:
       return seg.replace(/-/g, " ");
   }
 }
@@ -64,7 +67,7 @@ export default function AppHeader() {
     { href: "/items-manuales", label: "Items Manuales" },
     { href: "/productos", label: "Items Formulados" },
     { href: "/items-proveedores", label: "Items Proveedores" },
-    { href: "/jobs", label: "Jobs manual" }
+    { href: "/jobs", label: "Jobs manual" },
   ];
 
   return (
@@ -77,8 +80,23 @@ export default function AppHeader() {
         gap: 8,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
           <button
             onClick={back}
             style={{
@@ -94,7 +112,14 @@ export default function AppHeader() {
             ← Volver
           </button>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
             {nav.map((n) => (
               <Link
                 key={n.href}
@@ -103,7 +128,10 @@ export default function AppHeader() {
                   padding: "6px 10px",
                   borderRadius: 10,
                   border: "1px solid rgba(255,255,255,0.10)",
-                  background: pathname === n.href ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
+                  background:
+                    pathname === n.href
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(255,255,255,0.02)",
                   textDecoration: "none",
                   color: "inherit",
                   fontSize: 13,
@@ -121,14 +149,29 @@ export default function AppHeader() {
         </div>
       </div>
 
-      <div style={{ fontSize: 12, opacity: 0.7, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <div
+        style={{
+          fontSize: 12,
+          opacity: 0.7,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexWrap: "wrap",
+        }}
+      >
         {crumbs.map((c, idx) => (
-          <span key={c.href} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span
+            key={c.href}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
             {idx > 0 ? <span style={{ opacity: 0.6 }}>/</span> : null}
             {idx === crumbs.length - 1 ? (
               <span style={{ fontWeight: 600 }}>{c.label}</span>
             ) : (
-              <Link href={c.href} style={{ textDecoration: "none", color: "inherit" }}>
+              <Link
+                href={c.href}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
                 {c.label}
               </Link>
             )}

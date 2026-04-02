@@ -8,7 +8,9 @@ export default async function ProductoPage({
   params: ParamsShape | Promise<ParamsShape>;
 }) {
   const resolvedParams: ParamsShape =
-    typeof (params as any)?.then === "function" ? await (params as Promise<ParamsShape>) : (params as ParamsShape);
+    typeof (params as any)?.then === "function"
+      ? await (params as Promise<ParamsShape>)
+      : (params as ParamsShape);
 
   const productoId = Number(resolvedParams.producto_id);
 
@@ -16,8 +18,12 @@ export default async function ProductoPage({
     return (
       <div style={{ padding: 16, display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Producto #{resolvedParams.producto_id}</h1>
-          <div style={{ fontSize: 12, color: "tomato" }}>producto_id inválido (URL)</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>
+            Item Formulado #{resolvedParams.producto_id}
+          </h1>
+          <div style={{ fontSize: 12, color: "tomato" }}>
+            producto_id inválido (URL)
+          </div>
         </div>
       </div>
     );
