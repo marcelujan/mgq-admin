@@ -260,6 +260,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkSyncWarning, setBulkSyncWarning] = useState<string | null>(null);
   const bulkSearchRef = useRef<HTMLInputElement | null>(null);
 
 
@@ -809,6 +810,15 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return { rows, sumPct, totalARS, arsPorKg, prodARSporKg, arsPorKgConProd, issues };
   }, [lineasV2, loteRefG, pctCsp, pctFijos, cspLinea, itemOptions, costosProd, bulkCostByProducto]);
 
+  function handleBulkSyncResponse(j: any, action: string) {
+    const raw = typeof j?.bulk_snapshot_error === "string" ? j.bulk_snapshot_error.trim() : "";
+    if (raw) {
+      setBulkSyncWarning(`${action}: se guardó la fórmula, pero no se pudo garantizar el BULK reutilizable. ${raw}`);
+      return;
+    }
+    setBulkSyncWarning(null);
+  }
+
   async function saveHeaderV2(
     patch: Partial<{
       lote_ref_g: number;
@@ -831,6 +841,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    handleBulkSyncResponse(j, "Cabecera guardada");
     await loadAll();
   }
 
@@ -873,6 +884,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     });
     const uj = await up.json().catch(() => ({} as any));
     if (!up.ok || !uj?.ok) throw new Error(uj?.error || `HTTP ${up.status}`);
+    handleBulkSyncResponse(uj, "Línea agregada");
     await loadAll();
   }
 
@@ -894,6 +906,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    handleBulkSyncResponse(j, "Línea actualizada");
     await loadAll();
   }
 
@@ -902,6 +915,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     const r = await fetch(`/api/productos/${productoId}/formula-v2/lineas/${linea_id}`, { method: "DELETE" });
     const j = await r.json().catch(() => ({} as any));
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    handleBulkSyncResponse(j, "Línea eliminada");
     await loadAll();
   }
 
@@ -1166,6 +1180,47 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           </button>
         </div>
       </div>
+
+      {bulkSyncWarning ? (
+        <div
+          style={{
+            border: "1px solid rgba(255, 196, 0, 0.35)",
+            background: "rgba(255, 196, 0, 0.10)",
+            color: "#ffe08a",
+            borderRadius: 12,
+            padding: 12,
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Advertencia de BULK reutilizable</div>
+          <div style={{ fontSize: 12, lineHeight: 1.45 }}>{bulkSyncWarning}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={loadBulks}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Buscar bulks
+            </button>
+            <button
+              onClick={() => setBulkSyncWarning(null)}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+              }}
+            >
+              Ocultar
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -1475,6 +1530,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
         <CommonPickTable
           title="Bulks (productos formulados)"
+          subtitle="Si actualizaste otro formulado recién, usá Buscar bulks para recargar esta lista."
           controls={
             <>
               <input
