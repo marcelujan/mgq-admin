@@ -250,7 +250,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   const [searchOpt, setSearchOpt] = useState("");
   const [soloSel, setSoloSel] = useState(true);
+  const [optionsLoading, setOptionsLoading] = useState(false);
   const searchOptRef = useRef<HTMLInputElement | null>(null);
+  const optionsRequestRef = useRef(0);
 
 
   const [bulkCostByProducto, setBulkCostByProducto] = useState<Record<number, number>>({});
@@ -262,6 +264,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkSyncWarning, setBulkSyncWarning] = useState<string | null>(null);
   const bulkSearchRef = useRef<HTMLInputElement | null>(null);
+  const bulkRequestRef = useRef(0);
 
 
   // Manuales (solo selección; no crear aquí)
@@ -286,21 +289,58 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [latestSnapshotByOferta, setLatestSnapshotByOferta] = useState<Record<number, SnapshotHead | null>>({});
   const snapshotInFlightRef = useRef<Record<number, boolean>>({});
 
+  async function loadComponentOptions(params?: { search?: string; soloSeleccionados?: boolean }) {
+    const search = params?.search ?? searchOpt;
+    const soloSeleccionados = params?.soloSeleccionados ?? soloSel;
+    const requestId = ++optionsRequestRef.current;
+
+    setOptionsLoading(true);
+    try {
+      const r = await fetch(
+        `/api/cost-options?limit=400&solo_seleccionados=${soloSeleccionados ? "true" : "false"}&search=${encodeURIComponent(
+          search
+        )}`,
+        { cache: "no-store" }
+      );
+      const j = await r.json().catch(() => ({} as any));
+      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+
+      if (requestId !== optionsRequestRef.current) return;
+
+      const items = (j.item_options || []) as any[];
+      for (const it of items) {
+        it.presentacion = Number(it.presentacion);
+        it.price_ars = Number(it.price_ars);
+      }
+      setItemOptions(items as ItemOption[]);
+
+      const extras = (j.cost_options_extra || []) as any[];
+      for (const e of extras) {
+        e.cost_option_id = Number(e.cost_option_id);
+        e.item_presentacion = numOrNull(e.item_presentacion);
+        e.manual_cantidad = numOrNull(e.manual_cantidad);
+        e.manual_costo_ars = numOrNull(e.manual_costo_ars);
+        e.densidad_g_ml = numOrNull(e.densidad_g_ml);
+        e.bulk_producto_id = numOrNull(e.bulk_producto_id);
+      }
+      setExtraOptions(extras as CostOptionExtra[]);
+    } catch (e: any) {
+      if (requestId !== optionsRequestRef.current) return;
+      setError(e?.message || "error");
+    } finally {
+      if (requestId === optionsRequestRef.current) setOptionsLoading(false);
+    }
+  }
+
   async function loadAll() {
     setLoading(true);
     setError(null);
     try {
-      const [pR, oR, fR, lR, optR] = await Promise.all([
+      const [pR, oR, fR, lR] = await Promise.all([
         fetch(`/api/productos/${productoId}`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/ofertas`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2`, { cache: "no-store" }),
         fetch(`/api/productos/${productoId}/formula-v2/lineas`, { cache: "no-store" }),
-        fetch(
-          `/api/cost-options?limit=400&solo_seleccionados=${soloSel ? "true" : "false"}&search=${encodeURIComponent(
-            searchOpt
-          )}`,
-          { cache: "no-store" }
-        ),
       ]);
 
       const pJ = await pR.json();
@@ -331,26 +371,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setLineasV2(lineas as LineaV2[]);
 
-      const optJ = await optR.json();
-      if (!optR.ok || !optJ?.ok) throw new Error(optJ?.error || `HTTP ${optR.status}`);
-
-      const items = (optJ.item_options || []) as any[];
-      for (const it of items) {
-        it.presentacion = Number(it.presentacion);
-        it.price_ars = Number(it.price_ars);
-      }
-      setItemOptions(items as ItemOption[]);
-
-      const extras = (optJ.cost_options_extra || []) as any[];
-      for (const e of extras) {
-        e.cost_option_id = Number(e.cost_option_id);
-        e.item_presentacion = numOrNull(e.item_presentacion);
-        e.manual_cantidad = numOrNull(e.manual_cantidad);
-        e.manual_costo_ars = numOrNull(e.manual_costo_ars);
-        e.densidad_g_ml = numOrNull(e.densidad_g_ml);
-        e.bulk_producto_id = numOrNull(e.bulk_producto_id);
-      }
-      setExtraOptions(extras as CostOptionExtra[]);
+      await loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
 
       // Bulk del producto actual (info)
       try {
@@ -413,19 +434,23 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
   }
 
-  async function loadBulks() {
+  async function loadBulks(searchOverride?: string) {
+    const requestId = ++bulkRequestRef.current;
+    const search = searchOverride ?? bulkSearch;
+
     setBulkLoading(true);
     try {
       const qs = new URLSearchParams({
         limit: "50",
         offset: "0",
-        search: bulkSearch ?? "",
+        search: search ?? "",
         exclude_producto_id: String(productoId),
       });
 
       const r = await fetch(`/api/productos/bulks?${qs.toString()}`, { cache: "no-store" });
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      if (requestId !== bulkRequestRef.current) return;
 
       const rows = (j.rows || []) as any[];
       for (const b of rows) {
@@ -435,9 +460,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setBulkRows(rows as BulkRow[]);
     } catch (e: any) {
+      if (requestId !== bulkRequestRef.current) return;
       setError(e?.message || "error");
     } finally {
-      setBulkLoading(false);
+      if (requestId === bulkRequestRef.current) setBulkLoading(false);
     }
   }
 
@@ -672,6 +698,20 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productoId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchOpt, soloSel]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadBulks(bulkSearch);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [bulkSearch, productoId]);
 
   const loteRefG = numOrNull(formulaV2?.lote_ref_g) ?? 1000;
   const loteRefKg = loteRefG / 1000;
@@ -1496,7 +1536,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 value={searchOpt}
                 onChange={(e) => {
                   setSearchOpt(e.target.value);
-                  requestAnimationFrame(() => searchOptRef.current?.focus());
                 }}
                 placeholder="buscar proveedor/url"
                 style={{
@@ -1511,7 +1550,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 <input type="checkbox" checked={soloSel} onChange={(e) => setSoloSel(e.target.checked)} /> solo seleccionados
               </label>
               <button
-                onClick={loadAll}
+                onClick={() => {
+                  void loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
+                }}
                 style={{
                   padding: "8px 10px",
                   borderRadius: 10,
@@ -1521,6 +1562,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               >
                 Buscar
               </button>
+              {optionsLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Buscando…</span> : null}
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {itemOptions.length}</div>
             </>
           }
@@ -1538,7 +1580,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 value={bulkSearch}
                 onChange={(e) => {
                   setBulkSearch(e.target.value);
-                  requestAnimationFrame(() => bulkSearchRef.current?.focus());
                 }}
                 placeholder="buscar producto"
                 style={{
@@ -1550,7 +1591,9 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 }}
               />
               <button
-                onClick={loadBulks}
+                onClick={() => {
+                  void loadBulks(bulkSearch);
+                }}
                 style={{
                   padding: "8px 10px",
                   borderRadius: 10,
@@ -1560,7 +1603,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
               >
                 Buscar bulks
               </button>
-              {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
+              {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Buscando…</span> : null}
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {bulkRows.length}</div>
             </>
           }
@@ -1577,7 +1620,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 value={manualSearch}
                 onChange={(e) => {
                   setManualSearch(e.target.value);
-                  requestAnimationFrame(() => manualSearchRef.current?.focus());
                 }}
                 placeholder="buscar manual por nombre"
                 style={{
