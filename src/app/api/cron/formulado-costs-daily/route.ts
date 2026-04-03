@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { Pool } from "pg";
 import { computeBulkCost, ensureItemFormuladoBulk } from "@/lib/bulkCost";
+import { ensureProductoFormulaV2Header } from "@/lib/productoFormulaV2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ function assertCronAuth(req: NextRequest) {
 type RunOpts = {
   dryRun: boolean;
   productoIds: number[] | null;
+  backfillMissingHeaders: boolean;
 };
 
 function parseProductoIds(param: string | null): number[] | null {
@@ -107,7 +109,22 @@ async function run(opts: RunOpts) {
     );
 
     const universeRows = rUniverse.rows ?? [];
-    const cronCandidates = universeRows.filter((row) => row.has_header);
+    const missingHeaderRows = universeRows.filter((row) => !row.has_header && row.has_lines);
+
+    const backfilledHeaders: Array<{ producto_id: number; nombre: string }> = [];
+    if (!opts.dryRun && opts.backfillMissingHeaders) {
+      for (const row of missingHeaderRows) {
+        await ensureProductoFormulaV2Header(client as any, Number(row.producto_id));
+        backfilledHeaders.push({
+          producto_id: Number(row.producto_id),
+          nombre: String(row.nombre ?? ""),
+        });
+      }
+    }
+
+    const cronCandidates = universeRows.filter(
+      (row) => row.has_header || (!row.has_header && row.has_lines && opts.backfillMissingHeaders && !opts.dryRun),
+    );
     const diagnostics = {
       universe_v2_count: universeRows.length,
       cron_candidate_count: cronCandidates.length,
@@ -136,6 +153,9 @@ async function run(opts: RunOpts) {
           nombre: String(row.nombre ?? ""),
           item_formulado_id: Number(row.item_formulado_id),
         })),
+      backfill_missing_headers_enabled: opts.backfillMissingHeaders,
+      backfilled_headers_count: backfilledHeaders.length,
+      backfilled_header_productos: backfilledHeaders.slice(0, 50),
     };
 
     const results: any[] = [];
@@ -212,8 +232,9 @@ export async function POST(req: NextRequest) {
     const url = new URL(req.url);
     const dryRun = url.searchParams.get("dry_run") === "1";
     const productoIds = parseProductoIds(url.searchParams.get("producto_ids"));
+    const backfillMissingHeaders = url.searchParams.get("backfill_missing_headers") === "1";
 
-    const payload = await run({ dryRun, productoIds });
+    const payload = await run({ dryRun, productoIds, backfillMissingHeaders });
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(

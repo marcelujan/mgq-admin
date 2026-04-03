@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
 import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
 import { ensureItemFormuladoBulk, upsertBulkSnapshotToday } from "@/lib/bulkCost";
+import { ensureProductoFormulaV2Header } from "@/lib/productoFormulaV2";
 
 // GET líneas v2 (incluye job_price_ars / job_as_of_date para ITEM_PRESENTACION)
 export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: string }> }) {
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ producto_i
     );
     const rows = normalizeQueryResult(r);
     const linea_id = rows?.[0]?.linea_id;
+
+    await ensureProductoFormulaV2Header({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
 
     // snapshots automáticos
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_CREATE" });

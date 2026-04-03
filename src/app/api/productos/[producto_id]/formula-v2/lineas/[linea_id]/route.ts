@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { normalizeQueryResult, numOrNull, bool } from "@/lib/api";
 import { recalcAndInsertSnapshotsForProducto } from "@/lib/ofertaSnapshots";
 import { ensureItemFormuladoBulk, upsertBulkSnapshotToday } from "@/lib/bulkCost";
+import { ensureProductoFormulaV2Header } from "@/lib/productoFormulaV2";
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_id: string; linea_id: string }> }) {
   try {
@@ -46,6 +47,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ producto_
     const rows = normalizeQueryResult(r);
     if (!rows?.length) return NextResponse.json({ ok: false, error: "línea no encontrada" }, { status: 404 });
 
+    await ensureProductoFormulaV2Header({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
+
     // snapshots automáticos
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_PATCH" });
 
@@ -88,6 +91,8 @@ export async function DELETE(_: NextRequest, ctx: { params: Promise<{ producto_i
     );
     const rows = normalizeQueryResult(r);
     if (!rows?.length) return NextResponse.json({ ok: false, error: "línea no encontrada" }, { status: 404 });
+
+    await ensureProductoFormulaV2Header({ query: (t: string, p?: any[]) => sql.query(t, p) }, producto_id);
 
     // snapshots automáticos
     await recalcAndInsertSnapshotsForProducto({ producto_id, fuente: "FORMULA_LINEA_DELETE" });
