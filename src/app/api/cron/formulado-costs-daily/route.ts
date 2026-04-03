@@ -42,45 +42,107 @@ function parseProductoIds(param: string | null): number[] | null {
 async function run(opts: RunOpts) {
   const client = await pool.connect();
   try {
-    const d0 = await client.query<{ d: string }>(`select current_date::text as d;`);
+    const d0 = await client.query<{ d: string }>(
+      `select current_date::text as d;`,
+    );
     const asOfDate = d0.rows[0]?.d;
 
-    // Productos con fórmula v2 existente (cabecera) y activos.
-    // Nota: si falta item_formulado BULK, este cron lo crea (regla de reutilización).
-    const rProd = await client.query<{
+    const rUniverse = await client.query<{
       producto_id: number;
+      nombre: string;
+      has_header: boolean;
+      has_lines: boolean;
       item_formulado_id: number | null;
+      has_snapshot_today: boolean;
     }>(
       `
-      SELECT
+      with productos_formulados_v2 as (
+        select distinct producto_id
+        from (
+          select producto_id from app.producto_formula_v2
+          union
+          select producto_id from app.producto_formula_linea_v2
+        ) x
+        where producto_id is not null
+      )
+      select
         p.producto_id::int as producto_id,
-        f.item_formulado_id::int as item_formulado_id
-      FROM app.producto p
-      JOIN app.producto_formula_v2 pf ON pf.producto_id = p.producto_id
-      LEFT JOIN LATERAL (
-        SELECT item_formulado_id
-        FROM app.item_formulado f
-        WHERE f.producto_id = p.producto_id
-          AND f.tipo='BULK'
-          AND f.activo=true
-        ORDER BY f.item_formulado_id ASC
-        LIMIT 1
-      ) f ON true
-      WHERE p.activo = true
-        AND (
-          $1::int[] IS NULL
-          OR p.producto_id = ANY($1::int[])
+        coalesce(p.nombre, '')::text as nombre,
+        exists(
+          select 1
+          from app.producto_formula_v2 pf
+          where pf.producto_id = p.producto_id
+        ) as has_header,
+        exists(
+          select 1
+          from app.producto_formula_linea_v2 pl
+          where pl.producto_id = p.producto_id
+        ) as has_lines,
+        f.item_formulado_id::int as item_formulado_id,
+        exists(
+          select 1
+          from app.item_formulado_snapshot s
+          where s.item_formulado_id = f.item_formulado_id
+            and s.as_of_date = current_date
+        ) as has_snapshot_today
+      from productos_formulados_v2 u
+      join app.producto p on p.producto_id = u.producto_id
+      left join lateral (
+        select item_formulado_id
+        from app.item_formulado f
+        where f.producto_id = p.producto_id
+          and f.tipo='BULK'
+          and f.activo=true
+        order by f.item_formulado_id asc
+        limit 1
+      ) f on true
+      where p.activo = true
+        and (
+          $1::int[] is null
+          or p.producto_id = any($1::int[])
         )
-      ORDER BY p.producto_id ASC
+      order by p.producto_id asc
       `,
-      [opts.productoIds]
+      [opts.productoIds],
     );
+
+    const universeRows = rUniverse.rows ?? [];
+    const cronCandidates = universeRows.filter((row) => row.has_header);
+    const diagnostics = {
+      universe_v2_count: universeRows.length,
+      cron_candidate_count: cronCandidates.length,
+      missing_header_count: universeRows.filter(
+        (row) => !row.has_header && row.has_lines,
+      ).length,
+      missing_header_productos: universeRows
+        .filter((row) => !row.has_header && row.has_lines)
+        .slice(0, 50)
+        .map((row) => ({
+          producto_id: Number(row.producto_id),
+          nombre: String(row.nombre ?? ""),
+        })),
+      pending_snapshot_today_count: universeRows.filter(
+        (row) =>
+          Number(row.item_formulado_id ?? 0) > 0 && !row.has_snapshot_today,
+      ).length,
+      pending_snapshot_today_productos: universeRows
+        .filter(
+          (row) =>
+            Number(row.item_formulado_id ?? 0) > 0 && !row.has_snapshot_today,
+        )
+        .slice(0, 50)
+        .map((row) => ({
+          producto_id: Number(row.producto_id),
+          nombre: String(row.nombre ?? ""),
+          item_formulado_id: Number(row.item_formulado_id),
+        })),
+    };
 
     const results: any[] = [];
     const errors: any[] = [];
     let upserts = 0;
 
-    for (const row of rProd.rows ?? []) {
+    for (const row of cronCandidates) {
       const producto_id = Number(row.producto_id);
 
       try {
@@ -115,7 +177,7 @@ async function run(opts: RunOpts) {
               fuente = excluded.fuente,
               created_at = excluded.created_at
             `,
-            [item_formulado_id, asOfDate, cost.ars_por_kg]
+            [item_formulado_id, asOfDate, cost.ars_por_kg],
           );
           upserts += q.rowCount ?? 0;
         }
@@ -132,6 +194,7 @@ async function run(opts: RunOpts) {
       as_of_date: asOfDate,
       dry_run: opts.dryRun,
       producto_ids: opts.productoIds,
+      diagnostics,
       computed: results.length,
       upserts,
       results,
@@ -155,7 +218,7 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: String(e?.message ?? e) },
-      { status: e?.statusCode ?? 500 }
+      { status: e?.statusCode ?? 500 },
     );
   }
 }
