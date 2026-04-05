@@ -37,7 +37,7 @@ export default function ManualesClient() {
   const [rows, setRows] = useState<CostOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("cost_option_id");
+  const [sortKey, setSortKey] = useState<SortKey>("manual_nombre");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
@@ -124,7 +124,7 @@ export default function ManualesClient() {
     );
   }, [search, loading, count]);
 
-  const thBase: CSSProperties = { textAlign: "left", padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", lineHeight: 1.2 };
+  const thBase: CSSProperties = { textAlign: "left", padding: "5px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", lineHeight: 1.15 };
   const thButton: CSSProperties = { all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "inherit" };
 
   return (
@@ -142,7 +142,7 @@ export default function ManualesClient() {
       ) : null}
 
       <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "rgba(255,255,255,0.03)" }}>
               <th style={{ ...thBase, width: 90 }}><button type="button" onClick={() => toggleSort("cost_option_id")} style={thButton}>Item #{sortLabel("cost_option_id")}</button></th>
@@ -157,14 +157,14 @@ export default function ManualesClient() {
           <tbody>
             {sortedRows.map((r) => (
               <tr key={r.cost_option_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <td style={{ padding: "6px 10px", opacity: 0.85, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{r.cost_option_id}</td>
-                <td style={{ padding: "6px 10px", fontWeight: 600, lineHeight: 1.2 }}>{r.manual_nombre ?? ""}</td>
-                <td style={{ padding: "6px 10px", opacity: 0.85, lineHeight: 1.2 }}>{r.manual_uom ?? ""}</td>
-                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.manual_cantidad, 2)}</td>
-                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.manual_costo_ars, 2)}</td>
-                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.densidad_g_ml, 3)}</td>
-                <td style={{ padding: "6px 10px", lineHeight: 1.2 }}>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <td style={{ padding: "5px 10px", opacity: 0.85, fontVariantNumeric: "tabular-nums", lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.cost_option_id}</td>
+                <td style={{ padding: "5px 10px", fontWeight: 400, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.manual_nombre ?? ""}>{r.manual_nombre ?? ""}</td>
+                <td style={{ padding: "5px 10px", opacity: 0.85, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.manual_uom ?? ""}</td>
+                <td style={{ padding: "5px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{fmtNum(r.manual_cantidad, 2)}</td>
+                <td style={{ padding: "5px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{fmtNum(r.manual_costo_ars, 2)}</td>
+                <td style={{ padding: "5px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{fmtNum(r.densidad_g_ml, 3)}</td>
+                <td style={{ padding: "5px 10px", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+                  <div style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
                     <Link
                       href={`/items/${encodeURIComponent(`mopt:${r.cost_option_id}`)}`}
                       style={{ textDecoration: "none", opacity: 0.9 }}
@@ -181,7 +181,7 @@ export default function ManualesClient() {
             ))}
             {!loading && sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: "10px", opacity: 0.7, lineHeight: 1.2 }}>
+                <td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7, lineHeight: 1.15 }}>
                   Sin resultados.
                 </td>
               </tr>

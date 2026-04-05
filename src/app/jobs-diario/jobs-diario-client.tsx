@@ -240,18 +240,18 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
         }}
       >
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.03)" }}>
-                <th style={{ padding: "10px 10px", width: 140 }}>Fecha</th>
-                <th style={{ padding: "10px 10px" }}>Producto</th>
-                <th style={{ padding: "10px 10px", width: 160 }}>Proveedor</th>
-                <th style={{ padding: "10px 10px", width: 80 }}>Motor</th>
-                <th style={{ padding: "10px 10px", width: 120 }}>Presentación</th>
-                <th style={{ padding: "10px 10px", width: 110 }}>Estado</th>
-                <th style={{ padding: "10px 10px", width: 110 }}>Actualizado</th>
-                <th style={{ padding: "10px 10px", width: 40 }}>🔗</th>
-                <th style={{ padding: "10px 10px", width: 40 }}>🔍</th>
+                <th style={{ padding: "6px 10px", width: 140 }}>Fecha</th>
+                <th style={{ padding: "6px 10px" }}>Producto</th>
+                <th style={{ padding: "6px 10px", width: 160 }}>Proveedor</th>
+                <th style={{ padding: "6px 10px", width: 80 }}>Motor</th>
+                <th style={{ padding: "6px 10px", width: 120 }}>Presentación</th>
+                <th style={{ padding: "6px 10px", width: 110 }}>Estado</th>
+                <th style={{ padding: "6px 10px", width: 110 }}>Actualizado</th>
+                <th style={{ padding: "6px 10px", width: 40 }}>🔗</th>
+                <th style={{ padding: "6px 10px", width: 40 }}>🔍</th>
               </tr>
             </thead>
             <tbody>
@@ -268,11 +268,11 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
 
                 return (
                   <tr key={`${r.run_id}_${r.offer_id}`} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                    <td style={{ padding: "10px 10px", opacity: 0.85, whiteSpace: "nowrap" }}>{fmtIso(r.processed_at)}</td>
-                    <td style={{ padding: "10px 10px", maxWidth: 520 }}>
+                    <td style={{ padding: "5px 10px", opacity: 0.85, whiteSpace: "nowrap", lineHeight: 1.15 }}>{fmtIso(r.processed_at)}</td>
+                    <td style={{ padding: "5px 10px", maxWidth: 520, lineHeight: 1.15 }}>
                       <div
                         title={prod}
-                        style={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        style={{ fontWeight: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.15 }}
                       >
                         {prod}
                       </div>
@@ -280,10 +280,10 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
                         item {r.item_id} · offer {r.offer_id}
                       </div>
                     </td>
-                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{prov || "—"}</td>
-                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{r.motor_id ?? "-"}</td>
-                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{r.presentacion ?? "-"}</td>
-                    <td style={{ padding: "10px 10px" }}>
+                    <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prov || "—"}</td>
+                    <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15 }}>{r.motor_id ?? "-"}</td>
+                    <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15 }}>{r.presentacion ?? "-"}</td>
+                    <td style={{ padding: "5px 10px", lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       <span
                         title={showWarn ? r.last_error ?? "" : ""}
                         style={{
@@ -303,8 +303,8 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
                         {showWarn ? <span style={{ opacity: 0.85 }}>⚠︎</span> : null}
                       </span>
                     </td>
-                    <td style={{ padding: "10px 10px", opacity: 0.9 }}>{r.actualizado ? "Sí" : "No"}</td>
-                    <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                    <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15 }}>{r.actualizado ? "Sí" : "No"}</td>
+                    <td style={{ padding: "5px 10px", textAlign: "center", lineHeight: 1.15 }}>
                       {url ? (
                         <a href={url} target="_blank" rel="noreferrer" title={url} style={{ color: "inherit", opacity: 0.9 }}>
                           🔗
@@ -313,7 +313,7 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
                         <span style={{ opacity: 0.35 }}>—</span>
                       )}
                     </td>
-                    <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                    <td style={{ padding: "5px 10px", textAlign: "center", lineHeight: 1.15 }}>
                       <Link href={`/items/${r.item_id}`} title="Ver detalle" style={{ color: "inherit", opacity: 0.9 }}>
                         🔍
                       </Link>
@@ -323,7 +323,7 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
               })}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: 14, opacity: 0.75 }}>
+                  <td colSpan={9} style={{ padding: "8px 10px", opacity: 0.75, lineHeight: 1.15 }}>
                     Sin resultados.
                   </td>
                 </tr>

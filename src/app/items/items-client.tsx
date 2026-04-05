@@ -64,7 +64,7 @@ function badgeStyle(estado: string | null | undefined) {
     display: "inline-block",
     border: "1px solid rgba(255,255,255,0.18)",
     borderRadius: 999,
-    padding: "4px 10px",
+    padding: "3px 8px",
     fontSize: 12,
     opacity: 0.95,
     whiteSpace: "nowrap" as const,
@@ -495,36 +495,36 @@ export default function ItemsClient(props: ItemsClientProps) {
       </div>
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "auto" }}>
-        <table style={{ minWidth: 1220, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+        <table style={{ minWidth: 1220, width: "100%", fontSize: 13, borderCollapse: "collapse", tableLayout: "fixed" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
-              <th style={{ padding: 10, width: 90, textAlign: "right" }}>
+              <th style={{ padding: "6px 10px", width: 90, textAlign: "right" }}>
                 <button type="button" onClick={() => toggleSort("item_id")} style={headerButtonStyle("right")}>
                   Item # <span style={{ opacity: 0.7 }}>{sortIndicator("item_id")}</span>
                 </button>
               </th>
-              <th style={{ padding: 10, minWidth: 380 }}>
+              <th style={{ padding: "6px 10px", minWidth: 380 }}>
                 <button type="button" onClick={() => toggleSort("nombre")} style={headerButtonStyle("left")}>
                   Nombre <span style={{ opacity: 0.7 }}>{sortIndicator("nombre")}</span>
                 </button>
               </th>
-              <th style={{ padding: 10, width: 180 }}>
+              <th style={{ padding: "6px 10px", width: 180 }}>
                 <button type="button" onClick={() => toggleSort("fuente")} style={headerButtonStyle("left")}>
                   Fuente <span style={{ opacity: 0.7 }}>{sortIndicator("fuente")}</span>
                 </button>
               </th>
-              <th style={{ padding: 10, width: 160 }}>
+              <th style={{ padding: "6px 10px", width: 160 }}>
                 <button type="button" onClick={() => toggleSort("estado_proveedor")} style={headerButtonStyle("left")}>
                   Estado proveedor <span style={{ opacity: 0.7 }}>{sortIndicator("estado_proveedor")}</span>
                 </button>
               </th>
-              <th style={{ padding: 10, width: 240 }}>Estado item</th>
-              <th style={{ padding: 10, width: 180 }}>
+              <th style={{ padding: "6px 10px", width: 240 }}>Estado item</th>
+              <th style={{ padding: "6px 10px", width: 180 }}>
                 <button type="button" onClick={() => toggleSort("updated_at")} style={headerButtonStyle("left")}>
                   Actualizado <span style={{ opacity: 0.7 }}>{sortIndicator("updated_at")}</span>
                 </button>
               </th>
-              <th style={{ padding: 10, width: 120, textAlign: "center" }}>Acciones</th>
+              <th style={{ padding: "6px 10px", width: 120, textAlign: "center" }}>Acciones</th>
             </tr>
           </thead>
 
@@ -559,16 +559,17 @@ export default function ItemsClient(props: ItemsClientProps) {
 
               return (
                 <tr key={it.item_key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <td style={{ padding: 10, textAlign: "right", whiteSpace: "nowrap", opacity: 0.85 }}>{itemId}</td>
+                  <td style={{ padding: "5px 10px", textAlign: "right", whiteSpace: "nowrap", opacity: 0.85, lineHeight: 1.15 }}>{itemId}</td>
 
                   <td
                     style={{
-                      padding: 10,
+                      padding: "5px 10px",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       maxWidth: 680,
-                      fontWeight: 650 as const,
+                      fontWeight: 400 as const,
+                      lineHeight: 1.15,
                     }}
                     title={nombre}
                   >
@@ -576,25 +577,25 @@ export default function ItemsClient(props: ItemsClientProps) {
                   </td>
 
                   <td
-                    style={{ padding: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    style={{ padding: "5px 10px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.15 }}
                     title={fuente}
                   >
                     {fuente}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: "5px 10px", whiteSpace: "nowrap", lineHeight: 1.15 }}>
                     {estadoProveedorLabel === "—" ? "—" : <span style={badgeStyle(estadoProveedorLabel)}>{estadoProveedorLabel}</span>}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                  <td style={{ padding: "5px 10px", whiteSpace: "nowrap", lineHeight: 1.15 }}>
                     {showCounts ? <span style={{ opacity: 0.92 }}>{estadoCountsText}</span> : <span>—</span>}
                   </td>
 
-                  <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
+                  <td style={{ padding: "5px 10px", whiteSpace: "nowrap", opacity: 0.85, lineHeight: 1.15 }}>
                     {fmtUpdated(it.updated_at ?? null)}
                   </td>
 
-                  <td style={{ padding: 10, textAlign: "center", whiteSpace: "nowrap" }}>
+                  <td style={{ padding: "5px 10px", textAlign: "center", whiteSpace: "nowrap", lineHeight: 1.15 }}>
                     <div style={{ display: "inline-flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
                       <Link
                         href={`/items/${encodeURIComponent(it.item_key)}`}
@@ -640,7 +641,7 @@ export default function ItemsClient(props: ItemsClientProps) {
 
             {!loading && items.length === 0 ? (
               <tr>
-                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={7}>
+                <td style={{ padding: "8px 10px", fontSize: 13, opacity: 0.7, lineHeight: 1.15 }} colSpan={7}>
                   Sin resultados.
                 </td>
               </tr>
