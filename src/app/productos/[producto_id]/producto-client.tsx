@@ -1193,65 +1193,74 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   // ===== Unificación de tablas (job / bulks / manuales) =====
 
   const pickRowsJob = useMemo<ComponentPickRow[]>(() => {
-    return itemOptions.slice(0, 200).map((x, idx) => {
-      const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
-      const url = (x.url_original || x.url_canonica || "").trim();
-      const nombre = url ? urlToSlug(url) : "";
-      const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
-      const origen = `Proveedor: ${prov}`;
-      return {
-        key: `job-${x.item_id}-${x.presentacion}-${idx}`,
-        id: x.item_id,
-        idLabel: `#${x.item_id}`,
-        nombre: safeText(nombre),
-        origen,
-        presentacion: fmtGrFromKg(numOrNull(x.presentacion), 0), // mostrar en GR
-        precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
-        densidad: "-",
-        fecha: safeText(x.as_of_date),
-        onAdd: async () => addLineaFromItem(x),
-      };
-    });
+    return itemOptions
+      .map((x, idx) => {
+        const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
+        const url = (x.url_original || x.url_canonica || "").trim();
+        const nombre = url ? urlToSlug(url) : "";
+        const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
+        const origen = `Proveedor: ${prov}`;
+        return {
+          key: `job-${x.item_id}-${x.presentacion}-${idx}`,
+          id: x.item_id,
+          idLabel: `#${x.item_id}`,
+          nombre: safeText(nombre),
+          origen,
+          presentacion: fmtGrFromKg(numOrNull(x.presentacion), 0), // mostrar en GR
+          precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
+          densidad: "-",
+          fecha: safeText(x.as_of_date),
+          onAdd: async () => addLineaFromItem(x),
+        };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }))
+      .slice(0, 200);
   }, [itemOptions]);
 
   const pickRowsBulks = useMemo<ComponentPickRow[]>(() => {
-    return bulkRows.slice(0, 80).map((b) => {
-      return {
-        key: `bulk-${b.producto_id}`,
-        id: b.producto_id,
-        idLabel: `#${b.producto_id}`,
-        nombre: safeText(b.nombre),
-        origen: "Bulk",
-        presentacion: "1000 g",
-        precioUnitario: fmtMaybe(b.ars_por_kg, 2),
-        densidad: fmtMaybe(b.densidad_producto_g_ml, 4),
-        fecha: "-",
-        onAdd: async () => addLineaFromBulk(b.producto_id),
-      };
-    });
+    return bulkRows
+      .map((b) => {
+        return {
+          key: `bulk-${b.producto_id}`,
+          id: b.producto_id,
+          idLabel: `#${b.producto_id}`,
+          nombre: safeText(b.nombre),
+          origen: "Bulk",
+          presentacion: "1000 g",
+          precioUnitario: fmtMaybe(b.ars_por_kg, 2),
+          densidad: fmtMaybe(b.densidad_producto_g_ml, 4),
+          fecha: "-",
+          onAdd: async () => addLineaFromBulk(b.producto_id),
+        };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }))
+      .slice(0, 80);
   }, [bulkRows]);
 
   const pickRowsManual = useMemo<ComponentPickRow[]>(() => {
-    return manualOptions.slice(0, 120).map((m) => {
-      const dens = numOrNull(m.densidad_g_ml);
-      const arsKg = toARSporKgManual(numOrNull(m.manual_costo_ars), numOrNull(m.manual_cantidad), m.manual_uom, dens);
+    return manualOptions
+      .map((m) => {
+        const dens = numOrNull(m.densidad_g_ml);
+        const arsKg = toARSporKgManual(numOrNull(m.manual_costo_ars), numOrNull(m.manual_cantidad), m.manual_uom, dens);
 
-      const pres =
-        m.manual_cantidad !== null && m.manual_uom ? `${fmtMaybe(m.manual_cantidad, 4)} ${m.manual_uom}` : "-";
+        const pres =
+          m.manual_cantidad !== null && m.manual_uom ? `${fmtMaybe(m.manual_cantidad, 4)} ${m.manual_uom}` : "-";
 
-      return {
-        key: `man-${m.cost_option_id}`,
-        id: m.cost_option_id,
-        idLabel: `opt #${m.cost_option_id}`,
-        nombre: safeText(m.manual_nombre ?? "Manual"),
-        origen: "Manual",
-        presentacion: pres,
-        precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
-        densidad: fmtMaybe(dens, 4),
-        fecha: "-",
-        onAdd: async () => addLineaFromCostOption(m.cost_option_id),
-      };
-    });
+        return {
+          key: `man-${m.cost_option_id}`,
+          id: m.cost_option_id,
+          idLabel: `opt #${m.cost_option_id}`,
+          nombre: safeText(m.manual_nombre ?? "Manual"),
+          origen: "Manual",
+          presentacion: pres,
+          precioUnitario: arsKg === null ? "-" : arsKg.toFixed(2),
+          densidad: fmtMaybe(dens, 4),
+          fecha: "-",
+          onAdd: async () => addLineaFromCostOption(m.cost_option_id),
+        };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }))
+      .slice(0, 120);
   }, [manualOptions]);
 
   return (
