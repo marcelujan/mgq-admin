@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 type CostOption = {
   cost_option_id: number;
@@ -14,9 +14,22 @@ type CostOption = {
   activo: boolean;
 };
 
+type SortKey = "cost_option_id" | "manual_nombre" | "manual_uom" | "manual_cantidad" | "manual_costo_ars" | "densidad_g_ml";
+type SortDir = "asc" | "desc";
+
 function fmtNum(n: number | null | undefined, digits: number): string {
   if (n === null || n === undefined || !Number.isFinite(Number(n))) return "";
   return new Intl.NumberFormat("es-AR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(n));
+}
+
+function compareText(a: string, b: string, dir: SortDir): number {
+  const cmp = a.localeCompare(b, "es", { sensitivity: "base" });
+  return dir === "asc" ? cmp : -cmp;
+}
+
+function compareNumber(a: number, b: number, dir: SortDir): number {
+  const cmp = a - b;
+  return dir === "asc" ? cmp : -cmp;
 }
 
 export default function ManualesClient() {
@@ -24,6 +37,8 @@ export default function ManualesClient() {
   const [rows, setRows] = useState<CostOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("cost_option_id");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +73,33 @@ export default function ManualesClient() {
     };
   }, [search]);
 
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      if (sortKey === "cost_option_id") return compareNumber(Number(a.cost_option_id), Number(b.cost_option_id), sortDir);
+      if (sortKey === "manual_nombre") return compareText(a.manual_nombre ?? "", b.manual_nombre ?? "", sortDir);
+      if (sortKey === "manual_uom") return compareText(a.manual_uom ?? "", b.manual_uom ?? "", sortDir);
+      if (sortKey === "manual_cantidad") return compareNumber(Number(a.manual_cantidad ?? Number.NEGATIVE_INFINITY), Number(b.manual_cantidad ?? Number.NEGATIVE_INFINITY), sortDir);
+      if (sortKey === "manual_costo_ars") return compareNumber(Number(a.manual_costo_ars ?? Number.NEGATIVE_INFINITY), Number(b.manual_costo_ars ?? Number.NEGATIVE_INFINITY), sortDir);
+      return compareNumber(Number(a.densidad_g_ml ?? Number.NEGATIVE_INFINITY), Number(b.densidad_g_ml ?? Number.NEGATIVE_INFINITY), sortDir);
+    });
+  }, [rows, sortKey, sortDir]);
+
+  function toggleSort(key: SortKey) {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setSortDir("asc");
+      return key;
+    });
+  }
+
+  function sortLabel(key: SortKey): string {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
+
   const count = rows.length;
 
   const headerRight = useMemo(() => {
@@ -82,6 +124,9 @@ export default function ManualesClient() {
     );
   }, [search, loading, count]);
 
+  const thBase: CSSProperties = { textAlign: "left", padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", lineHeight: 1.2 };
+  const thButton: CSSProperties = { all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "inherit" };
+
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -100,25 +145,25 @@ export default function ManualesClient() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-              <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>ID</th>
-              <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Nombre</th>
-              <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>UOM</th>
-              <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Cantidad</th>
-              <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Costo (ARS)</th>
-              <th style={{ textAlign: "right", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Densidad</th>
-              <th style={{ textAlign: "left", padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Acciones</th>
+              <th style={{ ...thBase, width: 90 }}><button type="button" onClick={() => toggleSort("cost_option_id")} style={thButton}>Item #{sortLabel("cost_option_id")}</button></th>
+              <th style={thBase}><button type="button" onClick={() => toggleSort("manual_nombre")} style={thButton}>Nombre{sortLabel("manual_nombre")}</button></th>
+              <th style={{ ...thBase, width: 90 }}><button type="button" onClick={() => toggleSort("manual_uom")} style={thButton}>UOM{sortLabel("manual_uom")}</button></th>
+              <th style={{ ...thBase, textAlign: "right", width: 110 }}><button type="button" onClick={() => toggleSort("manual_cantidad")} style={{ ...thButton, marginLeft: 'auto' }}>Cantidad{sortLabel("manual_cantidad")}</button></th>
+              <th style={{ ...thBase, textAlign: "right", width: 120 }}><button type="button" onClick={() => toggleSort("manual_costo_ars")} style={{ ...thButton, marginLeft: 'auto' }}>Costo (ARS){sortLabel("manual_costo_ars")}</button></th>
+              <th style={{ ...thBase, textAlign: "right", width: 110 }}><button type="button" onClick={() => toggleSort("densidad_g_ml")} style={{ ...thButton, marginLeft: 'auto' }}>Densidad{sortLabel("densidad_g_ml")}</button></th>
+              <th style={{ ...thBase, width: 120 }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.cost_option_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <td style={{ padding: "10px 12px", opacity: 0.85 }}>{r.cost_option_id}</td>
-                <td style={{ padding: "10px 12px", fontWeight: 600 }}>{r.manual_nombre ?? ""}</td>
-                <td style={{ padding: "10px 12px", opacity: 0.85 }}>{r.manual_uom ?? ""}</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", opacity: 0.9 }}>{fmtNum(r.manual_cantidad, 2)}</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", opacity: 0.9 }}>{fmtNum(r.manual_costo_ars, 2)}</td>
-                <td style={{ padding: "10px 12px", textAlign: "right", opacity: 0.9 }}>{fmtNum(r.densidad_g_ml, 3)}</td>
-                <td style={{ padding: "10px 12px" }}>
+                <td style={{ padding: "6px 10px", opacity: 0.85, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{r.cost_option_id}</td>
+                <td style={{ padding: "6px 10px", fontWeight: 600, lineHeight: 1.2 }}>{r.manual_nombre ?? ""}</td>
+                <td style={{ padding: "6px 10px", opacity: 0.85, lineHeight: 1.2 }}>{r.manual_uom ?? ""}</td>
+                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.manual_cantidad, 2)}</td>
+                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.manual_costo_ars, 2)}</td>
+                <td style={{ padding: "6px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.2 }}>{fmtNum(r.densidad_g_ml, 3)}</td>
+                <td style={{ padding: "6px 10px", lineHeight: 1.2 }}>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <Link
                       href={`/items/${encodeURIComponent(`mopt:${r.cost_option_id}`)}`}
@@ -134,9 +179,9 @@ export default function ManualesClient() {
                 </td>
               </tr>
             ))}
-            {!loading && rows.length === 0 ? (
+            {!loading && sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: "12px", opacity: 0.7 }}>
+                <td colSpan={7} style={{ padding: "10px", opacity: 0.7, lineHeight: 1.2 }}>
                   Sin resultados.
                 </td>
               </tr>
