@@ -16,6 +16,8 @@ type ChartPoint = {
   valor: number;
 };
 
+type RangeKey = "30" | "60" | "100" | "180" | "365" | "all";
+
 function compareText(a: string, b: string, dir: SortDir): number {
   const cmp = a.localeCompare(b, "es", { sensitivity: "base" });
   return dir === "asc" ? cmp : -cmp;
@@ -50,7 +52,7 @@ function dateMinusDays(iso: string, days: number): string | null {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function FxHistoryChart({ points }: { points: ChartPoint[] }) {
+function FxHistoryChart({ points, range, onRangeChange }: { points: ChartPoint[]; range: RangeKey; onRangeChange: (value: RangeKey) => void }) {
   const chart = useMemo(() => {
     const W = 920;
     const H = 260;
@@ -99,8 +101,41 @@ function FxHistoryChart({ points }: { points: ChartPoint[] }) {
         background: "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
       }}
     >
+      <style jsx global>{`
+        .fx_range {
+          color-scheme: dark;
+        }
+        .fx_range option {
+          background: #0b0b0b;
+          color: #ffffff;
+        }
+      `}</style>
+
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", marginBottom: 8, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.95 }}>USD venta · 30 días</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.95 }}>Intervalo</div>
+          <select
+            className="fx_range"
+            value={range}
+            onChange={(e) => onRangeChange(e.target.value as RangeKey)}
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              background: "rgba(255,255,255,0.04)",
+              color: "rgba(255,255,255,0.88)",
+              fontSize: 13,
+              outline: "none",
+            }}
+          >
+            <option value="30">30 días</option>
+            <option value="60">60 días</option>
+            <option value="100">100 días</option>
+            <option value="180">180 días</option>
+            <option value="365">365 días</option>
+            <option value="all">Todo</option>
+          </select>
+        </div>
         <div style={{ fontSize: 12, opacity: 0.75 }}>{last ? `${last.fecha} · ${fmtValor(last.valor)}` : "Sin datos"}</div>
       </div>
 
@@ -158,6 +193,7 @@ export default function FxClient() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("fecha");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [range, setRange] = useState<RangeKey>("30");
 
   async function load() {
     setLoading(true);
@@ -210,10 +246,13 @@ export default function FxClient() {
       .map((r) => ({ fecha: String(r.fecha), valor: Number(r.valor) }))
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
     if (!valid.length) return [] as ChartPoint[];
+    if (range === "all") return valid;
+    const days = Number(range);
+    if (!Number.isFinite(days) || days <= 0) return valid;
     const maxDate = valid[valid.length - 1].fecha;
-    const minDate = dateMinusDays(maxDate, 29);
-    return minDate ? valid.filter((r) => r.fecha >= minDate) : valid.slice(-30);
-  }, [rows]);
+    const minDate = dateMinusDays(maxDate, days - 1);
+    return minDate ? valid.filter((r) => r.fecha >= minDate) : valid.slice(-days);
+  }, [rows, range]);
 
   const thBase: CSSProperties = { padding: "6px 10px", opacity: 0.8, lineHeight: 1.15 };
   const thButton: CSSProperties = {
@@ -227,7 +266,7 @@ export default function FxClient() {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <FxHistoryChart points={chartPoints} />
+      <FxHistoryChart points={chartPoints} range={range} onRangeChange={setRange} />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
