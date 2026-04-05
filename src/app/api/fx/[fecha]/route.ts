@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { FX_SOURCE_MANUAL } from "@/lib/fx-bna";
 
 function normRows(res: any): any[] {
   if (!res) return [];
@@ -18,7 +19,7 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ fecha: string
     const fechaKey = decodeURIComponent(fecha || "");
     if (!isValidDateKey(fechaKey)) return NextResponse.json({ ok: false, error: "fecha inválida" }, { status: 400 });
     const sql = db();
-    const rows = normRows(await sql.query(`SELECT fecha::text as fecha, valor::float8 as valor FROM app.fx WHERE fecha = $1::date LIMIT 1`, [fechaKey]));
+    const rows = normRows(await sql.query(`SELECT fecha::text as fecha, valor::float8 as valor, fuente FROM app.fx WHERE fecha = $1::date LIMIT 1`, [fechaKey]));
     return NextResponse.json({ ok: true, row: rows[0] ?? null });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
@@ -34,7 +35,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ fecha: st
     if (!isValidDateKey(fechaKey)) return NextResponse.json({ ok: false, error: "fecha inválida" }, { status: 400 });
     if (!Number.isFinite(valor) || valor <= 0) return NextResponse.json({ ok: false, error: "valor inválido" }, { status: 400 });
     const sql = db();
-    const rows = normRows(await sql.query(`UPDATE app.fx SET valor = $2 WHERE fecha = $1::date RETURNING fecha::text as fecha, valor::float8 as valor`, [fechaKey, valor]));
+    const rows = normRows(await sql.query(`UPDATE app.fx SET valor = $2, fuente = $3 WHERE fecha = $1::date RETURNING fecha::text as fecha, valor::float8 as valor, fuente`, [fechaKey, valor, FX_SOURCE_MANUAL]));
     if (!rows.length) return NextResponse.json({ ok: false, error: "no encontrado" }, { status: 404 });
     return NextResponse.json({ ok: true, row: rows[0] ?? null });
   } catch (e: any) {

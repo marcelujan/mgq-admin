@@ -12,8 +12,11 @@ export type FxUpsertResult = {
   previous_value: number | null;
   inserted: boolean;
   updated: boolean;
-  row: { fecha: string; valor: number };
+  row: { fecha: string; valor: number; fuente: string };
 };
+
+export const FX_SOURCE_BNA_WEB = "BNA_WEB";
+export const FX_SOURCE_MANUAL = "MANUAL";
 
 function decodeHtmlEntities(input: string): string {
   return String(input)
@@ -114,6 +117,7 @@ export async function hasFxForCurrentDatePg(client: { query: (sql: string, param
 export async function upsertFxForCurrentDatePg(
   client: { query: (sql: string, params?: any[]) => Promise<any> },
   valor: number,
+  fuente: string = FX_SOURCE_BNA_WEB,
 ): Promise<FxUpsertResult> {
   const d0 = await client.query(`select current_date::text as d;`);
   const currentDate = String(d0.rows?.[0]?.d ?? "");
@@ -122,13 +126,14 @@ export async function upsertFxForCurrentDatePg(
 
   const upsertQ = await client.query(
     `
-    insert into app.fx (fecha, valor)
-    values (current_date, $1)
+    insert into app.fx (fecha, valor, fuente)
+    values (current_date, $1, $2)
     on conflict (fecha)
-    do update set valor = excluded.valor
-    returning fecha::text as fecha, valor::float8 as valor
+    do update set valor = excluded.valor,
+                  fuente = excluded.fuente
+    returning fecha::text as fecha, valor::float8 as valor, fuente
     `,
-    [valor]
+    [valor, fuente]
   );
 
   const row = upsertQ.rows?.[0];
@@ -140,6 +145,7 @@ export async function upsertFxForCurrentDatePg(
     row: {
       fecha: String(row?.fecha ?? currentDate),
       valor: Number(row?.valor ?? valor),
+      fuente: String(row?.fuente ?? fuente),
     },
   };
 }
