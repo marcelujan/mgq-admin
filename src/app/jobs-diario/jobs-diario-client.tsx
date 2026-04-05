@@ -244,7 +244,7 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.03)" }}>
                 <th style={{ padding: "6px 10px", width: 140 }}>Fecha</th>
-                <th style={{ padding: "6px 10px" }}>Producto</th>
+                <th style={{ padding: "6px 10px" }}>Nombre</th>
                 <th style={{ padding: "6px 10px", width: 160 }}>Proveedor</th>
                 <th style={{ padding: "6px 10px", width: 80 }}>Motor</th>
                 <th style={{ padding: "6px 10px", width: 120 }}>Presentación</th>
