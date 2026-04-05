@@ -156,36 +156,47 @@ type ComponentPickRow = {
 };
 
 const compactTableHeadCellStyle = {
-  padding: "6px 10px",
+  padding: "4px 10px",
   fontSize: 12,
   opacity: 0.8,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
   whiteSpace: "nowrap" as const,
 };
 
 const compactTableCellStyle = {
-  padding: "6px 10px",
+  padding: "4px 10px",
   fontSize: 13,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
+  fontWeight: 400,
   whiteSpace: "nowrap" as const,
 };
 
 const compactTableControlStyle = {
-  padding: "4px 8px",
-  borderRadius: 10,
+  padding: "3px 8px",
+  borderRadius: 9,
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.03)",
   fontSize: 13,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
+  height: 28,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 400,
 };
 
 const compactTableInputStyle = {
-  padding: "4px 8px",
-  borderRadius: 10,
+  padding: "3px 8px",
+  borderRadius: 9,
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.03)",
   fontSize: 13,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
+  height: 28,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 400,
   height: 30,
 };
 
@@ -1481,6 +1492,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
                   <td style={{ ...compactTableCellStyle, textAlign: "center" }}>
                     <input
+                      style={{ width: 14, height: 14, margin: 0 }}
                       type="checkbox"
                       checked={!!r.l.is_csp}
                       onChange={async (e) => {
