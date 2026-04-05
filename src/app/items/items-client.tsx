@@ -124,6 +124,8 @@ export type ItemsClientProps = {
   lockTipo?: boolean;
   hideTipoFilter?: boolean;
   showSeleccionadoFilter?: boolean;
+  initialSortBy?: SortBy;
+  initialSortDir?: SortDir;
 };
 
 export default function ItemsClient(props: ItemsClientProps) {
@@ -142,8 +144,10 @@ export default function ItemsClient(props: ItemsClientProps) {
   const [estadoProveedor, setEstadoProveedor] = useState<EstadoProveedorFiltro>("");
   const [estadoItem, setEstadoItem] = useState<EstadoItemFiltro>("");
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
-  const [sortBy, setSortBy] = useState<SortBy>("item_id");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const initialSortBy = props.initialSortBy ?? "item_id";
+  const initialSortDir = props.initialSortDir ?? "desc";
+  const [sortBy, setSortBy] = useState<SortBy>(initialSortBy);
+  const [sortDir, setSortDir] = useState<SortDir>(initialSortDir);
 
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
@@ -385,8 +389,8 @@ export default function ItemsClient(props: ItemsClientProps) {
             setEstadoProveedor("");
             setEstadoItem("");
             setSeleccionado("");
-            setSortBy("item_id");
-            setSortDir("desc");
+            setSortBy(initialSortBy);
+            setSortDir(initialSortDir);
             setOffset(0);
           }}
         >
@@ -621,14 +625,15 @@ export default function ItemsClient(props: ItemsClientProps) {
                       )}
                       <button
                         onClick={() => void handleDelete(it)}
-                        title={it.kind === "FORMULADO" ? "Eliminar definitivamente" : "Eliminar definitivo solo para FORMULADO"}
+                        title={it.kind === "FORMULADO" ? "Eliminar definitivamente" : `Eliminar no está habilitado para ${it.kind}`}
                         disabled={it.kind !== "FORMULADO"}
                         style={{
-                          opacity: it.kind === "FORMULADO" ? 0.9 : 0.3,
+                          opacity: it.kind === "FORMULADO" ? 0.9 : 0.5,
                           cursor: it.kind === "FORMULADO" ? "pointer" : "not-allowed",
                           background: "transparent",
                           border: "none",
                           padding: 0,
+                          color: "inherit",
                         }}
                       >
                         🗑️

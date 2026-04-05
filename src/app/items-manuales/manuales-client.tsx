@@ -129,8 +129,7 @@ export default function ManualesClient() {
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Listado</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, flexWrap: "wrap" }}>
         {headerRight}
       </div>
 
@@ -175,6 +174,7 @@ export default function ManualesClient() {
                     <Link href={`/items-manuales/${r.cost_option_id}`} style={{ textDecoration: "none", opacity: 0.9 }} title="Editar manual">
                       Editar
                     </Link>
+                    <span title="Eliminar manual no está habilitado en esta versión" style={{ opacity: 0.45 }}>🗑️</span>
                   </div>
                 </td>
               </tr>

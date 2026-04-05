@@ -269,16 +269,11 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
                 return (
                   <tr key={`${r.run_id}_${r.offer_id}`} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                     <td style={{ padding: "5px 10px", opacity: 0.85, whiteSpace: "nowrap", lineHeight: 1.15 }}>{fmtIso(r.processed_at)}</td>
-                    <td style={{ padding: "5px 10px", maxWidth: 520, lineHeight: 1.15 }}>
-                      <div
-                        title={prod}
-                        style={{ fontWeight: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.15 }}
-                      >
-                        {prod}
-                      </div>
-                      <div style={{ fontSize: 12, opacity: 0.65 }}>
-                        item {r.item_id} · offer {r.offer_id}
-                      </div>
+                    <td
+                      style={{ padding: "5px 10px", maxWidth: 520, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={`${prod} · item ${r.item_id} · offer ${r.offer_id}`}
+                    >
+                      {prod}
                     </td>
                     <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prov || "—"}</td>
                     <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15 }}>{r.motor_id ?? "-"}</td>

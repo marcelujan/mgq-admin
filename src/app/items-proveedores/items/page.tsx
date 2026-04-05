@@ -25,7 +25,14 @@ export default function ItemsProveedoresItemsPage() {
         </div>
       </div>
 
-      <ItemsClient initialTipo="PROVEEDOR" lockTipo hideTipoFilter showSeleccionadoFilter />
+      <ItemsClient
+        initialTipo="PROVEEDOR"
+        lockTipo
+        hideTipoFilter
+        showSeleccionadoFilter
+        initialSortBy="nombre"
+        initialSortDir="asc"
+      />
     </div>
   );
 }
