@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
         p.activo,
         p.created_at,
         p.updated_at,
+        pf2.lote_ref_g,
+        snap.precio_unitario_ars AS ars_por_kg,
         (pb.producto_id IS NOT NULL) AS tiene_base,
         EXISTS (
           SELECT 1
@@ -65,6 +67,16 @@ export async function GET(req: NextRequest) {
         ) AS tiene_formula
       FROM app.producto p
       LEFT JOIN app.producto_base pb ON pb.producto_id = p.producto_id
+      LEFT JOIN app.producto_formula_v2 pf2 ON pf2.producto_id = p.producto_id
+      LEFT JOIN LATERAL (
+        SELECT s.precio_unitario_ars
+        FROM app.item_formulado f
+        JOIN app.item_formulado_snapshot s ON s.item_formulado_id = f.item_formulado_id
+        WHERE f.producto_id = p.producto_id
+          AND f.tipo = 'BULK'
+        ORDER BY s.as_of_date DESC, s.created_at DESC, s.snapshot_id DESC
+        LIMIT 1
+      ) snap ON true
       ${whereSql}
       ORDER BY p.updated_at DESC, p.producto_id DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}

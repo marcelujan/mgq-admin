@@ -889,6 +889,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   }, [cspLinea, pctFijos]);
 
   async function patchProducto(patch: {
+    nombre?: string;
     densidad_producto_g_ml?: number | null;
     descripcion?: string | null;
   }) {
@@ -902,7 +903,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     if (j.producto) {
       const p = j.producto as any;
       p.densidad_producto_g_ml = numOrNull(p.densidad_producto_g_ml);
-      setProducto(p);
+      setProducto((prev) => ({ ...(prev ?? {}), ...p } as any));
     }
   }
 
@@ -1279,18 +1280,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
           {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
-
-          <button
-            onClick={loadAll}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.03)",
-            }}
-          >
-            Refrescar
-          </button>
         </div>
       </div>
 
@@ -1348,6 +1337,30 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       >
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 4, fontSize: 12, minWidth: 280, flex: "1 1 280px" }}>
+              Nombre
+              <input
+                type="text"
+                key={`nombre-prod-${producto?.producto_id ?? "x"}-${producto?.nombre ?? ""}`}
+                defaultValue={producto?.nombre ?? ""}
+                placeholder="Nombre"
+                onBlur={async (e) => {
+                  const v = e.target.value.trim();
+                  try {
+                    await patchProducto({ nombre: v });
+                  } catch (err: any) {
+                    setError(err?.message || "error");
+                  }
+                }}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  background: "rgba(255,255,255,0.03)",
+                }}
+              />
+            </label>
+
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Lote ref (g)
               <input
