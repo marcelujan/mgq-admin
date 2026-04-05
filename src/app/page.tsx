@@ -17,6 +17,9 @@ export default function Home() {
           <Link href="/items-proveedores">Items Proveedores</Link>
         </li>
         <li>
+          <Link href="/dolar-historico">Dólar Histórico</Link>
+        </li>
+        <li>
           <Link href="/jobs">Jobs manual</Link>
         </li>
       </ul>

@@ -26,6 +26,8 @@ function labelForSegment(seg: string): string {
       return "Nuevo";
     case "insumos":
       return "Insumos";
+    case "dolar-historico":
+      return "Dólar Histórico";
     default:
       return seg.replace(/-/g, " ");
   }
@@ -67,6 +69,7 @@ export default function AppHeader() {
     { href: "/items-manuales", label: "Items Manuales" },
     { href: "/productos", label: "Items Formulados" },
     { href: "/items-proveedores", label: "Items Proveedores" },
+    { href: "/dolar-historico", label: "Dólar Histórico" },
     { href: "/jobs", label: "Jobs manual" },
   ];
 
