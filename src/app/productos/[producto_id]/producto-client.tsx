@@ -155,17 +155,51 @@ type ComponentPickRow = {
   onAdd: () => Promise<void>;
 };
 
+const compactTableHeadCellStyle = {
+  padding: "6px 10px",
+  fontSize: 12,
+  opacity: 0.8,
+  lineHeight: 1.2,
+  whiteSpace: "nowrap" as const,
+};
+
+const compactTableCellStyle = {
+  padding: "6px 10px",
+  fontSize: 13,
+  lineHeight: 1.2,
+  whiteSpace: "nowrap" as const,
+};
+
+const compactTableControlStyle = {
+  padding: "4px 8px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(255,255,255,0.03)",
+  fontSize: 13,
+  lineHeight: 1.2,
+};
+
+const compactTableInputStyle = {
+  padding: "4px 8px",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(255,255,255,0.03)",
+  fontSize: 13,
+  lineHeight: 1.2,
+  height: 30,
+};
+
 const commonPickTableHead = (
   <thead>
     <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}>ID</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Nombre</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 150 }}>Origen</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 140 }}>Presentación</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 130 }}>ARS/kg</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Dens (g/ml)</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 120 }}>Fecha</th>
-      <th style={{ padding: 10, fontSize: 12, opacity: 0.8, width: 90 }}></th>
+      <th style={{ ...compactTableHeadCellStyle, width: 95 }}>Item #</th>
+      <th style={compactTableHeadCellStyle}>Nombre</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 150 }}>Origen</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 140 }}>Presentación</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 130 }}>ARS/kg</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 120 }}>Dens (g/ml)</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 120 }}>Fecha</th>
+      <th style={{ ...compactTableHeadCellStyle, width: 90 }}></th>
     </tr>
   </thead>
 );
@@ -204,25 +238,25 @@ function CommonPickTable({
           maxHeight: 360,
         }}
       >
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           {commonPickTableHead}
           <tbody>
             {rows.map((r) => (
               <tr key={r.key} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.idLabel}</td>
-                <td style={{ padding: 10, fontSize: 12 }}>
-                  <div style={{ ...cellEllipsisStyle(620) }}>{r.nombre}</div>
+                <td style={{ ...compactTableCellStyle, opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>{r.idLabel}</td>
+                <td style={compactTableCellStyle}>
+                  <div style={{ ...cellEllipsisStyle(620) }} title={r.nombre}>{r.nombre}</div>
                 </td>
-                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                  <div style={{ ...cellEllipsisStyle(150) }}>{r.origen}</div>
+                <td style={{ ...compactTableCellStyle, opacity: 0.9 }}>
+                  <div style={{ ...cellEllipsisStyle(150) }} title={r.origen}>{r.origen}</div>
                 </td>
-                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>
-                  <div style={{ ...cellEllipsisStyle(140) }}>{r.presentacion}</div>
+                <td style={{ ...compactTableCellStyle, opacity: 0.9 }}>
+                  <div style={{ ...cellEllipsisStyle(140) }} title={r.presentacion}>{r.presentacion}</div>
                 </td>
-                <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.precioUnitario}</td>
-                <td style={{ padding: 10, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>{r.densidad}</td>
-                <td style={{ padding: 10, fontSize: 12, opacity: 0.9 }}>{r.fecha}</td>
-                <td style={{ padding: 10 }}>
+                <td style={{ ...compactTableCellStyle, fontVariantNumeric: "tabular-nums" }}>{r.precioUnitario}</td>
+                <td style={{ ...compactTableCellStyle, fontVariantNumeric: "tabular-nums" }}>{r.densidad}</td>
+                <td style={{ ...compactTableCellStyle, opacity: 0.9 }}>{r.fecha}</td>
+                <td style={compactTableCellStyle}>
                   <button
                     onClick={async () => {
                       try {
@@ -231,12 +265,7 @@ function CommonPickTable({
                         onAddError?.(err?.message || "error");
                       }
                     }}
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      background: "rgba(255,255,255,0.03)",
-                    }}
+                    style={compactTableControlStyle}
                   >
                     Agregar
                   </button>
@@ -246,7 +275,7 @@ function CommonPickTable({
 
             {!rows.length ? (
               <tr>
-                <td colSpan={8} style={{ padding: 10, opacity: 0.75, fontSize: 12 }}>
+                <td colSpan={8} style={{ ...compactTableCellStyle, opacity: 0.75 }}>
                   Sin resultados.
                 </td>
               </tr>
@@ -1428,27 +1457,29 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         </div>
 
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Componente</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>CSP</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>% p/p</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Masa (g)</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Dens (g/ml)</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Vol (ml)</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Costo (ARS)</th>
-                <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}></th>
+                <th style={compactTableHeadCellStyle}>Componente</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 58, textAlign: "center" }}>CSP</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 96 }}>% p/p</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 110 }}>Masa (g)</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 126 }}>Dens (g/ml)</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 110 }}>Vol (ml)</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 120 }}>Costo (ARS)</th>
+                <th style={{ ...compactTableHeadCellStyle, width: 90 }}></th>
               </tr>
             </thead>
             <tbody>
               {calc.rows.map((r) => (
                 <tr key={r.l.linea_id} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <td style={{ padding: 10 }}>
-                    <div style={{ fontWeight: 600 }}>{lineaLabel(r.l)}</div>
+                  <td style={compactTableCellStyle}>
+                    <div style={{ ...cellEllipsisStyle(640) }} title={lineaLabel(r.l)}>
+                      {lineaLabel(r.l)}
+                    </div>
                   </td>
 
-                  <td style={{ padding: 10 }}>
+                  <td style={{ ...compactTableCellStyle, textAlign: "center" }}>
                     <input
                       type="checkbox"
                       checked={!!r.l.is_csp}
@@ -1462,7 +1493,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                     />
                   </td>
 
-                  <td style={{ padding: 10 }}>
+                  <td style={compactTableCellStyle}>
                     <input
                       key={`${r.l.linea_id}:${r.l.pct_peso ?? ""}:${r.l.is_csp ? "csp" : "fix"}`}
                       defaultValue={r.l.is_csp ? String(r.pct ?? "") : String(r.l.pct_peso ?? "")}
@@ -1477,18 +1508,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         }
                       }}
                       style={{
-                        padding: "6px 8px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.14)",
+                        ...compactTableInputStyle,
                         background: r.l.is_csp ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.03)",
                         width: 90,
                       }}
                     />
                   </td>
 
-                  <td style={{ padding: 10 }}>{r.masa_g === null ? "-" : r.masa_g.toFixed(2)}</td>
+                  <td style={{ ...compactTableCellStyle, fontVariantNumeric: "tabular-nums" }}>{r.masa_g === null ? "-" : r.masa_g.toFixed(2)}</td>
 
-                  <td style={{ padding: 10 }}>
+                  <td style={compactTableCellStyle}>
                     <input
                       type="number"
                       step="0.001"
@@ -1503,19 +1532,16 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         }
                       }}
                       style={{
-                        padding: "6px 8px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.14)",
-                        background: "rgba(255,255,255,0.03)",
-                        width: 110,
+                        ...compactTableInputStyle,
+                        width: 112,
                       }}
                     />
                   </td>
 
-                  <td style={{ padding: 10 }}>{r.vol_ml === null ? "-" : r.vol_ml.toFixed(2)}</td>
-                  <td style={{ padding: 10 }}>{r.costo_linea === null ? "-" : r.costo_linea.toFixed(2)}</td>
+                  <td style={{ ...compactTableCellStyle, fontVariantNumeric: "tabular-nums" }}>{r.vol_ml === null ? "-" : r.vol_ml.toFixed(2)}</td>
+                  <td style={{ ...compactTableCellStyle, fontVariantNumeric: "tabular-nums" }}>{r.costo_linea === null ? "-" : r.costo_linea.toFixed(2)}</td>
 
-                  <td style={{ padding: 10 }}>
+                  <td style={compactTableCellStyle}>
                     <button
                       onClick={async () => {
                         try {
@@ -1525,9 +1551,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                         }
                       }}
                       style={{
-                        padding: "6px 8px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(255,255,255,0.14)",
+                        ...compactTableControlStyle,
                         background: "rgba(255,80,80,0.10)",
                       }}
                     >
@@ -1539,7 +1563,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
               {!calc.rows.length ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: 10, opacity: 0.75 }}>
+                  <td colSpan={8} style={{ ...compactTableCellStyle, opacity: 0.75 }}>
                     Sin líneas.
                   </td>
                 </tr>
