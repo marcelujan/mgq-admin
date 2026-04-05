@@ -8,29 +8,21 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
+function mapEstadoProveedorUiToDb(raw: string): string {
+  const s = String(raw ?? "").trim().toUpperCase();
+  if (s === "WAIT") return "WAITING_REVIEW";
+  if (s === "PEND") return "PENDING_SCRAPE";
+  if (s === "ERROR") return "ERROR_SCRAPE";
+  if (s === "OK") return "OK";
+  if (s === "WAITING_REVIEW" || s === "PENDING_SCRAPE" || s === "ERROR_SCRAPE") return s;
+  return "";
+}
+
+const ALLOWED_SORT_BY = new Set(["item_id", "nombre", "fuente", "estado_proveedor", "updated_at"]);
+const ALLOWED_SORT_DIR = new Set(["asc", "desc"]);
+
 /**
- * GET /api/items?limit=&offset=&tipo=&estado=&search=&seleccionado=
- *
- * Devuelve una lista unificada de:
- * - PROVEEDOR: app.item_seguimiento
- * - FORMULADO (virtual): productos con fórmula v2 (y su item_formulado BULK)
- * - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
- *
- * item_key:
- * - p:<item_id>
- * - fprod:<producto_id>
- * - mopt:<cost_option_id>
- *
- * Conteos OK/FAIL/PEND:
- * - PROVEEDOR: conteo de offers del item en el pricing run de HOY (pricing_daily_run_items)
- * - FORMULADO: 0/1 según:
- *    OK= existe BULK reutilizable (item_formulado BULK activo) Y snapshot HOY con precio_unitario_ars > 0
- *    PEND= existe BULK reutilizable y NO hay snapshot HOY
- *    FAIL= no existe BULK reutilizable, o hay snapshot HOY pero precio_unitario_ars <= 0
- * - MANUAL: 0/1 según:
- *    OK= snapshot HOY con costo_ars > 0
- *    PEND= no hay snapshot HOY
- *    FAIL= snapshot HOY existe pero costo_ars <= 0
+ * GET /api/items?limit=&offset=&tipo=&search=&estado_proveedor=&estado_item=&seleccionado=&sort_by=&sort_dir=
  */
 export async function GET(req: NextRequest) {
   try {
@@ -42,23 +34,28 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
-    const tipo = (searchParams.get("tipo") ?? "").trim().toUpperCase(); // "" | PROVEEDOR | MANUAL | FORMULADO
-    const estado = (searchParams.get("estado") ?? "").trim(); // solo proveedor
+    const tipo = (searchParams.get("tipo") ?? "").trim().toUpperCase();
+    const estadoProveedorUi = (searchParams.get("estado_proveedor") ?? searchParams.get("estado") ?? "").trim();
+    const estadoProveedorDb = mapEstadoProveedorUiToDb(estadoProveedorUi);
+    const estadoItem = (searchParams.get("estado_item") ?? "").trim().toUpperCase();
     const search = (searchParams.get("search") ?? "").trim();
-    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim(); // "true" | "false" | ""
+    const seleccionadoRaw = (searchParams.get("seleccionado") ?? "").trim();
+    const sortByRaw = (searchParams.get("sort_by") ?? "item_id").trim();
+    const sortDirRaw = (searchParams.get("sort_dir") ?? "desc").trim().toLowerCase();
 
     let seleccionado: boolean | null = null;
     if (seleccionadoRaw === "true") seleccionado = true;
     if (seleccionadoRaw === "false") seleccionado = false;
 
     const searchLike = search ? `%${search}%` : null;
+    const sortBy = ALLOWED_SORT_BY.has(sortByRaw) ? sortByRaw : "item_id";
+    const sortDir = ALLOWED_SORT_DIR.has(sortDirRaw) ? sortDirRaw : "desc";
 
     const sql = db();
 
     const r: any = await sql.query(
       `
       with
-      -- ========= PROVEEDOR =========
       proveedor as (
         select
           ('p:' || i.item_id::text) as item_key,
@@ -127,7 +124,6 @@ export async function GET(req: NextRequest) {
           )
       ),
 
-      -- ========= FORMULADO =========
       productos_formulados_v2 as (
         select distinct producto_id
         from (
@@ -150,9 +146,6 @@ export async function GET(req: NextRequest) {
           false as seleccionado,
           'FORMULADO'::text as estado,
           coalesce((fs.max_d::timestamptz + interval '12 hours'), null::timestamptz) as updated_at,
-
-          -- Conteos 0/1 para FORMULADO
-          -- bulk reutilizable: existe item_formulado BULK activo
           (
             case
               when fi.item_formulado_id is not null
@@ -161,17 +154,13 @@ export async function GET(req: NextRequest) {
               then 1 else 0
             end
           )::int as ok_count,
-
           (
             case
-              when fi.item_formulado_id is null
-                then 1
-              when f_today.has_today = true and not (f_today.precio_unitario_ars > 0)
-                then 1
+              when fi.item_formulado_id is null then 1
+              when f_today.has_today = true and not (f_today.precio_unitario_ars > 0) then 1
               else 0
             end
           )::int as fail_count,
-
           (
             case
               when fi.item_formulado_id is not null
@@ -179,7 +168,6 @@ export async function GET(req: NextRequest) {
               then 1 else 0
             end
           )::int as pending_count,
-
           null::timestamptz as created_at,
           coalesce(p.nombre, '') as producto_nombre,
           ''::text as oferta_nombre,
@@ -230,13 +218,9 @@ export async function GET(req: NextRequest) {
         where
           ($1::text = '' or $1::text = 'FORMULADO')
           and coalesce(p.activo, true) = true
-          and (
-            $4::text is null
-            or coalesce(p.nombre,'') ilike $4::text
-          )
+          and ($4::text is null or coalesce(p.nombre,'') ilike $4::text)
       ),
 
-      -- ========= MANUAL =========
       manual_catalogo as (
         select
           ('mopt:' || c.cost_option_id::text) as item_key,
@@ -249,29 +233,24 @@ export async function GET(req: NextRequest) {
           false as seleccionado,
           'MANUAL'::text as estado,
           coalesce((ms.max_d::timestamptz + interval '12 hours'), c.updated_at) as updated_at,
-
-          -- Conteos 0/1 para MANUAL
           (
             case
               when m_today.has_today = true and m_today.costo_ars > 0
               then 1 else 0
             end
           )::int as ok_count,
-
           (
             case
               when m_today.has_today = true and not (m_today.costo_ars > 0)
               then 1 else 0
             end
           )::int as fail_count,
-
           (
             case
               when m_today.has_today is distinct from true
               then 1 else 0
             end
           )::int as pending_count,
-
           null::timestamptz as created_at,
           ''::text as producto_nombre,
           ''::text as oferta_nombre,
@@ -327,13 +306,48 @@ export async function GET(req: NextRequest) {
         select * from manual_catalogo
       ),
 
+      filtered as (
+        select
+          *,
+          lower(coalesce(nullif(producto_nombre,''), nullif(manual_nombre,''), nullif(url_canonica,''), nullif(url_original,''), item_id::text)) as sort_nombre,
+          lower(coalesce(nullif(proveedor_nombre,''), '')) as sort_fuente,
+          case
+            when kind = 'PROVEEDOR' and estado = 'OK' then 0
+            when kind = 'PROVEEDOR' and estado = 'WAITING_REVIEW' then 1
+            when kind = 'PROVEEDOR' and estado = 'PENDING_SCRAPE' then 2
+            when kind = 'PROVEEDOR' and estado = 'ERROR_SCRAPE' then 3
+            else 9
+          end as sort_estado_proveedor
+        from all_items
+        where
+          (
+            $5::text = ''
+            or ($5::text = 'OK' and coalesce(ok_count, 0) > 0)
+            or ($5::text = 'FAIL' and coalesce(fail_count, 0) > 0)
+            or ($5::text = 'PEND' and coalesce(pending_count, 0) > 0)
+          )
+          and ($2::text = '' or kind = 'PROVEEDOR')
+      ),
+
       paged as (
         select
           *,
           count(*) over()::int as total_count
-        from all_items
-        order by sort_kind asc, sort_id desc
-        limit $5 offset $6
+        from filtered
+        order by
+          case when $6::text = 'item_id' and $7::text = 'asc' then sort_id end asc nulls last,
+          case when $6::text = 'item_id' and $7::text = 'desc' then sort_id end desc nulls last,
+          case when $6::text = 'nombre' and $7::text = 'asc' then sort_nombre end asc nulls last,
+          case when $6::text = 'nombre' and $7::text = 'desc' then sort_nombre end desc nulls last,
+          case when $6::text = 'fuente' and $7::text = 'asc' then sort_fuente end asc nulls last,
+          case when $6::text = 'fuente' and $7::text = 'desc' then sort_fuente end desc nulls last,
+          case when $6::text = 'estado_proveedor' and $7::text = 'asc' then sort_estado_proveedor end asc nulls last,
+          case when $6::text = 'estado_proveedor' and $7::text = 'desc' then sort_estado_proveedor end desc nulls last,
+          case when $6::text = 'updated_at' and $7::text = 'asc' then updated_at end asc nulls last,
+          case when $6::text = 'updated_at' and $7::text = 'desc' then updated_at end desc nulls last,
+          sort_kind asc,
+          sort_id desc
+        limit $8 offset $9
       )
 
       select
@@ -360,7 +374,7 @@ export async function GET(req: NextRequest) {
         total_count
       from paged;
       `,
-      [tipo, estado, seleccionado, searchLike, limit, offset]
+      [tipo, estadoProveedorDb, seleccionado, searchLike, estadoItem, sortBy, sortDir, limit, offset]
     );
 
     const rows = normalizeQueryResult(r);

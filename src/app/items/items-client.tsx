@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type TipoFiltro = "" | "PROVEEDOR" | "MANUAL" | "FORMULADO";
-type EstadoProveedorFiltro = "" | "PENDING_SCRAPE" | "WAITING_REVIEW" | "OK" | "ERROR_SCRAPE";
+type EstadoProveedorFiltro = "" | "OK" | "WAIT" | "PEND" | "ERROR";
+type EstadoItemFiltro = "" | "OK" | "FAIL" | "PEND";
+type SortBy = "item_id" | "nombre" | "fuente" | "estado_proveedor" | "updated_at";
+type SortDir = "asc" | "desc";
 
 type ItemRow = {
   item_key: string;
@@ -46,7 +49,16 @@ function nameFromUrl(url: string): string | null {
   }
 }
 
-function badgeStyle(estado: any) {
+function providerStatusLabel(estado: string | null | undefined): string {
+  const s = String(estado ?? "").toUpperCase();
+  if (s === "OK") return "OK";
+  if (s === "WAITING_REVIEW") return "WAIT";
+  if (s === "PENDING_SCRAPE") return "PEND";
+  if (s === "ERROR_SCRAPE") return "ERROR";
+  return "—";
+}
+
+function badgeStyle(estado: string | null | undefined) {
   const s = String(estado ?? "").toUpperCase();
   const base = {
     display: "inline-block",
@@ -60,7 +72,7 @@ function badgeStyle(estado: any) {
 
   if (s === "OK") return { ...base, borderColor: "rgba(34,197,94,0.55)" };
   if (s.includes("ERROR") || s.includes("FAIL")) return { ...base, borderColor: "rgba(239,68,68,0.55)" };
-  if (s.includes("PENDING") || s.includes("WAIT")) return { ...base, borderColor: "rgba(234,179,8,0.55)" };
+  if (s.includes("PEND") || s.includes("WAIT")) return { ...base, borderColor: "rgba(234,179,8,0.55)" };
   return base;
 }
 
@@ -97,8 +109,6 @@ function makePageButtons(current: number, total: number): Array<number | "…"> 
 }
 
 function hasCounts(it: ItemRow): boolean {
-  // Conteos vienen para PROVEEDOR/MANUAL/FORMULADO luego del cambio de API.
-  // Consideramos "válido" si al menos uno no es null/undefined.
   return (
     it.ok_count !== null &&
     it.ok_count !== undefined &&
@@ -113,6 +123,7 @@ export type ItemsClientProps = {
   initialTipo?: TipoFiltro;
   lockTipo?: boolean;
   hideTipoFilter?: boolean;
+  showSeleccionadoFilter?: boolean;
 };
 
 export default function ItemsClient(props: ItemsClientProps) {
@@ -125,16 +136,20 @@ export default function ItemsClient(props: ItemsClientProps) {
   const initialTipo = props.initialTipo ?? "";
   const lockTipo = props.lockTipo ?? false;
   const hideTipoFilter = props.hideTipoFilter ?? false;
+  const showSeleccionadoFilter = props.showSeleccionadoFilter ?? false;
 
   const [tipo, setTipo] = useState<TipoFiltro>(initialTipo);
-  const [estadoProv, setEstadoProv] = useState<EstadoProveedorFiltro>("");
+  const [estadoProveedor, setEstadoProveedor] = useState<EstadoProveedorFiltro>("");
+  const [estadoItem, setEstadoItem] = useState<EstadoItemFiltro>("");
   const [seleccionado, setSeleccionado] = useState<"" | "true" | "false">("");
+  const [sortBy, setSortBy] = useState<SortBy>("item_id");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [limit] = useState(100);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
 
-  const estadoDisabled = tipo !== "" && tipo !== "PROVEEDOR";
+  const estadoProveedorDisabled = tipo !== "" && tipo !== "PROVEEDOR";
 
   const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit) || 1), [total, limit]);
@@ -148,10 +163,13 @@ export default function ItemsClient(props: ItemsClientProps) {
         const sp = new URLSearchParams();
         sp.set("limit", String(limit));
         sp.set("offset", String(offset));
+        sp.set("sort_by", sortBy);
+        sp.set("sort_dir", sortDir);
         if (tipo) sp.set("tipo", tipo);
-        if (!estadoDisabled && estadoProv) sp.set("estado", estadoProv);
+        if (!estadoProveedorDisabled && estadoProveedor) sp.set("estado_proveedor", estadoProveedor);
+        if (estadoItem) sp.set("estado_item", estadoItem);
         if (search.trim()) sp.set("search", search.trim());
-        if (seleccionado) sp.set("seleccionado", seleccionado);
+        if (showSeleccionadoFilter && seleccionado) sp.set("seleccionado", seleccionado);
 
         const res = await fetch(`/api/items?${sp.toString()}`, { cache: "no-store" });
         const j = await res.json().catch(() => ({}));
@@ -173,10 +191,9 @@ export default function ItemsClient(props: ItemsClientProps) {
         setLoading(false);
       }
     })();
-  }, [search, tipo, estadoProv, seleccionado, limit, offset, estadoDisabled, reloadToken]);
+  }, [search, tipo, estadoProveedor, estadoItem, seleccionado, limit, offset, sortBy, sortDir, estadoProveedorDisabled, reloadToken, showSeleccionadoFilter]);
 
   async function handleDelete(item: ItemRow) {
-    // Por ahora: hard-delete sólo para FORMULADO (fprod:<producto_id>).
     if (item.kind !== "FORMULADO") {
       setError("Eliminar definitivo sólo está habilitado para FORMULADO en esta versión.");
       return;
@@ -199,11 +216,25 @@ export default function ItemsClient(props: ItemsClientProps) {
         return;
       }
 
-      // refrescar listado
       setReloadToken((x) => x + 1);
     } catch (e: any) {
       setError(typeof e?.message === "string" ? e.message : String(e));
     }
+  }
+
+  function toggleSort(col: SortBy) {
+    setOffset(0);
+    if (sortBy === col) {
+      setSortDir((v) => (v === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortBy(col);
+    setSortDir(col === "item_id" || col === "updated_at" ? "desc" : "asc");
+  }
+
+  function sortIndicator(col: SortBy) {
+    if (sortBy !== col) return "↕";
+    return sortDir === "asc" ? "↑" : "↓";
   }
 
   const pageButtons = useMemo(() => makePageButtons(page, totalPages), [page, totalPages]);
@@ -219,7 +250,7 @@ export default function ItemsClient(props: ItemsClientProps) {
               setOffset(0);
               setSearch(e.target.value);
             }}
-            placeholder="url / proveedor / producto / manual"
+            placeholder="url / proveedor / nombre"
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
@@ -233,36 +264,36 @@ export default function ItemsClient(props: ItemsClientProps) {
         </div>
 
         {!hideTipoFilter ? (
-        <div style={{ display: "grid", gap: 4 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo</label>
-          <select
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: "8px 10px",
-              background: "rgba(255,255,255,0.03)",
-              color: "rgba(255,255,255,0.92)",
-              outline: "none",
-              minWidth: 180,
-            }}
-            value={tipo}
-            disabled={lockTipo}
-            onChange={(e) => {
-              if (lockTipo) return;
-              setOffset(0);
-              setTipo(e.target.value as TipoFiltro);
-            }}
-          >
-            <option value="">(todos)</option>
-            <option value="PROVEEDOR">Proveedor</option>
-            <option value="MANUAL">Manual</option>
-            <option value="FORMULADO">Formulado</option>
-          </select>
-        </div>
+          <div style={{ display: "grid", gap: 4 }}>
+            <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo</label>
+            <select
+              style={{
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 10,
+                padding: "8px 10px",
+                background: "rgba(255,255,255,0.03)",
+                color: "rgba(255,255,255,0.92)",
+                outline: "none",
+                minWidth: 180,
+              }}
+              value={tipo}
+              disabled={lockTipo}
+              onChange={(e) => {
+                if (lockTipo) return;
+                setOffset(0);
+                setTipo(e.target.value as TipoFiltro);
+              }}
+            >
+              <option value="">(todos)</option>
+              <option value="PROVEEDOR">Proveedor</option>
+              <option value="MANUAL">Manual</option>
+              <option value="FORMULADO">Formulado</option>
+            </select>
+          </div>
         ) : null}
 
         <div style={{ display: "grid", gap: 4 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Estado (scrape)</label>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>Estado proveedor</label>
           <select
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
@@ -271,27 +302,27 @@ export default function ItemsClient(props: ItemsClientProps) {
               background: "rgba(255,255,255,0.03)",
               color: "rgba(255,255,255,0.92)",
               outline: "none",
-              opacity: estadoDisabled ? 0.5 : 1,
-              cursor: estadoDisabled ? "not-allowed" : "pointer",
-              minWidth: 210,
+              opacity: estadoProveedorDisabled ? 0.5 : 1,
+              cursor: estadoProveedorDisabled ? "not-allowed" : "pointer",
+              minWidth: 170,
             }}
-            value={estadoProv}
-            disabled={estadoDisabled}
+            value={estadoProveedor}
+            disabled={estadoProveedorDisabled}
             onChange={(e) => {
               setOffset(0);
-              setEstadoProv(e.target.value as EstadoProveedorFiltro);
+              setEstadoProveedor(e.target.value as EstadoProveedorFiltro);
             }}
           >
             <option value="">(todos)</option>
-            <option value="PENDING_SCRAPE">PENDING_SCRAPE</option>
-            <option value="WAITING_REVIEW">WAITING_REVIEW</option>
             <option value="OK">OK</option>
-            <option value="ERROR_SCRAPE">ERROR_SCRAPE</option>
+            <option value="WAIT">WAIT</option>
+            <option value="PEND">PEND</option>
+            <option value="ERROR">ERROR</option>
           </select>
         </div>
 
         <div style={{ display: "grid", gap: 4 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Seleccionado</label>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>Estado item</label>
           <select
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
@@ -300,18 +331,45 @@ export default function ItemsClient(props: ItemsClientProps) {
               background: "rgba(255,255,255,0.03)",
               color: "rgba(255,255,255,0.92)",
               outline: "none",
+              minWidth: 150,
             }}
-            value={seleccionado}
+            value={estadoItem}
             onChange={(e) => {
               setOffset(0);
-              setSeleccionado(e.target.value as any);
+              setEstadoItem(e.target.value as EstadoItemFiltro);
             }}
           >
             <option value="">(todos)</option>
-            <option value="true">true</option>
-            <option value="false">false</option>
+            <option value="OK">OK</option>
+            <option value="FAIL">FAIL</option>
+            <option value="PEND">PEND</option>
           </select>
         </div>
+
+        {showSeleccionadoFilter ? (
+          <div style={{ display: "grid", gap: 4 }}>
+            <label style={{ fontSize: 12, opacity: 0.7 }}>Seleccionado</label>
+            <select
+              style={{
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 10,
+                padding: "8px 10px",
+                background: "rgba(255,255,255,0.03)",
+                color: "rgba(255,255,255,0.92)",
+                outline: "none",
+              }}
+              value={seleccionado}
+              onChange={(e) => {
+                setOffset(0);
+                setSeleccionado(e.target.value as "" | "true" | "false");
+              }}
+            >
+              <option value="">(todos)</option>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </div>
+        ) : null}
 
         <button
           style={{
@@ -323,9 +381,12 @@ export default function ItemsClient(props: ItemsClientProps) {
           }}
           onClick={() => {
             setSearch("");
-            setTipo("");
-            setEstadoProv("");
+            setTipo(initialTipo);
+            setEstadoProveedor("");
+            setEstadoItem("");
             setSeleccionado("");
+            setSortBy("item_id");
+            setSortDir("desc");
             setOffset(0);
           }}
         >
@@ -434,14 +495,35 @@ export default function ItemsClient(props: ItemsClientProps) {
       </div>
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "auto" }}>
-        <table style={{ minWidth: 1100, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+        <table style={{ minWidth: 1220, width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.10)" }}>
-              <th style={{ padding: 10, width: 90, textAlign: "right" }}>Item #</th>
-              <th style={{ padding: 10, minWidth: 420 }}>Nombre</th>
-              <th style={{ padding: 10, width: 220 }}>Fuente</th>
-              <th style={{ padding: 10, width: 240 }}>Estado</th>
-              <th style={{ padding: 10, width: 180 }}>Actualizado</th>
+              <th style={{ padding: 10, width: 90, textAlign: "right" }}>
+                <button type="button" onClick={() => toggleSort("item_id")} style={headerButtonStyle("right")}>
+                  Item # <span style={{ opacity: 0.7 }}>{sortIndicator("item_id")}</span>
+                </button>
+              </th>
+              <th style={{ padding: 10, minWidth: 380 }}>
+                <button type="button" onClick={() => toggleSort("nombre")} style={headerButtonStyle("left")}>
+                  Nombre <span style={{ opacity: 0.7 }}>{sortIndicator("nombre")}</span>
+                </button>
+              </th>
+              <th style={{ padding: 10, width: 180 }}>
+                <button type="button" onClick={() => toggleSort("fuente")} style={headerButtonStyle("left")}>
+                  Fuente <span style={{ opacity: 0.7 }}>{sortIndicator("fuente")}</span>
+                </button>
+              </th>
+              <th style={{ padding: 10, width: 160 }}>
+                <button type="button" onClick={() => toggleSort("estado_proveedor")} style={headerButtonStyle("left")}>
+                  Estado proveedor <span style={{ opacity: 0.7 }}>{sortIndicator("estado_proveedor")}</span>
+                </button>
+              </th>
+              <th style={{ padding: 10, width: 240 }}>Estado item</th>
+              <th style={{ padding: 10, width: 180 }}>
+                <button type="button" onClick={() => toggleSort("updated_at")} style={headerButtonStyle("left")}>
+                  Actualizado <span style={{ opacity: 0.7 }}>{sortIndicator("updated_at")}</span>
+                </button>
+              </th>
               <th style={{ padding: 10, width: 120, textAlign: "center" }}>Acciones</th>
             </tr>
           </thead>
@@ -464,6 +546,7 @@ export default function ItemsClient(props: ItemsClientProps) {
               if (!nombre) nombre = `Item ${itemId}`;
 
               const fuente = String(it.proveedor_nombre ?? "—") || "—";
+              const estadoProveedorLabel = isProv ? providerStatusLabel(it.estado) : "—";
 
               const showCounts = hasCounts(it);
               const okc = Number(it.ok_count ?? 0);
@@ -485,7 +568,7 @@ export default function ItemsClient(props: ItemsClientProps) {
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       maxWidth: 680,
-                      fontWeight: 650 as any,
+                      fontWeight: 650 as const,
                     }}
                     title={nombre}
                   >
@@ -500,11 +583,11 @@ export default function ItemsClient(props: ItemsClientProps) {
                   </td>
 
                   <td style={{ padding: 10, whiteSpace: "nowrap" }}>
-                    {showCounts ? (
-                      <span style={{ opacity: 0.92 }}>{estadoCountsText}</span>
-                    ) : (
-                      <span style={badgeStyle(it.estado)}>{it.estado ?? "—"}</span>
-                    )}
+                    {estadoProveedorLabel === "—" ? "—" : <span style={badgeStyle(estadoProveedorLabel)}>{estadoProveedorLabel}</span>}
+                  </td>
+
+                  <td style={{ padding: 10, whiteSpace: "nowrap" }}>
+                    {showCounts ? <span style={{ opacity: 0.92 }}>{estadoCountsText}</span> : <span>—</span>}
                   </td>
 
                   <td style={{ padding: 10, whiteSpace: "nowrap", opacity: 0.85 }}>
@@ -557,8 +640,8 @@ export default function ItemsClient(props: ItemsClientProps) {
 
             {!loading && items.length === 0 ? (
               <tr>
-                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={6}>
-                  Sin resultados
+                <td style={{ padding: 14, fontSize: 13, opacity: 0.7 }} colSpan={7}>
+                  Sin resultados.
                 </td>
               </tr>
             ) : null}
@@ -567,4 +650,21 @@ export default function ItemsClient(props: ItemsClientProps) {
       </div>
     </div>
   );
+}
+
+function headerButtonStyle(align: "left" | "right") {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: align === "right" ? "flex-end" : "flex-start",
+    gap: 6,
+    width: "100%",
+    background: "transparent",
+    border: "none",
+    color: "inherit",
+    padding: 0,
+    cursor: "pointer",
+    fontWeight: 700,
+    textAlign: align,
+  } as const;
 }

@@ -90,7 +90,7 @@ export default function ItemsProveedoresPage() {
         isOpen={showItems}
         onToggle={() => setShowItems((v) => !v)}
       >
-        <ItemsClient initialTipo="PROVEEDOR" lockTipo hideTipoFilter />
+        <ItemsClient initialTipo="PROVEEDOR" lockTipo hideTipoFilter showSeleccionadoFilter />
       </AccessCard>
     </div>
   );
