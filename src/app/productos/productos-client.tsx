@@ -79,10 +79,10 @@ export default function ProductosClient() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ textAlign: "left", background: "rgba(255,255,255,0.04)" }}>
-              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Producto</th>
-              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Tipo</th>
-              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Densidad</th>
-              <th style={{ padding: 10, fontSize: 12, opacity: 0.8 }}>Activo</th>
+              <th style={{ padding: 8, fontSize: 12, opacity: 0.8, width: 90 }}>Item #</th>
+              <th style={{ padding: 8, fontSize: 12, opacity: 0.8 }}>Nombre</th>
+              <th style={{ padding: 8, fontSize: 12, opacity: 0.8, width: 140 }}>Tipo</th>
+              <th style={{ padding: 8, fontSize: 12, opacity: 0.8, width: 130 }}>Densidad</th>
             </tr>
           </thead>
           <tbody>
@@ -93,7 +93,11 @@ export default function ProductosClient() {
 
               return (
                 <tr key={String((r as any).producto_id)} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                  <td style={{ padding: 10 }}>
+                  <td style={{ padding: 8, fontSize: 12, opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+                    #{String((r as any).producto_id)}
+                    {!idOk ? <span style={{ color: "tomato" }}> (ID inválido)</span> : null}
+                  </td>
+                  <td style={{ padding: 8, fontSize: 12 }}>
                     {idOk ? (
                       <Link href={`/productos/${idNum}`} style={{ textDecoration: "underline" }}>
                         {r.nombre}
@@ -101,20 +105,15 @@ export default function ProductosClient() {
                     ) : (
                       <span>{r.nombre}</span>
                     )}
-                    <div style={{ fontSize: 12, opacity: 0.75 }}>
-                      #{String((r as any).producto_id)}
-                      {!idOk ? <span style={{ color: "tomato" }}> (ID inválido)</span> : null}
-                    </div>
                   </td>
-                  <td style={{ padding: 10 }}>{tipo}</td>
-                  <td style={{ padding: 10 }}>{r.densidad_producto_g_ml ?? "-"}</td>
-                  <td style={{ padding: 10 }}>{r.activo ? "Sí" : "No"}</td>
+                  <td style={{ padding: 8, fontSize: 12 }}>{tipo}</td>
+                  <td style={{ padding: 8, fontSize: 12 }}>{r.densidad_producto_g_ml ?? "-"}</td>
                 </tr>
               );
             })}
             {!filtered.length ? (
               <tr>
-                <td colSpan={4} style={{ padding: 10, opacity: 0.75 }}>
+                <td colSpan={4} style={{ padding: 8, opacity: 0.75, fontSize: 12 }}>
                   Sin resultados.
                 </td>
               </tr>

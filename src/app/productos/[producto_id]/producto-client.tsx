@@ -354,9 +354,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [extraOptions, setExtraOptions] = useState<CostOptionExtra[]>([]);
 
   const [searchOpt, setSearchOpt] = useState("");
-  const [soloSel, setSoloSel] = useState(true);
   const [optionsLoading, setOptionsLoading] = useState(false);
-  const searchOptRef = useRef<HTMLInputElement | null>(null);
   const optionsRequestRef = useRef(0);
 
 
@@ -368,14 +366,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkSyncWarning, setBulkSyncWarning] = useState<string | null>(null);
-  const bulkSearchRef = useRef<HTMLInputElement | null>(null);
   const bulkRequestRef = useRef(0);
 
 
   // Manuales (solo selección; no crear aquí)
   const [manualSearch, setManualSearch] = useState("");
-  const manualSearchRef = useRef<HTMLInputElement | null>(null);
-
 
   // Packaging
   const [packagingItems, setPackagingItems] = useState<PackagingItem[]>([]);
@@ -390,20 +385,19 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
   const [newPackCosto, setNewPackCosto] = useState("");
 
   // Snapshots automáticos de costo por oferta
-  const [autoSnapshots, setAutoSnapshots] = useState(true);
+  const autoSnapshots = true;
   const [latestSnapshotByOferta, setLatestSnapshotByOferta] = useState<Record<number, SnapshotHead | null>>({});
   const snapshotInFlightRef = useRef<Record<number, boolean>>({});
 
-  async function loadComponentOptions(params?: { search?: string; soloSeleccionados?: boolean }) {
+  async function loadComponentOptions(params?: { search?: string }) {
     const search = params?.search ?? searchOpt;
-    const soloSeleccionados = params?.soloSeleccionados ?? soloSel;
     const requestId = ++optionsRequestRef.current;
 
     setOptionsLoading(true);
     try {
       const qs = new URLSearchParams({
         limit: "400",
-        solo_seleccionados: soloSeleccionados ? "true" : "false",
+        solo_seleccionados: "false",
         search_items: search,
         search_manual: "",
       });
@@ -477,7 +471,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       }
       setLineasV2(lineas as LineaV2[]);
 
-      await loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
+      await loadComponentOptions({ search: searchOpt });
 
       // Bulk del producto actual (info)
       try {
@@ -807,10 +801,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
+      void loadComponentOptions({ search: searchOpt });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [searchOpt, soloSel]);
+  }, [searchOpt]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -832,7 +826,10 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return 100 - pctFijos;
   }, [cspLinea, pctFijos]);
 
-  async function patchProducto(patch: { densidad_producto_g_ml: number | null }) {
+  async function patchProducto(patch: {
+    densidad_producto_g_ml?: number | null;
+    descripcion?: string | null;
+  }) {
     const r = await fetch(`/api/productos/${productoId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -1205,11 +1202,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
           {loading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Cargando…</span> : null}
           {error ? <span style={{ fontSize: 12, color: "tomato" }}>{error}</span> : null}
 
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
-            <input type="checkbox" checked={autoSnapshots} onChange={(e) => setAutoSnapshots(e.target.checked)} />
-            snapshots automáticos
-          </label>
-
           <button
             onClick={loadAll}
             style={{
@@ -1250,7 +1242,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 background: "rgba(255,255,255,0.03)",
               }}
             >
-              Buscar bulks
+              Refrescar lista
             </button>
             <button
               onClick={() => setBulkSyncWarning(null)}
@@ -1327,6 +1319,32 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                 }}
               />
             </label>
+
+          <label style={{ display: "grid", gap: 4, fontSize: 12, minWidth: 320, flex: "1 1 100%" }}>
+            Notas
+            <textarea
+              key={`desc-prod-${producto?.producto_id ?? "x"}-${producto?.descripcion ?? ""}`}
+              defaultValue={producto?.descripcion ?? ""}
+              placeholder="Información breve relevante para este item formulado"
+              onBlur={async (e) => {
+                const v = e.target.value.trim();
+                try {
+                  await patchProducto({ descripcion: v || null });
+                } catch (err: any) {
+                  setError(err?.message || "error");
+                }
+              }}
+              rows={3}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "rgba(255,255,255,0.03)",
+                minHeight: 88,
+                resize: "vertical",
+              }}
+            />
+          </label>
 
             <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
               Fijo por lote (ARS)
@@ -1532,17 +1550,15 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
         {/* TABLAS UNIFICADAS */}
         <CommonPickTable
-          title="Opciones proveedor (job)"
-          subtitle="Columnas unificadas (sin 2 líneas por renglón)"
+          title="Items Proveedor"
           controls={
             <>
               <input
-                ref={searchOptRef}
                 value={searchOpt}
                 onChange={(e) => {
                   setSearchOpt(e.target.value);
                 }}
-                placeholder="buscar proveedor/url"
+                placeholder="buscar proveedor o url"
                 style={{
                   padding: "8px 10px",
                   borderRadius: 10,
@@ -1551,22 +1567,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   width: 260,
                 }}
               />
-              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
-                <input type="checkbox" checked={soloSel} onChange={(e) => setSoloSel(e.target.checked)} /> solo seleccionados
-              </label>
-              <button
-                onClick={() => {
-                  void loadComponentOptions({ search: searchOpt, soloSeleccionados: soloSel });
-                }}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                Buscar
-              </button>
               {optionsLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Buscando…</span> : null}
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {itemOptions.length}</div>
             </>
@@ -1577,17 +1577,15 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title="Bulks (productos formulados)"
-          subtitle="Si actualizaste otro formulado recién, usá Buscar bulks para recargar esta lista."
+          title="Items Formulados (Bulks)"
           controls={
             <>
               <input
-                ref={bulkSearchRef}
                 value={bulkSearch}
                 onChange={(e) => {
                   setBulkSearch(e.target.value);
                 }}
-                placeholder="buscar producto"
+                placeholder="buscar item formulado"
                 style={{
                   padding: "8px 10px",
                   borderRadius: 10,
@@ -1596,19 +1594,6 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                   width: 260,
                 }}
               />
-              <button
-                onClick={() => {
-                  void loadBulks(bulkSearch);
-                }}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(255,255,255,0.03)",
-                }}
-              >
-                Buscar bulks
-              </button>
               {bulkLoading ? <span style={{ fontSize: 12, opacity: 0.75 }}>Buscando…</span> : null}
               <div style={{ fontSize: 12, opacity: 0.75 }}>Resultados: {bulkRows.length}</div>
             </>
@@ -1618,17 +1603,15 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
         />
 
         <CommonPickTable
-          title="Componentes manuales (reusar)"
-          subtitle="Creación: /items/new"
+          title="Items Manuales"
           controls={
             <>
               <input
-                ref={manualSearchRef}
                 value={manualSearch}
                 onChange={(e) => {
                   setManualSearch(e.target.value);
                 }}
-                placeholder="buscar manual por nombre"
+                placeholder="buscar item manual"
                 style={{
                   padding: "8px 10px",
                   borderRadius: 10,
