@@ -982,22 +982,29 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
       return numOrNull(l.pct_peso);
     };
 
-    const rows = lineasV2.map((l) => {
-      const pct = effectivePct(l);
-      const masa_g = pct === null ? null : (loteRefG * pct) / 100;
+    const rows = lineasV2
+      .map((l) => {
+        const pct = effectivePct(l);
+        const masa_g = pct === null ? null : (loteRefG * pct) / 100;
 
-      const dens = numOrNull(l.densidad_g_ml);
-      const vol_ml = masa_g !== null && dens && dens > 0 ? masa_g / dens : null;
+        const dens = numOrNull(l.densidad_g_ml);
+        const vol_ml = masa_g !== null && dens && dens > 0 ? masa_g / dens : null;
 
-      const arsG = getARSporGramo(l);
-      const costo_linea = masa_g !== null && arsG.ok ? masa_g * arsG.arsPorG : null;
+        const arsG = getARSporGramo(l);
+        const costo_linea = masa_g !== null && arsG.ok ? masa_g * arsG.arsPorG : null;
 
-      if (pct === null) issues.push({ linea_id: l.linea_id, msg: "falta % p/p" });
-      if (l.is_csp && pctCsp !== null && pctCsp < 0) issues.push({ linea_id: l.linea_id, msg: "CSP negativo (fijos > 100%)" });
-      if (!arsG.ok) issues.push({ linea_id: l.linea_id, msg: arsG.err });
+        if (pct === null) issues.push({ linea_id: l.linea_id, msg: "falta % p/p" });
+        if (l.is_csp && pctCsp !== null && pctCsp < 0) issues.push({ linea_id: l.linea_id, msg: "CSP negativo (fijos > 100%)" });
+        if (!arsG.ok) issues.push({ linea_id: l.linea_id, msg: arsG.err });
 
-      return { l, pct, masa_g, vol_ml, costo_linea, arsG };
-    });
+        return { l, pct, masa_g, vol_ml, costo_linea, arsG };
+      })
+      .sort((a, b) => {
+        const aPct = a.pct ?? Number.NEGATIVE_INFINITY;
+        const bPct = b.pct ?? Number.NEGATIVE_INFINITY;
+        if (bPct !== aPct) return bPct - aPct;
+        return lineaLabel(a.l).localeCompare(lineaLabel(b.l), "es", { sensitivity: "base" });
+      });
 
     const sumPct = rows.reduce((acc, r) => acc + (r.pct ?? 0), 0);
     const totalARS = rows.reduce((acc, r) => acc + (r.costo_linea ?? 0), 0);
