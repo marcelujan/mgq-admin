@@ -68,12 +68,11 @@ export async function GET(req: Request) {
         p.codigo AS proveedor_codigo,
         p.nombre AS proveedor_nombre,
 
-        EXISTS (
-          SELECT 1
-          FROM app.offer_prices_daily opd
-          WHERE opd.offer_id = ri.offer_id
-            AND opd.as_of_date = (ri.updated_at::date)
-        ) AS actualizado
+        (
+          SELECT max(coalesce(j.finished_at, j.updated_at, j.created_at))
+          FROM app.job j
+          WHERE j.item_id = o.item_id
+        ) AS ultimo_job_manual_at
       FROM app.pricing_daily_run_items ri
       JOIN app.offers o
         ON o.offer_id = ri.offer_id
