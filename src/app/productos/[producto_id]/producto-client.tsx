@@ -156,48 +156,69 @@ type ComponentPickRow = {
 };
 
 const compactTableHeadCellStyle = {
-  padding: "4px 10px",
+  padding: "3px 8px",
   fontSize: 12,
   opacity: 0.8,
-  lineHeight: 1.15,
+  lineHeight: 1.1,
   whiteSpace: "nowrap" as const,
 };
 
 const compactTableCellStyle = {
-  padding: "4px 10px",
+  padding: "3px 8px",
   fontSize: 13,
-  lineHeight: 1.15,
+  lineHeight: 1.1,
   fontWeight: 400,
   whiteSpace: "nowrap" as const,
 };
 
-const compactTableControlStyle = {
-  padding: "3px 8px",
-  borderRadius: 9,
+const compactTableIconButtonStyle = {
+  width: 28,
+  height: 24,
+  padding: 0,
+  borderRadius: 8,
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.03)",
-  fontSize: 13,
-  lineHeight: 1.15,
-  height: 28,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   fontWeight: 400,
 };
 
+const compactTableDeleteButtonStyle = {
+  ...compactTableIconButtonStyle,
+  background: "rgba(255,80,80,0.10)",
+};
+
 const compactTableInputStyle = {
-  padding: "3px 8px",
+  padding: "2px 8px",
   borderRadius: 9,
   border: "1px solid rgba(255,255,255,0.14)",
   background: "rgba(255,255,255,0.03)",
-  fontSize: 13,
-  lineHeight: 1.15,
-  height: 28,
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
+  fontSize: 12,
+  lineHeight: 1.1,
+  height: 26,
   fontWeight: 400,
 };
+
+function CompactActionIcon({ type }: { type: "add" | "delete" }) {
+  if (type === "delete") {
+    return (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
 
 const commonPickTableHead = (
   <thead>
@@ -275,9 +296,11 @@ function CommonPickTable({
                         onAddError?.(err?.message || "error");
                       }
                     }}
-                    style={compactTableControlStyle}
+                    style={compactTableIconButtonStyle}
+                    title="Agregar"
+                    aria-label="Agregar"
                   >
-                    Agregar
+                    <CompactActionIcon type="add" />
                   </button>
                 </td>
               </tr>
@@ -1491,7 +1514,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
 
                   <td style={{ ...compactTableCellStyle, textAlign: "center" }}>
                     <input
-                      style={{ width: 14, height: 14, margin: 0 }}
+                      style={{ width: 12, height: 12, margin: 0, verticalAlign: "middle" }}
                       type="checkbox"
                       checked={!!r.l.is_csp}
                       onChange={async (e) => {
@@ -1521,7 +1544,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       style={{
                         ...compactTableInputStyle,
                         background: r.l.is_csp ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.03)",
-                        width: 90,
+                        width: 86,
                       }}
                     />
                   </td>
@@ -1544,7 +1567,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                       }}
                       style={{
                         ...compactTableInputStyle,
-                        width: 112,
+                        width: 104,
                       }}
                     />
                   </td>
@@ -1561,12 +1584,11 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
                           setError(err?.message || "error");
                         }
                       }}
-                      style={{
-                        ...compactTableControlStyle,
-                        background: "rgba(255,80,80,0.10)",
-                      }}
+                      style={compactTableDeleteButtonStyle}
+                      title="Borrar"
+                      aria-label="Borrar"
                     >
-                      Borrar
+                      <CompactActionIcon type="delete" />
                     </button>
                   </td>
                 </tr>
