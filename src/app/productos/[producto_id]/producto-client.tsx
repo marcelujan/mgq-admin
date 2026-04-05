@@ -197,7 +197,6 @@ const compactTableInputStyle = {
   alignItems: "center",
   justifyContent: "center",
   fontWeight: 400,
-  height: 30,
 };
 
 const commonPickTableHead = (
