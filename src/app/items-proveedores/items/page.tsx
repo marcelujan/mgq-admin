@@ -18,7 +18,7 @@ export default function ItemsProveedoresItemsPage() {
   return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Items Proveedor</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Items Proveedores</h1>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Link href="/items-proveedores/cron" style={{ ...headerLinkStyle, opacity: 0.9 }}>Cron</Link>
           <Link href="/items-proveedores/items" style={headerLinkStyle}>Items</Link>

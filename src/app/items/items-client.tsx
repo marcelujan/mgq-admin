@@ -369,8 +369,8 @@ export default function ItemsClient(props: ItemsClientProps) {
               }}
             >
               <option value="">(todos)</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
+              <option value="true">Sí</option>
+              <option value="false">No</option>
             </select>
           </div>
         ) : null}
@@ -394,7 +394,7 @@ export default function ItemsClient(props: ItemsClientProps) {
             setOffset(0);
           }}
         >
-          Limpiar
+          Restablecer
         </button>
 
         <div style={{ marginLeft: "auto", fontSize: 13 }}>

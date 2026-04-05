@@ -339,10 +339,12 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
         </div>
       </div>
 
-      <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-        Fuente: <code>pricing_daily_runs</code> + <code>pricing_daily_run_items</code> + <code>offers</code> +{" "}
-        <code>item_seguimiento</code> + <code>offer_prices_daily</code>
-      </div>
+      {!hideHeader ? (
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+          Fuente: <code>pricing_daily_runs</code> + <code>pricing_daily_run_items</code> + <code>offers</code> +{" "}
+          <code>item_seguimiento</code> + <code>offer_prices_daily</code>
+        </div>
+      ) : null}
     </div>
   );
 }
