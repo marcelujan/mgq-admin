@@ -136,16 +136,13 @@ export default function JobsDiarioClient(props: JobsDiarioClientProps) {
       {!hideHeader && (
         <div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-          <h1 style={{ margin: 0 }}>Jobs diario</h1>
+          <h1 style={{ margin: 0 }}>Cron</h1>
           <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
-            <Link href="/" style={{ color: "inherit", opacity: 0.85 }}>
-              Inicio
+            <Link href="/items-proveedores/cron" style={{ color: "inherit", opacity: 0.95 }}>
+              Cron
             </Link>
-            <Link href="/items" style={{ color: "inherit", opacity: 0.85 }}>
+            <Link href="/items-proveedores/items" style={{ color: "inherit", opacity: 0.85 }}>
               Items
-            </Link>
-            <Link href="/jobs" style={{ color: "inherit", opacity: 0.85 }}>
-              Jobs manual
             </Link>
           </div>
         </div>
