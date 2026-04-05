@@ -28,29 +28,6 @@ export async function GET(
 
     const sql = db();
 
-    const uRes: any = await sql.query(
-      `
-      UPDATE app.producto
-      SET
-        densidad_producto_g_ml = CASE
-          WHEN $2::boolean THEN $3::float8
-          ELSE densidad_producto_g_ml
-        END,
-        descripcion = CASE
-          WHEN $4::boolean THEN $5::text
-          ELSE descripcion
-        END
-      WHERE producto_id = $1
-      RETURNING *
-      `,
-      [
-        productoId,
-        densidad_producto_g_ml !== undefined,
-        densidad_producto_g_ml,
-        descripcion !== undefined,
-        descripcion,
-      ]
-    );
     const pRes: any = await sql.query(
       `SELECT * FROM app.producto WHERE producto_id=$1 LIMIT 1`,
       [productoId]
@@ -109,15 +86,14 @@ export async function PATCH(
 
     const body = await req.json().catch(() => ({} as any));
 
-    // Permitir null (borrar densidad)
     const densidad_producto_g_ml =
       body?.densidad_producto_g_ml === undefined ? undefined : numOrNull(body?.densidad_producto_g_ml);
     const descripcion =
       body?.descripcion === undefined
         ? undefined
         : body?.descripcion === null
-        ? null
-        : String(body.descripcion).trim() || null;
+          ? null
+          : String(body.descripcion).trim() || null;
 
     if (densidad_producto_g_ml !== undefined) {
       if (densidad_producto_g_ml !== null && densidad_producto_g_ml <= 0) {
