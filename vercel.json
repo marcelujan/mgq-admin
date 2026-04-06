@@ -1,16 +1,8 @@
 {
   "crons": [
-    {
-      "path": "/api/cron/fx-bna-daily",
-      "schedule": "55 11 * * *"
-    },
-    {
-      "path": "/api/cron/pricing-daily",
-      "schedule": "0 12 * * *"
-    },
-    {
-      "path": "/api/cron/formulado-costs-daily",
-      "schedule": "15 12 * * *"
-    }
+    { "path": "/api/cron/fx-bna-daily", "schedule": "55 11 * * *" },
+    { "path": "/api/cron/pricing-daily", "schedule": "0 12 * * *" },
+    { "path": "/api/cron/manual-costs-daily", "schedule": "15 3 * * *" },
+    { "path": "/api/cron/formulado-costs-daily", "schedule": "15 12 * * *" }
   ]
 }
