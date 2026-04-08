@@ -1,3 +1,6 @@
+import { db } from "@/lib/db";
+import { parseEumaProductFromHtml } from "@/lib/motores/euma";
+
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
 export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
 
@@ -161,6 +164,28 @@ function parsePrecioArsByPresentacionFromHtml(
   return byPres;
 }
 
+
+async function getFxToday(): Promise<number | null> {
+  const sql = db();
+  const rows = (await sql`
+    SELECT valor
+    FROM app.fx
+    WHERE fecha = current_date
+    LIMIT 1
+  `) as any[];
+  const v = rows?.[0]?.valor;
+  const n = v === null || v === undefined ? null : Number(v);
+  return Number.isFinite(n as any) ? (n as number) : null;
+}
+
+function isEumaUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().includes("euma.com.ar");
+  } catch {
+    return false;
+  }
+}
+
 async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -187,27 +212,55 @@ export async function runMotorForPricesByPresentacion(
   url: string,
   opts?: { timeoutMs?: number }
 ): Promise<RunMotorForPricesResult> {
-  if (motorId !== BigInt(1)) {
-    throw new Error(`motor_not_implemented:${motorId.toString()}`);
-  }
-
   const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
 
-  const html = await fetchHtml(url, timeoutMs);
-  const byPres = parsePrecioArsByPresentacionFromHtml(html);
+  if (motorId === BigInt(1)) {
+    const html = await fetchHtml(url, timeoutMs);
+    const byPres = parsePrecioArsByPresentacionFromHtml(html);
 
-  if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");
+    if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");
 
-  const prices: PriceByPresentacion[] = Array.from(byPres.entries())
-    .map(([presentacion, v]) => ({
-      presentacion,
-      priceArs: v.precio_ars,
-      source: v.source,
-    }))
-    .filter((x) => Number.isFinite(x.presentacion) && Number.isFinite(x.priceArs) && x.priceArs > 0)
-    .sort((a, b) => a.presentacion - b.presentacion);
+    const prices: PriceByPresentacion[] = Array.from(byPres.entries())
+      .map(([presentacion, v]) => ({
+        presentacion,
+        priceArs: v.precio_ars,
+        source: v.source,
+      }))
+      .filter((x) => Number.isFinite(x.presentacion) && Number.isFinite(x.priceArs) && x.priceArs > 0)
+      .sort((a, b) => a.presentacion - b.presentacion);
 
-  if (prices.length === 0) throw new Error("prices_by_presentacion_empty");
+    if (prices.length === 0) throw new Error("prices_by_presentacion_empty");
 
-  return { sourceUrl: url, prices };
+    return { sourceUrl: url, prices };
+  }
+
+  if (motorId === BigInt(2)) {
+    if (!isEumaUrl(url)) throw new Error("euma_invalid_url");
+
+    const html = await fetchHtml(url, timeoutMs);
+    const parsed = parseEumaProductFromHtml(html);
+    if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
+      throw new Error("euma_presentacion_not_found");
+    }
+    if (!parsed.priceUsd || !Number.isFinite(parsed.priceUsd) || parsed.priceUsd <= 0) {
+      throw new Error("euma_price_usd_not_found");
+    }
+
+    const fx = await getFxToday();
+    if (!fx || !Number.isFinite(fx) || fx <= 0) throw new Error("fx_today_not_found");
+
+    const priceArs = Number((parsed.priceUsd * fx).toFixed(6));
+    return {
+      sourceUrl: url,
+      prices: [
+        {
+          presentacion: parsed.presentacionMl,
+          priceArs,
+          source: "euma:usd*fx",
+        },
+      ],
+    };
+  }
+
+  throw new Error(`motor_not_implemented:${motorId.toString()}`);
 }
