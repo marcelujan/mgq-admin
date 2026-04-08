@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { parseEumaProductFromHtml } from "@/lib/motores/euma";
 
 type JobRow = {
   job_id: string | number | bigint;
@@ -433,147 +432,6 @@ function attachScaleEconomyMetrics(candidatos: any[]) {
   return mins;
 }
 
-
-async function motorEuma(
-  sql: any,
-  payload: any,
-  job: JobRow,
-  itemId: bigint | null
-) {
-  let url = normalizeUrl(payload?.url);
-
-  if (!url && itemId) {
-    const rows = (await sql`
-      SELECT url_canonica, url_original
-      FROM app.item_seguimiento
-      WHERE item_id = ${itemId}
-      LIMIT 1
-    `) as any[];
-
-    const r = rows?.[0];
-    url = normalizeUrl(r?.url_canonica) ?? normalizeUrl(r?.url_original);
-  }
-
-  if (!url) {
-    return {
-      status: "ERROR" as const,
-      candidatos: [],
-      warnings: [],
-      errors: ["payload.url inválida o ausente (y no se pudo resolver por item_id)"],
-      meta: {},
-    };
-  }
-
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-      accept: "text/html,application/xhtml+xml",
-    },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    return {
-      status: "ERROR" as const,
-      candidatos: [],
-      warnings: [],
-      errors: [`fetch falló: HTTP ${res.status}`],
-      meta: { url },
-    };
-  }
-
-  const html = await res.text();
-  const htmlSnippet = html.slice(0, 1200);
-  const parsed = parseEumaProductFromHtml(html);
-  const fxUsed = await getFxToday(sql);
-
-  const warnings: string[] = [];
-  const errors: string[] = [];
-
-  if (!parsed.title) warnings.push("No se pudo extraer el nombre del producto");
-  if (!parsed.description) warnings.push("No se pudo extraer la descripción del producto");
-  if (!parsed.productsId) warnings.push("No se pudo extraer products_id");
-
-  if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
-    errors.push("No se pudo extraer la presentación Cm3/mL");
-  }
-
-  if (!parsed.priceUsd || !Number.isFinite(parsed.priceUsd) || parsed.priceUsd <= 0) {
-    errors.push("No se pudo extraer el precio USD");
-  }
-
-  if (!fxUsed) {
-    errors.push("FX (BNA venta) no disponible en app.fx para current_date");
-  }
-
-  const fechaScrape = new Date().toISOString();
-  const precioArs =
-    parsed.priceUsd !== null && fxUsed !== null
-      ? Number((parsed.priceUsd * fxUsed).toFixed(6))
-      : null;
-
-  const unit = computeUnitPricing(
-    "ML",
-    parsed.presentacionMl ?? 0,
-    precioArs,
-    parsed.priceUsd
-  );
-
-  const candidatos =
-    errors.length > 0
-      ? []
-      : [
-          {
-            proveedor_id: job.proveedor_id ?? null,
-            item_id: itemId ? String(itemId) : null,
-            descripcion: parsed.description ?? parsed.title ?? "Producto sin descripción",
-            articulo_prov: parsed.productsId ?? null,
-            uom: "ML",
-            presentacion: parsed.presentacionMl,
-            costo_base_usd: parsed.priceUsd,
-            fx_usado_en_alta: fxUsed,
-            fecha_scrape_base: fechaScrape,
-            precio_ars_observado: precioArs,
-            precio_ars_source: "euma:usd*fx",
-            fx_origen: "DB",
-            ars_por_unidad: unit.ars_por_unidad,
-            usd_por_unidad: unit.usd_por_unidad,
-            unidad_base: unit.unidad_base,
-            sanity_fx_as_price: false,
-            sanity_fx_ratio: null,
-            sanity_fx_band: null,
-            densidad: null,
-            source_url: url,
-            source_presentacion_raw: parsed.presentacionMl,
-            source_title: parsed.title,
-          },
-        ];
-
-  const status =
-    errors.length > 0
-      ? ("ERROR" as const)
-      : warnings.length > 0
-      ? ("WARNING" as const)
-      : ("OK" as const);
-
-  return {
-    status,
-    candidatos,
-    warnings,
-    errors,
-    meta: {
-      url,
-      title: parsed.title,
-      description: parsed.description,
-      products_id: parsed.productsId,
-      presentacion_ml: parsed.presentacionMl,
-      price_usd: parsed.priceUsd,
-      fx_used: fxUsed,
-      html_snippet: htmlSnippet,
-    },
-  };
-}
-
 async function motorPuraQuimica(
   sql: any,
   payload: any,
@@ -913,13 +771,6 @@ export async function POST(_req: Request) {
     if (motorId === BigInt(1)) {
       motor_version = "puraquimica_v1";
       const r = await motorPuraQuimica(sql, job.payload, job, itemId);
-      status = r.status;
-      candidatos = r.candidatos;
-      warnings = r.warnings;
-      errors = r.errors;
-    } else if (motorId === BigInt(2)) {
-      motor_version = "euma_v1";
-      const r = await motorEuma(sql, job.payload, job, itemId);
       status = r.status;
       candidatos = r.candidatos;
       warnings = r.warnings;
