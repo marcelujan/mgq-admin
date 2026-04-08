@@ -54,6 +54,13 @@ export default function ItemsNewClient(props: ItemsNewClientProps) {
   const [motorId, setMotorId] = useState<number>(0);
   const [urlsText, setUrlsText] = useState<string>("");
 
+  const [showNewProveedor, setShowNewProveedor] = useState(false);
+  const [newProveedorNombre, setNewProveedorNombre] = useState("");
+  const [newProveedorCodigo, setNewProveedorCodigo] = useState("");
+  const [newProveedorMotor, setNewProveedorMotor] = useState<number>(2);
+  const [newProveedorLoading, setNewProveedorLoading] = useState(false);
+  const [newProveedorErr, setNewProveedorErr] = useState<string | null>(null);
+
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
@@ -73,26 +80,35 @@ export default function ItemsNewClient(props: ItemsNewClientProps) {
   const [mErr, setMErr] = useState<string | null>(null);
   const [mOk, setMOk] = useState<string | null>(null);
 
+  async function loadProveedores(preferredProveedorId?: number) {
+    const r = await fetch(`/api/proveedores`, { cache: "no-store" });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+    const rows = (j.proveedores ?? []) as ProveedorRow[];
+    setProveedores(rows);
+
+    const target =
+      preferredProveedorId && rows.some((x) => x.proveedor_id === preferredProveedorId)
+        ? rows.find((x) => x.proveedor_id === preferredProveedorId)!
+        : rows.find((x) => x.proveedor_id === proveedorId) ?? rows[0];
+
+    if (target) {
+      setProveedorId(target.proveedor_id);
+      setMotorId(target.motor_id ?? 0);
+    } else {
+      setProveedorId(0);
+      setMotorId(0);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/proveedores`, { cache: "no-store" })
-      .then(async (r) => {
-        const j = await r.json().catch(() => null);
-        if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-        return (j.proveedores ?? []) as ProveedorRow[];
-      })
-      .then((rows) => {
-        if (cancelled) return;
-        setProveedores(rows);
-        if (rows.length && !proveedorId) {
-          setProveedorId(rows[0].proveedor_id);
-          setMotorId(rows[0].motor_id ?? 0);
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setProveedores([]);
-      });
+    loadProveedores().catch(() => {
+      if (cancelled) return;
+      setProveedores([]);
+      setProveedorId(0);
+      setMotorId(0);
+    });
     return () => {
       cancelled = true;
     };
@@ -106,6 +122,42 @@ export default function ItemsNewClient(props: ItemsNewClientProps) {
   }, [proveedores]);
 
   const effectiveMotorId = proveedorId ? proveedorById.get(proveedorId)?.motor_id ?? motorId : motorId;
+
+  async function createProveedor() {
+    setNewProveedorErr(null);
+    const nombre = newProveedorNombre.trim();
+    const codigo = newProveedorCodigo.trim();
+    if (!nombre) {
+      setNewProveedorErr("Nombre requerido.");
+      return;
+    }
+
+    setNewProveedorLoading(true);
+    try {
+      const res = await fetch(`/api/proveedores`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          nombre,
+          codigo,
+          motor_id_default: newProveedorMotor,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+      const createdId = Number(data?.proveedor?.proveedor_id ?? 0);
+      await loadProveedores(createdId || undefined);
+      setShowNewProveedor(false);
+      setNewProveedorNombre("");
+      setNewProveedorCodigo("");
+      setNewProveedorMotor(2);
+    } catch (e: any) {
+      setNewProveedorErr(e?.message || "Error creando proveedor");
+    } finally {
+      setNewProveedorLoading(false);
+    }
+  }
 
   async function runPreview() {
     setPreviewErr(null);
@@ -376,7 +428,116 @@ export default function ItemsNewClient(props: ItemsNewClientProps) {
                   }}
                 />
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewProveedor((v) => !v);
+                  setNewProveedorErr(null);
+                  if (!showNewProveedor) {
+                    setNewProveedorNombre("");
+                    setNewProveedorCodigo("");
+                    setNewProveedorMotor(2);
+                  }
+                }}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  background: "rgba(255,255,255,0.02)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                {showNewProveedor ? "Cancelar proveedor" : "Nuevo proveedor"}
+              </button>
             </div>
+
+            {showNewProveedor ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 10,
+                  gridTemplateColumns: "minmax(240px, 1.4fr) minmax(160px, 0.8fr) minmax(120px, 0.5fr) auto",
+                  alignItems: "end",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 12,
+                  padding: 10,
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre proveedor</label>
+                  <input
+                    value={newProveedorNombre}
+                    onChange={(e) => setNewProveedorNombre(e.target.value)}
+                    placeholder="Ej: EUMA"
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "rgba(255,255,255,0.92)",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Código (opcional)</label>
+                  <input
+                    value={newProveedorCodigo}
+                    onChange={(e) => setNewProveedorCodigo(e.target.value)}
+                    placeholder="Auto: EUMA"
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "rgba(255,255,255,0.92)",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+                <div style={{ display: "grid", gap: 4 }}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Motor</label>
+                  <select
+                    className="items-new-select"
+                    value={newProveedorMotor}
+                    onChange={(e) => setNewProveedorMotor(Number(e.target.value) || 2)}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      borderRadius: 10,
+                      padding: "8px 10px",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "rgba(255,255,255,0.92)",
+                      outline: "none",
+                    }}
+                  >
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={createProveedor}
+                  disabled={newProveedorLoading}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    borderRadius: 10,
+                    padding: "8px 10px",
+                    background: "rgba(255,255,255,0.04)",
+                    cursor: newProveedorLoading ? "not-allowed" : "pointer",
+                    opacity: newProveedorLoading ? 0.6 : 1,
+                    fontSize: 12,
+                  }}
+                >
+                  {newProveedorLoading ? "Creando..." : "Crear proveedor"}
+                </button>
+                {newProveedorErr ? (
+                  <div style={{ gridColumn: "1 / -1", color: "#ff6b6b", fontSize: 13 }}>{newProveedorErr}</div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>URLs (una por línea)</label>
