@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { parseEumaProductFromHtml } from "@/lib/motores/euma";
+import { buildEumaCandidateUrls, parseEumaProductFromHtml } from "@/lib/motores/euma";
 
 type JobRow = {
   job_id: string | number | bigint;
@@ -464,25 +464,46 @@ async function motorEuma(
     };
   }
 
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-      accept: "text/html,application/xhtml+xml",
-    },
-    cache: "no-store",
-  });
+  let html = "";
+  let fetchedUrl = url;
+  const fetchErrors: string[] = [];
+  const candidates = buildEumaCandidateUrls(url);
 
-  if (!res.ok) {
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(candidate, {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "es-AR,es;q=0.9,en;q=0.8",
+          "cache-control": "no-cache",
+          pragma: "no-cache",
+        },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        fetchErrors.push(`${candidate} => HTTP ${res.status}`);
+        continue;
+      }
+
+      html = await res.text();
+      fetchedUrl = candidate;
+      break;
+    } catch (e: any) {
+      fetchErrors.push(`${candidate} => ${String(e?.message ?? e)}`);
+    }
+  }
+
+  if (!html) {
     return {
       status: "ERROR" as const,
       candidatos: [],
       warnings: [],
-      errors: [`fetch falló: HTTP ${res.status}`],
-      meta: { url },
+      errors: [`fetch falló: ${fetchErrors.join(" | ")}`],
+      meta: { url, fetch_candidates: candidates },
     };
   }
-
-  const html = await res.text();
   const htmlSnippet = html.slice(0, 1200);
   const parsed = parseEumaProductFromHtml(html);
   const fxUsed = await getFxToday(sql);
@@ -543,7 +564,7 @@ async function motorEuma(
             sanity_fx_ratio: null,
             sanity_fx_band: null,
             densidad: null,
-            source_url: url,
+            source_url: fetchedUrl,
             source_presentacion_raw: parsed.presentacionMl,
             source_title: parsed.title,
           },
@@ -607,25 +628,46 @@ async function motorPuraQuimica(
 
   const cfg = providerConfigFromUrl(url);
 
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-      accept: "text/html,application/xhtml+xml",
-    },
-    cache: "no-store",
-  });
+  let html = "";
+  let fetchedUrl = url;
+  const fetchErrors: string[] = [];
+  const candidates = buildEumaCandidateUrls(url);
 
-  if (!res.ok) {
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(candidate, {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "es-AR,es;q=0.9,en;q=0.8",
+          "cache-control": "no-cache",
+          pragma: "no-cache",
+        },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        fetchErrors.push(`${candidate} => HTTP ${res.status}`);
+        continue;
+      }
+
+      html = await res.text();
+      fetchedUrl = candidate;
+      break;
+    } catch (e: any) {
+      fetchErrors.push(`${candidate} => ${String(e?.message ?? e)}`);
+    }
+  }
+
+  if (!html) {
     return {
       status: "ERROR" as const,
       candidatos: [],
       warnings: [],
-      errors: [`fetch falló: HTTP ${res.status}`],
-      meta: { url },
+      errors: [`fetch falló: ${fetchErrors.join(" | ")}`],
+      meta: { url, fetch_candidates: candidates },
     };
   }
-
-  const html = await res.text();
   const htmlSnippet = html.slice(0, 1200);
 
   const title = parseTitleFromHtml(html);
@@ -743,7 +785,7 @@ async function motorPuraQuimica(
       densidad: null,
 
       // opcional: para auditoría
-      source_url: url,
+      source_url: fetchedUrl,
       source_presentacion_raw: p,
     };
   });

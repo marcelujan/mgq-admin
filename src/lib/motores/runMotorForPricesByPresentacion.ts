@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { parseEumaProductFromHtml } from "@/lib/motores/euma";
+import { buildEumaCandidateUrls, parseEumaProductFromHtml } from "@/lib/motores/euma";
 
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
 export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
@@ -193,10 +193,14 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   try {
     const res = await fetch(url, {
       headers: {
-        "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-        accept: "text/html,application/xhtml+xml",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language": "es-AR,es;q=0.9,en;q=0.8",
+        "cache-control": "no-cache",
+        pragma: "no-cache",
       },
       cache: "no-store",
+      redirect: "follow",
       signal: controller.signal,
     });
 
@@ -205,6 +209,22 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchEumaHtml(url: string, timeoutMs: number): Promise<{ html: string; sourceUrl: string }> {
+  const candidates = buildEumaCandidateUrls(url);
+  const errors: string[] = [];
+
+  for (const candidate of candidates) {
+    try {
+      const html = await fetchHtml(candidate, timeoutMs);
+      return { html, sourceUrl: candidate };
+    } catch (e: any) {
+      errors.push(`${candidate} => ${String(e?.message ?? e)}`);
+    }
+  }
+
+  throw new Error(`euma_fetch_failed: ${errors.join(" | ")}`);
 }
 
 export async function runMotorForPricesByPresentacion(
@@ -237,7 +257,8 @@ export async function runMotorForPricesByPresentacion(
   if (motorId === BigInt(2)) {
     if (!isEumaUrl(url)) throw new Error("euma_invalid_url");
 
-    const html = await fetchHtml(url, timeoutMs);
+    const fetched = await fetchEumaHtml(url, timeoutMs);
+    const html = fetched.html;
     const parsed = parseEumaProductFromHtml(html);
     if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
       throw new Error("euma_presentacion_not_found");
@@ -251,7 +272,7 @@ export async function runMotorForPricesByPresentacion(
 
     const priceArs = Number((parsed.priceUsd * fx).toFixed(6));
     return {
-      sourceUrl: url,
+      sourceUrl: fetched.sourceUrl,
       prices: [
         {
           presentacion: parsed.presentacionMl,

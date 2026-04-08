@@ -49,6 +49,46 @@ function compactText(s: string | null): string | null {
   return t || null;
 }
 
+export function extractEumaProductsId(rawUrl: string): string | null {
+  try {
+    const u = new URL(rawUrl);
+    const path = `${u.pathname}${u.search}`;
+    const m = path.match(/(?:products_id[\/=])(\d+)/i);
+    return m?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildEumaCandidateUrls(rawUrl: string): string[] {
+  const uniq = new Set<string>();
+  const add = (u?: string | null) => {
+    if (!u) return;
+    uniq.add(u);
+  };
+
+  try {
+    const u = new URL(rawUrl);
+    if (/euma\.com\.ar$/i.test(u.hostname)) {
+      u.search = "";
+      u.hash = "";
+      const cleanPath = u.pathname.replace(/\/osCsid\/[^/]+/i, "");
+      u.pathname = cleanPath;
+      add(u.toString());
+    }
+  } catch {}
+
+  const pid = extractEumaProductsId(rawUrl);
+  if (pid) {
+    add(`https://www.euma.com.ar/catalog/product_info.php/products_id/${pid}`);
+    add(`https://euma.com.ar/catalog/product_info.php/products_id/${pid}`);
+    add(`https://www.euma.com.ar/catalog/product_info.php?products_id=${pid}`);
+    add(`https://euma.com.ar/catalog/product_info.php?products_id=${pid}`);
+  }
+
+  return Array.from(uniq);
+}
+
 export function parseEumaProductFromHtml(html: string): EumaParsedProduct {
   const priceMatch = html.match(/<h1\s+style="float:\s*right;"[^>]*>\s*([^<]+)\s*<\/h1>/i);
   const titleMatch = html.match(/<h1>([^<]+)<\/h1>/i);
