@@ -1,57 +1,81 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { PROVEEDORES_ACEPTADOS } from "@/lib/proveedores-aceptados";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function ensureAcceptedProviders(sql: any) {
-  for (const p of PROVEEDORES_ACEPTADOS) {
-    const existing = (await sql`
+async function ensureBuiltinEuma(sql: any) {
+  const existing = (await sql.query(
+    `
       select proveedor_id
       from app.proveedor
-      where upper(coalesce(codigo, '')) = upper(${p.codigo})
-         or upper(nombre) = upper(${p.nombre})
-      limit 1
-    `) as any[];
+      where upper(coalesce(codigo, '')) = 'EUMA'
+         or upper(coalesce(nombre, '')) = 'EUMA'
+      order by proveedor_id asc
+      limit 1;
+    `
+  )) as any;
 
-    if (existing.length > 0) {
-      await sql`
+  const rows = Array.isArray(existing?.rows) ? existing.rows : Array.isArray(existing) ? existing : [];
+  const proveedorId = rows?.[0]?.proveedor_id ? Number(rows[0].proveedor_id) : null;
+
+  if (proveedorId) {
+    await sql.query(
+      `
         update app.proveedor
-        set nombre = ${p.nombre},
-            codigo = ${p.codigo},
-            activo = true,
-            motor_id_default = ${p.motorId}
-        where proveedor_id = ${existing[0].proveedor_id}
-      `;
-    } else {
-      await sql`
-        insert into app.proveedor (nombre, codigo, activo, motor_id_default)
-        values (${p.nombre}, ${p.codigo}, true, ${p.motorId})
-      `;
-    }
+        set
+          nombre = 'EUMA',
+          codigo = coalesce(codigo, 'EUMA'),
+          activo = true,
+          motor_id_default = 2
+        where proveedor_id = $1;
+      `,
+      [proveedorId]
+    );
+    return proveedorId;
   }
+
+  const inserted = (await sql.query(
+    `
+      insert into app.proveedor (nombre, codigo, activo, motor_id_default)
+      values ('EUMA', 'EUMA', true, 2)
+      returning proveedor_id;
+    `
+  )) as any;
+
+  const insRows = Array.isArray(inserted?.rows) ? inserted.rows : Array.isArray(inserted) ? inserted : [];
+  return insRows?.[0]?.proveedor_id ? Number(insRows[0].proveedor_id) : null;
 }
 
 export async function GET() {
   const sql = db();
-  await ensureAcceptedProviders(sql);
 
-  const rows = (await sql`
-    select proveedor_id, nombre as proveedor_nombre, codigo, motor_id_default as motor_id
-    from app.proveedor
-    where upper(coalesce(codigo, '')) in (${PROVEEDORES_ACEPTADOS[0].codigo}, ${PROVEEDORES_ACEPTADOS[1].codigo})
-       or upper(nombre) in (${PROVEEDORES_ACEPTADOS[0].nombre.toUpperCase()}, ${PROVEEDORES_ACEPTADOS[1].nombre.toUpperCase()})
-    order by nombre asc
-  `) as any[];
+  await ensureBuiltinEuma(sql);
+
+  const result = (await sql.query(
+    `
+      select
+        proveedor_id,
+        nombre as proveedor_nombre,
+        motor_id_default as motor_id,
+        codigo,
+        activo
+      from app.proveedor
+      where coalesce(activo, true) = true
+      order by nombre asc, proveedor_id asc;
+    `
+  )) as any;
+
+  const rows = Array.isArray(result?.rows) ? result.rows : Array.isArray(result) ? result : [];
 
   return NextResponse.json({
     ok: true,
-    proveedores: rows.map((r) => ({
+    proveedores: rows.map((r: any) => ({
       proveedor_id: Number(r.proveedor_id),
       proveedor_nombre: String(r.proveedor_nombre ?? ""),
-      codigo: String(r.codigo ?? ""),
       motor_id: r.motor_id === null || r.motor_id === undefined ? null : Number(r.motor_id),
+      codigo: r.codigo === null || r.codigo === undefined ? null : String(r.codigo),
+      activo: r.activo === null || r.activo === undefined ? true : Boolean(r.activo),
     })),
   });
 }
