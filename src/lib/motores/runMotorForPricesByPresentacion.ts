@@ -1,13 +1,5 @@
-import { fetchHtml as fetchMotorHtml, getFxTodayFromDb, parseEumaProductHtml } from "@/lib/motores/euma";
-
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
-export type RunMotorForPricesResult = {
-  sourceUrl: string;
-  prices: PriceByPresentacion[];
-  title?: string | null;
-  sku?: string | null;
-  description?: string | null;
-};
+export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
 
 function decodeHtmlEntities(s: string): string {
   return String(s)
@@ -169,57 +161,53 @@ function parsePrecioArsByPresentacionFromHtml(
   return byPres;
 }
 
+async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "user-agent": "MGqBot/1.0 (+https://vercel.app)",
+        accept: "text/html,application/xhtml+xml",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+
+    if (!res.ok) throw new Error(`fetch_failed_http_${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export async function runMotorForPricesByPresentacion(
   motorId: bigint,
   url: string,
   opts?: { timeoutMs?: number }
 ): Promise<RunMotorForPricesResult> {
+  if (motorId !== BigInt(1)) {
+    throw new Error(`motor_not_implemented:${motorId.toString()}`);
+  }
+
   const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
 
-  if (motorId === BigInt(1)) {
-    const html = await fetchMotorHtml(url, timeoutMs);
-    const byPres = parsePrecioArsByPresentacionFromHtml(html);
+  const html = await fetchHtml(url, timeoutMs);
+  const byPres = parsePrecioArsByPresentacionFromHtml(html);
 
-    if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");
+  if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");
 
-    const prices: PriceByPresentacion[] = Array.from(byPres.entries())
-      .map(([presentacion, v]) => ({
-        presentacion,
-        priceArs: v.precio_ars,
-        source: v.source,
-      }))
-      .filter((x) => Number.isFinite(x.presentacion) && Number.isFinite(x.priceArs) && x.priceArs > 0)
-      .sort((a, b) => a.presentacion - b.presentacion);
+  const prices: PriceByPresentacion[] = Array.from(byPres.entries())
+    .map(([presentacion, v]) => ({
+      presentacion,
+      priceArs: v.precio_ars,
+      source: v.source,
+    }))
+    .filter((x) => Number.isFinite(x.presentacion) && Number.isFinite(x.priceArs) && x.priceArs > 0)
+    .sort((a, b) => a.presentacion - b.presentacion);
 
-    if (prices.length === 0) throw new Error("prices_by_presentacion_empty");
+  if (prices.length === 0) throw new Error("prices_by_presentacion_empty");
 
-    return { sourceUrl: url, prices };
-  }
-
-  if (motorId === BigInt(2)) {
-    const html = await fetchMotorHtml(url, timeoutMs);
-    const parsed = parseEumaProductHtml(html, url);
-    const fx = await getFxTodayFromDb();
-    if (fx === null || !Number.isFinite(fx) || fx <= 0) {
-      throw new Error('fx_today_not_found');
-    }
-
-    const priceArs = Number((parsed.precioUsd * fx).toFixed(6));
-    return {
-      sourceUrl: parsed.sourceUrl,
-      title: parsed.title,
-      sku: parsed.sku,
-      description: parsed.description,
-      prices: [
-        {
-          presentacion: parsed.presentacionMl,
-          priceArs,
-          source: 'euma:usd*fx',
-        },
-      ],
-    };
-  }
-
-  throw new Error(`motor_not_implemented:${motorId.toString()}`);
+  return { sourceUrl: url, prices };
 }
