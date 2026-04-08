@@ -1,8 +1,13 @@
-import { db } from "@/lib/db";
-import { parseEumaProductFromHtml } from "@/lib/motores/euma";
+import { fetchHtml as fetchMotorHtml, getFxTodayFromDb, parseEumaProductHtml } from "@/lib/motores/euma";
 
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
-export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
+export type RunMotorForPricesResult = {
+  sourceUrl: string;
+  prices: PriceByPresentacion[];
+  title?: string | null;
+  sku?: string | null;
+  description?: string | null;
+};
 
 function decodeHtmlEntities(s: string): string {
   return String(s)
@@ -165,48 +170,6 @@ function parsePrecioArsByPresentacionFromHtml(
 }
 
 
-async function getFxToday(): Promise<number | null> {
-  const sql = db();
-  const rows = (await sql`
-    SELECT valor
-    FROM app.fx
-    WHERE fecha = current_date
-    LIMIT 1
-  `) as any[];
-  const v = rows?.[0]?.valor;
-  const n = v === null || v === undefined ? null : Number(v);
-  return Number.isFinite(n as any) ? (n as number) : null;
-}
-
-function isEumaUrl(url: string): boolean {
-  try {
-    return new URL(url).hostname.toLowerCase().includes("euma.com.ar");
-  } catch {
-    return false;
-  }
-}
-
-async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "MGqBot/1.0 (+https://vercel.app)",
-        accept: "text/html,application/xhtml+xml",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    if (!res.ok) throw new Error(`fetch_failed_http_${res.status}`);
-    return await res.text();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export async function runMotorForPricesByPresentacion(
   motorId: bigint,
   url: string,
@@ -215,7 +178,7 @@ export async function runMotorForPricesByPresentacion(
   const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
 
   if (motorId === BigInt(1)) {
-    const html = await fetchHtml(url, timeoutMs);
+    const html = await fetchMotorHtml(url, timeoutMs);
     const byPres = parsePrecioArsByPresentacionFromHtml(html);
 
     if (byPres.size === 0) throw new Error("prices_by_presentacion_not_found");
@@ -235,28 +198,24 @@ export async function runMotorForPricesByPresentacion(
   }
 
   if (motorId === BigInt(2)) {
-    if (!isEumaUrl(url)) throw new Error("euma_invalid_url");
-
-    const html = await fetchHtml(url, timeoutMs);
-    const parsed = parseEumaProductFromHtml(html);
-    if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
-      throw new Error("euma_presentacion_not_found");
-    }
-    if (!parsed.priceUsd || !Number.isFinite(parsed.priceUsd) || parsed.priceUsd <= 0) {
-      throw new Error("euma_price_usd_not_found");
+    const html = await fetchMotorHtml(url, timeoutMs);
+    const parsed = parseEumaProductHtml(html, url);
+    const fx = await getFxTodayFromDb();
+    if (fx === null || !Number.isFinite(fx) || fx <= 0) {
+      throw new Error('fx_today_not_found');
     }
 
-    const fx = await getFxToday();
-    if (!fx || !Number.isFinite(fx) || fx <= 0) throw new Error("fx_today_not_found");
-
-    const priceArs = Number((parsed.priceUsd * fx).toFixed(6));
+    const priceArs = Number((parsed.precioUsd * fx).toFixed(6));
     return {
-      sourceUrl: url,
+      sourceUrl: parsed.sourceUrl,
+      title: parsed.title,
+      sku: parsed.sku,
+      description: parsed.description,
       prices: [
         {
           presentacion: parsed.presentacionMl,
           priceArs,
-          source: "euma:usd*fx",
+          source: 'euma:usd*fx',
         },
       ],
     };
