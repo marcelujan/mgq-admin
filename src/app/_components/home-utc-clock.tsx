@@ -40,6 +40,7 @@ export default function HomeUtcClock() {
         opacity: 0.58,
         whiteSpace: "nowrap",
         fontVariantNumeric: "tabular-nums",
+        flexShrink: 0,
       }}
     >
       {label}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo } from "react";
 import DbHealthIndicator from "./db-health-indicator";
+import HomeUtcClock from "./home-utc-clock";
 
 type Crumb = { href: string; label: string };
 
@@ -53,6 +54,7 @@ export default function AppHeader() {
   const pathname = usePathname() || "/";
 
   const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
+  const showHomeClock = pathname === "/";
 
   function back() {
     // Avoid leaving the app when user landed directly on a deep link.
@@ -158,28 +160,41 @@ export default function AppHeader() {
           opacity: 0.7,
           display: "flex",
           alignItems: "center",
-          gap: 6,
-          flexWrap: "wrap",
+          justifyContent: "space-between",
+          gap: 12,
+          minHeight: 18,
         }}
       >
-        {crumbs.map((c, idx) => (
-          <span
-            key={c.href}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            {idx > 0 ? <span style={{ opacity: 0.6 }}>/</span> : null}
-            {idx === crumbs.length - 1 ? (
-              <span style={{ fontWeight: 600 }}>{c.label}</span>
-            ) : (
-              <Link
-                href={c.href}
-                style={{ textDecoration: "none", color: "inherit" }}
-              >
-                {c.label}
-              </Link>
-            )}
-          </span>
-        ))}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexWrap: "wrap",
+            minWidth: 0,
+          }}
+        >
+          {crumbs.map((c, idx) => (
+            <span
+              key={c.href}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              {idx > 0 ? <span style={{ opacity: 0.6 }}>/</span> : null}
+              {idx === crumbs.length - 1 ? (
+                <span style={{ fontWeight: 600 }}>{c.label}</span>
+              ) : (
+                <Link
+                  href={c.href}
+                  style={{ textDecoration: "none", color: "inherit" }}
+                >
+                  {c.label}
+                </Link>
+              )}
+            </span>
+          ))}
+        </div>
+
+        {showHomeClock ? <HomeUtcClock /> : <span />}
       </div>
     </div>
   );
