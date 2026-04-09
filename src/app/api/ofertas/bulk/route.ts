@@ -293,8 +293,8 @@ export async function POST(req: NextRequest) {
 
       let insertedForThisUrl = 0;
       const validPrices = prices
-        .map((p: any) => ({ presentacion: Number(p.presentacion), priceArs: Number(p.priceArs) }))
-        .filter((p) => Number.isFinite(p.presentacion) && p.presentacion > 0 && Number.isFinite(p.priceArs) && p.priceArs > 0);
+        .map((p: any): PriceRow => ({ presentacion: Number(p.presentacion), priceArs: Number(p.priceArs) }))
+        .filter((p: PriceRow) => Number.isFinite(p.presentacion) && p.presentacion > 0 && Number.isFinite(p.priceArs) && p.priceArs > 0);
 
       for (const p of validPrices) {
         const insOffer = await q(
