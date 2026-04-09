@@ -99,6 +99,11 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 
 ## 2026-04-09
 
+
+- Fix alta por URL: `/api/ofertas` y `/api/ofertas/bulk` ahora responden `as_of_date` y siembran `item_price_daily_pres` usando fecha operacional local (`America/Argentina/Cordoba`) en vez de `current_date` implícito.
+- UI: el mensaje de éxito en `Items Proveedores` vuelve a mostrar `fecha=<as_of_date>` y `precios_hoy`.
+- PuraQuimica: la ausencia de SKU deja de mostrarse como warning operativo (`pura_sku_not_found`); el SKU pasa a ser opcional para preview/create.
+- Operación: no se aplica backfill automático sobre items proveedor históricos sin `descripcion_fuente`/`articulo_prov`; conservan el fallback visual actual.
 - Se incorpora persistencia explícita de identidad visible del item proveedor en `app.item_seguimiento` (`descripcion_fuente`, `articulo_prov`).
 - `/api/ofertas/bulk` y `/api/ofertas` ahora siembran esos campos al crear/actualizar items proveedor y además siembran `item_price_daily_pres` del día.
 - `runMotorForPricesByPresentacion` expone `title` y `sku` para `PuraQuimica` y `EUMA`, unificando el contrato de preview/create entre ambos proveedores.

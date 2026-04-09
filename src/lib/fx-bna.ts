@@ -1,3 +1,5 @@
+import { APP_TZ, getPgAppDate } from "@/lib/app-time";
+
 export type BnaUsdVenta = {
   source_url: string;
   page_date: string | null;
@@ -17,11 +19,10 @@ export type FxUpsertResult = {
 
 export const FX_SOURCE_BNA_WEB = "BNA_WEB";
 export const FX_SOURCE_MANUAL = "MANUAL";
-export const APP_TZ_FX = "America/Argentina/Cordoba";
+export const APP_TZ_FX = APP_TZ;
 
 async function getFxAppDatePg(client: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<string> {
-  const q = await client.query(`select ((now() at time zone $1)::date)::text as d`, [APP_TZ_FX]);
-  return String(q?.rows?.[0]?.d ?? "");
+  return getPgAppDate(client);
 }
 
 function decodeHtmlEntities(input: string): string {

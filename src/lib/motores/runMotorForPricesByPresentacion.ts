@@ -241,7 +241,6 @@ export async function runMotorForPricesByPresentacion(
     const sku = parseSkuFromHtml(html);
     const warnings: string[] = [];
     if (!title) warnings.push("pura_title_not_found");
-    if (!sku) warnings.push("pura_sku_not_found");
 
     return { sourceUrl: url, title, sku, warnings, prices };
   }

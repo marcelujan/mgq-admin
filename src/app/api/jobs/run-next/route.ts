@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { APP_TZ_FX } from "@/lib/fx-bna";
 import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
-
+import { APP_TZ as APP_TZ_FX } from "@/lib/app-time";
 
 type JobRow = {
   job_id: string | number | bigint;

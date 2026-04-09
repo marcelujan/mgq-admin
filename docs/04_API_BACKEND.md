@@ -248,7 +248,8 @@ Crea:
  - 1 fila en app.item_seguimiento por URL (si no existe)
  - persiste `descripcion_fuente` / `articulo_prov` capturados por el motor en `item_seguimiento`
  - N filas en app.offers (una por presentación encontrada por el motor)
- - siembra `item_price_daily_pres` para `current_date` con los precios detectados al alta
+ - siembra `item_price_daily_pres` para la **fecha operacional local de la app** (`America/Argentina/Cordoba`) con los precios detectados al alta
+ - responde `as_of_date` para que la UI muestre la fecha realmente usada al sembrar el snapshot
 ```
 
 ### `/api/ofertas/bulk/preview`

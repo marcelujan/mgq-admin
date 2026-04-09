@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
+import { getPgAppDate } from "@/lib/app-time";
 
 function canonicalizeUrl(raw: string): string | null {
   try {
@@ -182,20 +183,20 @@ async function updateItemSeguimientoIdentity(sql: any, args: {
   );
 }
 
-async function seedItemPriceToday(sql: any, item_id: number, source_url: string, presentacion: number, price_ars: number) {
+async function seedItemPriceToday(sql: any, item_id: number, source_url: string, presentacion: number, price_ars: number, asOfDate: string) {
   await sql.query(
     `
     insert into app.item_price_daily_pres
       (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
     values
-      ($1, current_date, $2, $3, $4, null)
+      ($1, $2::date, $3, $4, $5, null)
     on conflict (item_id, as_of_date, presentacion)
     do update set
       price_ars = excluded.price_ars,
       source_url = excluded.source_url,
       scrape_run_id = excluded.scrape_run_id
     `,
-    [item_id, presentacion, price_ars, source_url]
+    [item_id, asOfDate, presentacion, price_ars, source_url]
   );
 }
 
@@ -240,6 +241,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const sql = db();
+    const as_of_date = await getPgAppDate(sql);
     const body = await req.json().catch(() => ({} as any));
 
     const item_id = Number(body?.item_id);
@@ -316,7 +318,7 @@ export async function POST(req: NextRequest) {
         presentacion: pres,
       });
 
-      await seedItemPriceToday(sql, item_id, sourceUrl, pres, priceArs);
+      await seedItemPriceToday(sql, item_id, sourceUrl, pres, priceArs, as_of_date);
       prices_seeded_today += 1;
 
       if (u.offer_id) offer_ids.push(String(u.offer_id));
@@ -345,6 +347,7 @@ export async function POST(req: NextRequest) {
         inserted_created: created,
         inserted_updated: updated,
         prices_seeded_today,
+        as_of_date,
         offer_ids,
       },
       { status: 201 }

@@ -71,3 +71,9 @@ Notas:
 
 - El alta por `/api/ofertas/bulk` y la carga puntual por `/api/ofertas` siembran `descripcion_fuente` y `articulo_prov` en `app.item_seguimiento`.
 - Esto aplica a ambos proveedores aceptados (`PuraQuimica`, `EUMA`) y evita depender del cron o de `oferta_proveedor` para mostrar un nombre útil inmediatamente después del alta.
+
+## Alta por URL — mensajes y warnings
+
+- El mensaje de éxito de creación proveedor debe informar: `items_creados`, `offers_creadas`, `precios_hoy` y `fecha` (`as_of_date`).
+- `pura_sku_not_found` deja de mostrarse como warning operativo de preview. En PuraQuimica el SKU es opcional; la identidad mínima del item queda resuelta por `url_canonica` y, si existe, `descripcion_fuente`.
+- Los items viejos sin `descripcion_fuente`/`articulo_prov` no se backfillean automáticamente por UI; deben seguir viéndose con el fallback actual para no alterar referencias históricas ya conocidas por operación.

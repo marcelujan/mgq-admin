@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { Pool, type PoolClient } from "pg";
 import { runMotorForPricesByPresentacion } from "@/lib/motores/runMotorForPricesByPresentacion";
 import { inferProveedorAceptadoFromUrl } from "@/lib/proveedores-aceptados";
+import { getPgAppDate } from "@/lib/app-time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -155,7 +156,8 @@ async function seedItemPriceToday(
   client: PoolClient,
   itemId: number,
   sourceUrl: string,
-  prices: PriceRow[]
+  prices: PriceRow[],
+  asOfDate: string
 ): Promise<number> {
   const q = async (text: string, values?: any[]) => {
     return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rowCount: number }>;
@@ -172,13 +174,13 @@ async function seedItemPriceToday(
       `insert into app.item_price_daily_pres
          (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
        values
-         ($1, current_date, $2, $3, $4, null)
+         ($1, $2::date, $3, $4, $5, null)
        on conflict (item_id, as_of_date, presentacion)
        do update set
          price_ars = excluded.price_ars,
          source_url = excluded.source_url,
          scrape_run_id = excluded.scrape_run_id;`,
-      [itemId, presentacion, priceArs, sourceUrl]
+      [itemId, asOfDate, presentacion, priceArs, sourceUrl]
     );
     seeded += Number(res.rowCount ?? 0) > 0 ? 1 : 0;
   }
@@ -207,6 +209,8 @@ export async function POST(req: NextRequest) {
     };
 
     await q("begin;");
+
+    const as_of_date = await getPgAppDate(client);
 
     let items_created = 0;
     let offers_created = 0;
@@ -308,7 +312,7 @@ export async function POST(req: NextRequest) {
         insertedForThisUrl += insOffer.rowCount ?? 0;
       }
 
-      const seededForThisUrl = await seedItemPriceToday(client, item_id, sourceUrl, validPrices);
+      const seededForThisUrl = await seedItemPriceToday(client, item_id, sourceUrl, validPrices, as_of_date);
 
       offers_created += insertedForThisUrl;
       prices_seeded_today += seededForThisUrl;
@@ -327,7 +331,7 @@ export async function POST(req: NextRequest) {
 
     await q("commit;");
 
-    return NextResponse.json({ ok: true, items_created, offers_created, prices_seeded_today, results });
+    return NextResponse.json({ ok: true, items_created, offers_created, prices_seeded_today, as_of_date, results });
   } catch (e: any) {
     if (client) {
       try {
