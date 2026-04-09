@@ -168,10 +168,14 @@ function parsePrecioArsByPresentacionFromHtml(
 async function getFxToday(): Promise<number | null> {
   const sql = db();
   const rows = (await sql`
-    SELECT valor
-    FROM app.fx
-    WHERE fecha = current_date
-    LIMIT 1
+    with d as (
+      select ((now() at time zone ${APP_TZ_FX})::date) as app_date
+    )
+    select valor
+    from app.fx, d
+    where fecha <= d.app_date
+    order by fecha desc
+    limit 1
   `) as any[];
   const v = rows?.[0]?.valor;
   const n = v === null || v === undefined ? null : Number(v);

@@ -26,8 +26,7 @@ async function ensureBuiltinEuma(sql: any) {
         set
           nombre = 'EUMA',
           codigo = coalesce(codigo, 'EUMA'),
-          activo = true,
-          motor_id_default = 2
+          activo = true
         where proveedor_id = $1;
       `,
       [proveedorId]
@@ -37,8 +36,8 @@ async function ensureBuiltinEuma(sql: any) {
 
   const inserted = (await sql.query(
     `
-      insert into app.proveedor (nombre, codigo, activo, motor_id_default)
-      values ('EUMA', 'EUMA', true, 2)
+      insert into app.proveedor (nombre, codigo, activo)
+      values ('EUMA', 'EUMA', true)
       returning proveedor_id;
     `
   )) as any;
@@ -57,7 +56,7 @@ export async function GET() {
       select
         proveedor_id,
         nombre as proveedor_nombre,
-        motor_id_default as motor_id,
+        case when upper(coalesce(codigo,''))='EUMA' or upper(coalesce(nombre,''))='EUMA' then 2 else motor_id_default end as motor_id,
         codigo,
         activo
       from app.proveedor

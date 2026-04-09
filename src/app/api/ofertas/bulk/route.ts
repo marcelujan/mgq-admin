@@ -64,19 +64,18 @@ async function ensureProveedor(client: PoolClient, codigo: string, nombre: strin
       `update app.proveedor
          set nombre = $2,
              codigo = $3,
-             activo = true,
-             motor_id_default = $4
+             activo = true
        where proveedor_id = $1;`,
-      [proveedorId, nombre, codigo, motorId]
+      [proveedorId, nombre, codigo]
     );
     return proveedorId;
   }
 
   const inserted = await q<{ proveedor_id: number }>(
-    `insert into app.proveedor (nombre, codigo, activo, motor_id_default)
-     values ($1, $2, true, $3)
+    `insert into app.proveedor (nombre, codigo, activo)
+     values ($1, $2, true)
      returning proveedor_id;`,
-    [nombre, codigo, motorId]
+    [nombre, codigo]
   );
 
   const proveedorId = Number(inserted.rows?.[0]?.proveedor_id ?? 0);

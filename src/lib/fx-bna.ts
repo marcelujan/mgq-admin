@@ -17,6 +17,12 @@ export type FxUpsertResult = {
 
 export const FX_SOURCE_BNA_WEB = "BNA_WEB";
 export const FX_SOURCE_MANUAL = "MANUAL";
+export const APP_TZ_FX = "America/Argentina/Cordoba";
+
+async function getFxAppDatePg(client: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<string> {
+  const q = await client.query(`select ((now() at time zone 'America/Argentina/Cordoba')::date)::text as d`);
+  return String(q?.rows?.[0]?.d ?? "");
+}
 
 function decodeHtmlEntities(input: string): string {
   return String(input)
@@ -110,7 +116,8 @@ export async function fetchBnaUsdVenta(): Promise<BnaUsdVenta> {
 }
 
 export async function hasFxForCurrentDatePg(client: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<boolean> {
-  const q = await client.query(`select 1 as ok from app.fx where fecha = current_date limit 1`);
+  const appDate = await getFxAppDatePg(client);
+  const q = await client.query(`select 1 as ok from app.fx where fecha = $1::date limit 1`, [appDate]);
   return Boolean(q?.rows?.[0]?.ok);
 }
 
@@ -119,21 +126,20 @@ export async function upsertFxForCurrentDatePg(
   valor: number,
   fuente: string = FX_SOURCE_BNA_WEB,
 ): Promise<FxUpsertResult> {
-  const d0 = await client.query(`select current_date::text as d;`);
-  const currentDate = String(d0.rows?.[0]?.d ?? "");
-  const beforeQ = await client.query(`select valor::float8 as valor from app.fx where fecha = current_date limit 1`);
+  const currentDate = await getFxAppDatePg(client);
+  const beforeQ = await client.query(`select valor::float8 as valor from app.fx where fecha = $1::date limit 1`, [currentDate]);
   const previous = beforeQ.rows?.[0]?.valor === null || beforeQ.rows?.[0]?.valor === undefined ? null : Number(beforeQ.rows[0].valor);
 
   const upsertQ = await client.query(
     `
     insert into app.fx (fecha, valor, fuente)
-    values (current_date, $1, $2)
+    values ($1::date, $2, $3)
     on conflict (fecha)
     do update set valor = excluded.valor,
                   fuente = excluded.fuente
     returning fecha::text as fecha, valor::float8 as valor, fuente
     `,
-    [valor, fuente]
+    [currentDate, valor, fuente]
   );
 
   const row = upsertQ.rows?.[0];

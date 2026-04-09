@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
+const APP_TZ_FX = 'America/Argentina/Cordoba';
+
 type JobRow = {
   job_id: string | number | bigint;
   tipo: string;
@@ -59,9 +61,13 @@ function providerConfigFromUrl(url: string) {
  */
 async function getFxToday(sql: any): Promise<number | null> {
   const rows = (await sql`
+    with d as (
+      select ((now() at time zone ${APP_TZ_FX})::date) as app_date
+    )
     SELECT valor
-    FROM app.fx
-    WHERE fecha = current_date
+    FROM app.fx, d
+    WHERE fecha <= d.app_date
+    ORDER BY fecha DESC
     LIMIT 1
   `) as any[];
 
