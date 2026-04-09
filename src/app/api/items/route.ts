@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
 
           null::timestamptz as created_at,
           null::text as producto_nombre,
+          opn.descripcion::text as proveedor_item_nombre,
           null::text as oferta_nombre,
           null::text as tipo_formulado,
           null::text as manual_nombre,
@@ -85,6 +86,15 @@ export async function GET(req: NextRequest) {
           0::int as sort_kind
         from app.item_seguimiento i
         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
+
+        left join lateral (
+          select op.descripcion
+          from app.oferta_proveedor op
+          where op.item_id = i.item_id
+            and coalesce(btrim(op.descripcion), '') <> ''
+          order by coalesce(op.updated_at, op.created_at) desc, op.oferta_id desc
+          limit 1
+        ) opn on true
 
         left join lateral (
           select max(as_of_date) as max_d
@@ -119,6 +129,7 @@ export async function GET(req: NextRequest) {
           and (
             $4::text is null
             or coalesce(pr.nombre,'') ilike $4::text
+            or coalesce(opn.descripcion,'') ilike $4::text
             or coalesce(i.url_original,'') ilike $4::text
             or coalesce(i.url_canonica,'') ilike $4::text
           )
@@ -170,6 +181,7 @@ export async function GET(req: NextRequest) {
           )::int as pending_count,
           null::timestamptz as created_at,
           coalesce(p.nombre, '') as producto_nombre,
+          null::text as proveedor_item_nombre,
           ''::text as oferta_nombre,
           'BULK'::text as tipo_formulado,
           null::text as manual_nombre,
@@ -253,6 +265,7 @@ export async function GET(req: NextRequest) {
           )::int as pending_count,
           null::timestamptz as created_at,
           ''::text as producto_nombre,
+          null::text as proveedor_item_nombre,
           ''::text as oferta_nombre,
           'MANUAL_PRESENTACION'::text as tipo_formulado,
           c.manual_nombre::text as manual_nombre,
@@ -309,7 +322,7 @@ export async function GET(req: NextRequest) {
       filtered as (
         select
           *,
-          lower(coalesce(nullif(producto_nombre,''), nullif(manual_nombre,''), nullif(url_canonica,''), nullif(url_original,''), item_id::text)) as sort_nombre,
+          lower(coalesce(nullif(producto_nombre,''), nullif(manual_nombre,''), nullif(proveedor_item_nombre,''), nullif(url_canonica,''), nullif(url_original,''), item_id::text)) as sort_nombre,
           lower(coalesce(nullif(proveedor_nombre,''), '')) as sort_fuente,
           case
             when kind = 'PROVEEDOR' and estado = 'OK' then 0
@@ -362,6 +375,7 @@ export async function GET(req: NextRequest) {
         estado,
         updated_at,
         producto_nombre,
+        proveedor_item_nombre,
         oferta_nombre,
         tipo_formulado,
         manual_nombre,

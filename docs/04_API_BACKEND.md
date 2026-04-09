@@ -105,7 +105,7 @@ GET:
 - **Métodos:** GET, POST
 - **Query params:** `activo`, `limit`, `offset`, `search`, `tipo_uom`
 - **Tablas (referencias):** `insumo`
-- **Response keys (heurístico):** `count`, `error`, `ok`
+- **Response keys (heurístico):** `count`, `error`, `items`, `ok`, `total`
 
 ### `/api/insumos/[insumo_id]`
 - **Archivo:** `src/app/api/insumos/[insumo_id]/route.ts`
@@ -137,7 +137,8 @@ GET:
 - **Métodos:** GET
 - **Query params:** `estado`, `limit`, `offset`, `search`, `seleccionado`, `tipo`
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
-- **Response keys (heurístico):** `count`, `error`, `ok`
+- **Response keys (heurístico):** `count`, `error`, `items`, `ok`, `total`
+- Para filas `PROVEEDOR`, la API puede devolver `proveedor_item_nombre` cuando existe una `descripcion` persistida en `app.oferta_proveedor`. Si no existe todavía, el frontend debe caer a un nombre visual derivado de proveedor + SKU/URL sin mutar dominio ni tablas.
 
 **Docstring / comentario:**
 
@@ -509,4 +510,3 @@ Notas:
 - `app.fx` se considera por fecha de aplicación local `America/Argentina/Cordoba`, no por `current_date` UTC puro.
 - Los flujos USD (`motor 2 / EUMA` y `jobs/run-next`) resuelven FX con fallback a la última cotización disponible con `fecha <= fecha local de aplicación`.
 - El proveedor `EUMA` se asegura por código, pero no escribe `proveedor.motor_id_default=2` mientras la FK a `app.motor` no garantice la existencia del motor 2. El flujo bulk/preview infiere `motor_id=2` por URL.
-- `POST /api/ofertas/bulk` asegura de forma idempotente la fila faltante en `app.motor_proveedor` para motores built-in antes de escribir `app.item_seguimiento.motor_id`; esto evita el FK `item_seguimiento_motor_id_fkey` al crear items proveedor EUMA y deja consistente el posterior `job_result.motor_id`.

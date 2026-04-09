@@ -17,6 +17,12 @@ Rutas principales enlazadas (v2):
 
 Notas:
 
+- En `/items` y `/items/[item_id]`, los items `PROVEEDOR` no deben mostrar tokens técnicos de URL (`osCsid`, `products_id`, ids desnudos) como nombre visible.
+- Prioridad del nombre visible para `PROVEEDOR`:
+  1. `proveedor_item_nombre` (cuando `/api/items` lo informa desde `app.oferta_proveedor.descripcion`)
+  2. fallback visual limpio derivado de proveedor + SKU/URL canónica
+  3. nunca preferir `url_original` con tokens de sesión si existe `url_canonica`.
+
 - Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
 - No se expone una hoja dedicada de DB health en el menú para evitar ruido en la zona de trabajo.
 

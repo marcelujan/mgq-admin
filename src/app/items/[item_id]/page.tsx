@@ -62,6 +62,19 @@ function parseItemKey(raw: string): ParsedKey | null {
   return null;
 }
 
+function extractSkuFromUrl(urlStr: string): string | null {
+  try {
+    const u = new URL(urlStr);
+    const fromPath = u.pathname.match(/(?:^|\/)products_id\/(\d+)(?:\/|$)/i)?.[1] ?? null;
+    if (fromPath) return fromPath;
+    const fromQuery = u.searchParams.get("products_id");
+    if (fromQuery && /^\d+$/.test(fromQuery)) return fromQuery;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function titleFromUrl(urlStr: string): string | null {
   try {
     const u = new URL(urlStr);
@@ -75,10 +88,26 @@ function titleFromUrl(urlStr: string): string | null {
       .replace(/\s+/g, " ")
       .trim();
 
+    if (!cleaned) return null;
+    if (/^\d+$/.test(cleaned)) return null;
+    if (/^(product_info|products_id|catalog|oscsid)$/i.test(cleaned)) return null;
     return cleaned || null;
   } catch {
     return null;
   }
+}
+
+function buildProveedorFallbackTitle(proveedorNombre: string | null, canonicalUrl: string | null, originalUrl: string | null): string | null {
+  const preferredUrl = canonicalUrl || originalUrl || null;
+  const byUrl = preferredUrl ? titleFromUrl(preferredUrl) : null;
+  if (byUrl) return byUrl;
+
+  const sku = extractSkuFromUrl(canonicalUrl || originalUrl || "");
+  const prov = String(proveedorNombre ?? "").trim();
+  if (prov && sku) return `${prov} · SKU ${sku}`;
+  if (prov) return prov;
+  if (sku) return `SKU ${sku}`;
+  return null;
 }
 
 export default async function ItemPage({ params }: { params: ItemParams | Promise<ItemParams> }) {
@@ -105,17 +134,35 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
 
     try {
       const res: any = await sql.query(
-        `select url_original, url_canonica
-         from app.item_seguimiento
-         where item_id = $1
+        `select
+            i.url_original,
+            i.url_canonica,
+            pr.nombre as proveedor_nombre,
+            (
+              select op.descripcion
+              from app.oferta_proveedor op
+              where op.item_id = i.item_id
+                and coalesce(btrim(op.descripcion), '') <> ''
+              order by coalesce(op.updated_at, op.created_at) desc, op.oferta_id desc
+              limit 1
+            ) as descripcion
+         from app.item_seguimiento i
+         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
+         where i.item_id = $1
          limit 1;`,
         [parsed.id]
       );
       const row = normalizeQueryResult(res)[0] ?? null;
-      itemUrl = (row?.url_original || row?.url_canonica || null) as string | null;
+      const urlOriginal = (row?.url_original || null) as string | null;
+      const urlCanonica = (row?.url_canonica || null) as string | null;
+      const proveedorNombre = (row?.proveedor_nombre || null) as string | null;
+      const descripcion = String(row?.descripcion ?? "").trim();
+      itemUrl = (urlCanonica || urlOriginal || null) as string | null;
 
-      if (itemUrl) {
-        const t = titleFromUrl(itemUrl);
+      if (descripcion) {
+        productTitle = descripcion;
+      } else {
+        const t = buildProveedorFallbackTitle(proveedorNombre, urlCanonica, urlOriginal);
         if (t) productTitle = t;
       }
     } catch {}

@@ -1,5 +1,11 @@
+## v2 – Fix nombres visibles en Items PROVEEDOR
+
+- `/api/items` expone `proveedor_item_nombre` cuando existe `app.oferta_proveedor.descripcion` para el item.
+- `/items` prioriza ese nombre y, si no existe, usa un fallback limpio `Proveedor · SKU` en lugar de ids/tokens de URL.
+- `/items/[item_id]` prioriza `url_canonica` sobre `url_original` y evita mostrar `osCsid`/ids desnudos como título.
+- No se modifican tablas, cron ni el modelo de dominio; el cambio es solo de lectura/render.
+
 ## Unreleased
-- Fix items proveedor EUMA: `POST /api/ofertas/bulk` asegura el motor built-in en `app.motor_proveedor` antes de insertar/actualizar `app.item_seguimiento`, evitando el FK `item_seguimiento_motor_id_fkey`.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
