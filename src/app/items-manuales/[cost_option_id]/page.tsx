@@ -31,6 +31,7 @@ export default function ItemManualEditPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [nombre, setNombre] = useState("");
@@ -134,6 +135,40 @@ export default function ItemManualEditPage() {
     }
   }
 
+  async function remove() {
+    setErr(null);
+    if (!Number.isFinite(id) || id <= 0) {
+      setErr("ID inválido.");
+      return;
+    }
+
+    const ok = confirm(
+      `Eliminar definitivamente este ITEM MANUAL?\n\n` +
+        `Esto borra: cost_option MANUAL_PRESENTACION y snapshots históricos asociados.\n` +
+        `Acción irreversible.`
+    );
+    if (!ok) return;
+
+    setDeleting(true);
+    try {
+      const r = await fetch(`/api/items/${encodeURIComponent(`mopt:${id}`)}`, { method: "DELETE" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) {
+        if (r.status === 409 && j?.error === "manual_item_in_use") {
+          const count = Number(j?.details?.formula_lineas_v2_count ?? 0);
+          throw new Error(`No se puede eliminar: el item manual está usado en ${count} línea(s) de fórmula.`);
+        }
+        throw new Error(j?.error || `HTTP ${r.status}`);
+      }
+
+      router.push("/items-manuales");
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -149,15 +184,29 @@ export default function ItemManualEditPage() {
             Volver
           </Link>
           <button
-            onClick={save}
-            disabled={saving || loading}
+            onClick={remove}
+            disabled={deleting || saving || loading}
             style={{
               border: "1px solid rgba(255,255,255,0.14)",
               borderRadius: 10,
               padding: "8px 10px",
               background: "rgba(255,255,255,0.03)",
-              cursor: saving || loading ? "default" : "pointer",
-              opacity: saving || loading ? 0.7 : 1,
+              cursor: deleting || saving || loading ? "default" : "pointer",
+              opacity: deleting || saving || loading ? 0.7 : 1,
+            }}
+          >
+            {deleting ? "Eliminando..." : "Eliminar"}
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || deleting || loading}
+            style={{
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 10,
+              padding: "8px 10px",
+              background: "rgba(255,255,255,0.03)",
+              cursor: saving || deleting || loading ? "default" : "pointer",
+              opacity: saving || deleting || loading ? 0.7 : 1,
             }}
           >
             {saving ? "Guardando..." : "Guardar"}

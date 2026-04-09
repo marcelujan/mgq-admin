@@ -28,15 +28,13 @@ Notas:
 - **Métodos:** GET, POST
 - **Query params:** `limit`, `search`, `solo_seleccionados`
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `proveedor`
-- **Response keys (heurístico):** `cost_option_id`, `cost_options_extra`, `error`, `item_options`, `ok`
+- **Response keys (heurístico):** `cost_option_id`, `cost_options_extra`, `error`, `ok`
 
 **Docstring / comentario:**
 
 ```
 GET:
-- ITEM_PRESENTACION: desde app.item_price_daily_pres (última fecha por item/presentación) + app.item_seguimiento + app.proveedor.
-- En `item_options` expone también `provider_item_nombre` / `provider_item_codigo` desde `item_seguimiento` para que el editor de formulados muestre el mismo naming visible que `/items`.
-- La búsqueda `search_items` también matchea `descripcion_fuente` y `articulo_prov`.
+- ITEM_PRESENTACION: desde app.item_price_daily_pres (última fecha por item/presentación) + app.item_seguimiento + app.proveedor
 - MANUAL/BULK: desde app.cost_option
 ```
 
@@ -72,19 +70,6 @@ GET:
 - **Query params:** (ninguno detectado)
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`
 - **Response keys (heurístico):** `error`, `ok`
-
-### `/api/cron/provider-identity-backfill`
-- **Archivo:** `src/app/api/cron/provider-identity-backfill/route.ts`
-- **Métodos:** POST
-- **Auth:** `Authorization: Bearer ${CRON_SECRET}`
-- **Body:** `limit?`, `dry_run?`, `item_ids?`
-- **Tablas (referencias):** `item_seguimiento`, `proveedor`
-- **Response keys (heurístico):** `claimed_total`, `dry_run`, `error`, `failed`, `handler_version`, `item_ids`, `limit`, `ok`, `pending_before`, `pending_remaining`, `results`, `should_continue`, `skipped`, `updated_ok`
-
-**Notas operacionales:**
-- Backfill operacional para items proveedor históricos con `descripcion_fuente` nula.
-- Reutiliza los motores existentes por URL (`PuraQuimica`, `EUMA`) y persiste `descripcion_fuente` / `articulo_prov` en `app.item_seguimiento`.
-- No crea ofertas nuevas ni toca snapshots; solo corrige identidad visible del item proveedor.
 
 ### `/api/cron/pricing-daily`
 - **Archivo:** `src/app/api/cron/pricing-daily/route.ts`
@@ -491,7 +476,7 @@ Devuelve productos + densidad + ars_por_kg.
 
 Elimina definitivamente el entity subyacente al `item_key` unificado.
 
-- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123` o `p:270`.
+- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123`, `p:270`, `mopt:45`.
 
 ### FORMULADO (fprod:<producto_id>)
 
@@ -506,35 +491,30 @@ Hard-delete destructivo. Borra, en orden:
 - `app.producto_base` (si existiera)
 - `app.producto`
 
+### PROVEEDOR (p:<item_id>)
+
+Hard-delete destructivo con guardrails:
+
+- Bloquea (`409 provider_item_in_use`) si el item proveedor todavía está referenciado por `producto_formula_linea_v2` a través de `cost_option ITEM_PRESENTACION`, o por `producto_base`.
+- Si no está en uso, borra `item_seguimiento`, `offers`, historial diario, jobs y `cost_option ITEM_PRESENTACION` asociados.
+
+### MANUAL (mopt:<cost_option_id>)
+
+Hard-delete destructivo con guardrails:
+
+- Bloquea (`409 manual_item_in_use`) si el `cost_option MANUAL_PRESENTACION` sigue usado en `producto_formula_linea_v2`.
+- Si no está en uso, borra `app.cost_option_snapshot` y luego `app.cost_option` (`tipo='MANUAL_PRESENTACION'`).
+
 Respuesta: `{ ok: true, deleted: { ... } }`
 
 Notas:
 - Operación irreversible.
-- Al borrar el producto, desaparece de **Productos** y del listado virtual de **Items**.
-
-### PROVEEDOR (p:<item_id>)
-
-Hard-delete guardado por dependencias. Borra, en orden:
-
-- `app.pricing_daily_run_items` (por `offer_id` del item)
-- `app.offer_prices_daily` (por `offer_id` del item)
-- `app.offers`
-- `app.item_price_daily_pres`
-- `app.oferta_proveedor`
-- `app.job_result`, `app.job`
-- `app.cost_option_snapshot`, `app.cost_option` tipo `ITEM_PRESENTACION`
-- `app.item_seguimiento`
-
-Guardrails:
-- Si el item proveedor está en uso por `producto_formula_linea_v2` (vía `cost_option`) o en `producto_base`, la API responde `409 provider_item_in_use` y no borra.
-- `force=1` sólo evita el bloqueo preventivo; no elimina líneas de fórmula ni bases asociadas.
-
-Respuesta: `{ ok: true, kind: "PROVEEDOR", deleted: { ... } }`
-
+- Al borrar el entity subyacente, desaparece del listado virtual de **Items**.
+- El botón de UI no usa `force=1`; si un manual o proveedor sigue en uso, primero hay que retirarlo de fórmulas/bases.
 
 ## GET /api/productos/:producto_id/formula-v2/lineas — campos adicionales
 
-- Se agregan `item_url_original`, `item_url_canonica`, `item_descripcion_fuente` y `item_articulo_prov` (desde `app.item_seguimiento`) para renderizar nombres visibles consistentes en `ITEM_PRESENTACION` dentro del editor de formulados.
+- Se agregan `item_url_original` y `item_url_canonica` (desde `app.item_seguimiento`) para renderizar nombres derivados de URL en `ITEM_PRESENTACION`.
 - Se agrega `bulk_producto_nombre` (desde `app.producto`) para renderizar nombre real en `BULK_PRODUCTO`.
 
 ### Regla: SQL en consola Neon (v2)

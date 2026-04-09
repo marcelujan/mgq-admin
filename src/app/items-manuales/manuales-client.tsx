@@ -39,6 +39,7 @@ export default function ManualesClient() {
   const [err, setErr] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("manual_nombre");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +99,41 @@ export default function ManualesClient() {
   function sortLabel(key: SortKey): string {
     if (sortKey !== key) return "";
     return sortDir === "asc" ? " ↑" : " ↓";
+  }
+
+  async function handleDelete(row: CostOption) {
+    const id = Number(row.cost_option_id);
+    if (!Number.isFinite(id) || id <= 0) {
+      setErr("ID inválido.");
+      return;
+    }
+
+    const ok = confirm(
+      `Eliminar definitivamente este ITEM MANUAL?\n\n` +
+        `Esto borra: cost_option MANUAL_PRESENTACION y snapshots históricos asociados.\n` +
+        `Acción irreversible.`
+    );
+    if (!ok) return;
+
+    setErr(null);
+    setDeletingId(id);
+    try {
+      const r = await fetch(`/api/items/${encodeURIComponent(`mopt:${id}`)}`, { method: "DELETE" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) {
+        if (r.status === 409 && j?.error === "manual_item_in_use") {
+          const count = Number(j?.details?.formula_lineas_v2_count ?? 0);
+          throw new Error(`No se puede eliminar: el item manual está usado en ${count} línea(s) de fórmula.`);
+        }
+        throw new Error(j?.error || `HTTP ${r.status}`);
+      }
+
+      setRows((prev) => prev.filter((x) => Number(x.cost_option_id) !== id));
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   const count = rows.length;
@@ -174,7 +210,22 @@ export default function ManualesClient() {
                     <Link href={`/items-manuales/${r.cost_option_id}`} style={{ textDecoration: "none", opacity: 0.9 }} title="Editar manual">
                       Editar
                     </Link>
-                    <span title="Eliminar manual no está habilitado en esta versión" style={{ opacity: 0.45 }}>🗑️</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(r)}
+                      disabled={deletingId === r.cost_option_id}
+                      title="Eliminar definitivamente"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        color: "inherit",
+                        cursor: deletingId === r.cost_option_id ? "default" : "pointer",
+                        opacity: deletingId === r.cost_option_id ? 0.5 : 0.9,
+                      }}
+                    >
+                      {deletingId === r.cost_option_id ? "…" : "🗑️"}
+                    </button>
                   </div>
                 </td>
               </tr>

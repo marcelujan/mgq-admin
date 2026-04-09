@@ -215,16 +215,18 @@ export default function ItemsClient(props: ItemsClientProps) {
   }, [search, tipo, estadoProveedor, estadoItem, seleccionado, limit, offset, sortBy, sortDir, estadoProveedorDisabled, reloadToken, showSeleccionadoFilter]);
 
   async function handleDelete(item: ItemRow) {
-    if (item.kind !== "FORMULADO" && item.kind !== "PROVEEDOR") {
-      setError("Eliminar definitivo sólo está habilitado para FORMULADO y PROVEEDOR en esta versión.");
+    if (item.kind !== "FORMULADO" && item.kind !== "PROVEEDOR" && item.kind !== "MANUAL") {
+      setError("Eliminar definitivo sólo está habilitado para FORMULADO, PROVEEDOR y MANUAL en esta versión.");
       return;
     }
 
-    const label = item.kind === "FORMULADO" ? "FORMULADO" : "ITEM PROVEEDOR";
+    const label = item.kind === "FORMULADO" ? "FORMULADO" : item.kind === "PROVEEDOR" ? "ITEM PROVEEDOR" : "ITEM MANUAL";
     const detail =
       item.kind === "FORMULADO"
         ? `Esto borra: producto, fórmula, item_formulado y snapshots.`
-        : `Esto borra: item_seguimiento, offers, historial diario, jobs y cost_options ITEM_PRESENTACION asociados.`;
+        : item.kind === "PROVEEDOR"
+        ? `Esto borra: item_seguimiento, offers, historial diario, jobs y cost_options ITEM_PRESENTACION asociados.`
+        : `Esto borra: cost_option MANUAL_PRESENTACION y snapshots históricos asociados.`;
 
     const ok = confirm(`Eliminar definitivamente este ${label}?
 
@@ -238,6 +240,11 @@ Acción irreversible.`);
       const j = await res.json().catch(() => null);
 
       if (!res.ok || !j?.ok) {
+        if (res.status === 409 && j?.error === "manual_item_in_use") {
+          const count = Number(j?.details?.formula_lineas_v2_count ?? 0);
+          setError(`No se puede eliminar: el item manual está usado en ${count} línea(s) de fórmula.`);
+          return;
+        }
         setError(j?.error ?? `http_${res.status}`);
         return;
       }
@@ -651,11 +658,11 @@ Acción irreversible.`);
                       )}
                       <button
                         onClick={() => void handleDelete(it)}
-                        title={it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? "Eliminar definitivamente" : `Eliminar no está habilitado para ${it.kind}`}
-                        disabled={it.kind !== "FORMULADO" && it.kind !== "PROVEEDOR"}
+                        title={it.kind === "FORMULADO" || it.kind === "PROVEEDOR" || it.kind === "MANUAL" ? "Eliminar definitivamente" : `Eliminar no está habilitado para ${it.kind}`}
+                        disabled={it.kind !== "FORMULADO" && it.kind !== "PROVEEDOR" && it.kind !== "MANUAL"}
                         style={{
-                          opacity: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? 0.9 : 0.5,
-                          cursor: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? "pointer" : "not-allowed",
+                          opacity: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" || it.kind === "MANUAL" ? 0.9 : 0.5,
+                          cursor: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" || it.kind === "MANUAL" ? "pointer" : "not-allowed",
                           background: "transparent",
                           border: "none",
                           padding: 0,

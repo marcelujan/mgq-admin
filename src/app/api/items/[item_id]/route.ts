@@ -220,7 +220,62 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ item_id:
     }
 
     if (prefix === "mopt") {
-      return jsonError(409, "hard_delete_not_enabled_for_kind", { item_key: rawKey, kind: "MANUAL" });
+      const costOptionId = Number(idPart);
+      if (!Number.isFinite(costOptionId) || costOptionId <= 0) return jsonError(400, "invalid_manual_item_id", { item_key: rawKey });
+
+      const depRes: any = await sql.query(
+        `
+        select
+          (select count(*)::int from app.cost_option where cost_option_id = $1 and tipo = 'MANUAL_PRESENTACION') as manual_exists,
+          (select count(*)::int from app.producto_formula_linea_v2 where cost_option_id = $1) as formula_lineas_v2_count,
+          (select count(*)::int from app.cost_option_snapshot where cost_option_id = $1) as snapshot_count
+        `,
+        [costOptionId]
+      );
+      const deps = Array.isArray(depRes?.rows) && depRes.rows.length ? depRes.rows[0] : {};
+      const manualExists = Number(deps?.manual_exists ?? 0);
+      const formulaLineasV2Count = Number(deps?.formula_lineas_v2_count ?? 0);
+      const snapshotCount = Number(deps?.snapshot_count ?? 0);
+
+      if (manualExists <= 0) {
+        return jsonError(404, "manual_item_not_found", {
+          item_key: rawKey,
+          cost_option_id: costOptionId,
+        });
+      }
+
+      if (formulaLineasV2Count > 0) {
+        return jsonError(409, "manual_item_in_use", {
+          item_key: rawKey,
+          cost_option_id: costOptionId,
+          formula_lineas_v2_count: formulaLineasV2Count,
+          snapshot_count: snapshotCount,
+        });
+      }
+
+      await sql.query("begin");
+
+      const rSnap: any = await sql.query(
+        `delete from app.cost_option_snapshot where cost_option_id = $1 returning 1`,
+        [costOptionId]
+      );
+      const rManual: any = await sql.query(
+        `delete from app.cost_option where cost_option_id = $1 and tipo = 'MANUAL_PRESENTACION' returning cost_option_id`,
+        [costOptionId]
+      );
+
+      await sql.query("commit");
+
+      const deletedManual = Array.isArray(rManual?.rows) && rManual.rows.length > 0;
+      return NextResponse.json({
+        ok: true,
+        kind: "MANUAL",
+        item_key: rawKey,
+        deleted: {
+          cost_option: deletedManual ? 1 : 0,
+          cost_option_snapshot: Array.isArray(rSnap?.rows) ? rSnap.rows.length : 0,
+        },
+      });
     }
 
     return jsonError(400, "unknown_item_key_prefix", { item_key: rawKey });

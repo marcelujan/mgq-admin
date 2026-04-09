@@ -13,7 +13,7 @@ conectando DB + API + UI + Jobs.
 - **Items Proveedores (operación):** `/items-proveedores`  
   Alta por URLs visible siempre + consultas de `Corrida diaria` e `Items Proveedor` bajo demanda.
 - **Items Manuales (operación):** `/items-manuales`  
-  Alta y edición de `cost_option` tipo `MANUAL_PRESENTACION`.
+  Alta, edición y borrado de `cost_option` tipo `MANUAL_PRESENTACION`.
 - **Items Formulados:** `/productos`  
   Editor de Producto / fórmula v2 (la navegación lo muestra como “Items Formulados”; el dominio sigue siendo Producto). Incluye `Notas` persistidas en `producto.descripcion`.
 
@@ -301,56 +301,22 @@ aplicar este checklist **antes** de continuar:
 2. Corregir cierres (JSX y llaves) sin reestructurar lógica.
 3. Re-ejecutar `npm run build`.
 
+## Borrado de Item Manual
 
----
+1. Ejecutar desde `/items-manuales`, `/items-manuales/[cost_option_id]` o `/items` sobre la fila `MANUAL`.
+2. El backend intenta `DELETE /api/items/mopt:<cost_option_id>`.
+3. Si el manual sigue en uso por una fórmula v2, responde `409 manual_item_in_use` y la UI no borra nada.
+4. Si no está en uso, el backend borra:
+   - `app.cost_option_snapshot`
+   - `app.cost_option` (`tipo='MANUAL_PRESENTACION'`)
 
-# Backfill identidad proveedor histórica
+Chequeo SQL rápido para un manual puntual:
 
-Objetivo:
-- Hacer que items proveedor viejos se vean como los nuevos, persistiendo `descripcion_fuente` (y `articulo_prov` si el motor lo devuelve) en `app.item_seguimiento`.
-
-## Paso 1 — Medir backlog
 ```sql
-select count(*) as pendientes
-from app.item_seguimiento
-where motor_id in (1,2)
-  and coalesce(nullif(trim(descripcion_fuente),''),'') = '';
+select count(*) as lineas_v2
+from app.producto_formula_linea_v2
+where cost_option_id = <cost_option_id>;
 ```
 
-## Paso 2 — Dry run opcional
-```bash
-curl.exe -X POST ^
-  -H "Authorization: Bearer <CRON_SECRET>" ^
-  -H "Content-Type: application/json" ^
-  -d "{"limit":10,"dry_run":true}" ^
-  "https://<BASE_URL>/api/cron/provider-identity-backfill"
-```
-
-## Paso 3 — Ejecutar por lotes
-```bash
-curl.exe -X POST ^
-  -H "Authorization: Bearer <CRON_SECRET>" ^
-  -H "Content-Type: application/json" ^
-  -d "{"limit":25}" ^
-  "https://<BASE_URL>/api/cron/provider-identity-backfill"
-```
-
-Repetir hasta que la respuesta devuelva:
-- `pending_remaining = 0`
-- `should_continue = false`
-
-## Paso 4 — Verificar items corregidos
-```sql
-select item_id, descripcion_fuente, articulo_prov, url_canonica
-from app.item_seguimiento
-where motor_id in (1,2)
-order by item_id desc
-limit 20;
-```
-
-## Notas
-- Este backfill no crea ofertas nuevas.
-- No modifica snapshots ni gráficos.
-- Si un item falla por URL caída o motor sin título, queda pendiente para un próximo intento.
-
-- `fetch_failed_http_404`: la URL histórica ya no existe. Si el item histórico ya no es útil y no tiene dependencias activas, puede eliminarse desde `/items` (DELETE `p:<item_id>`).
+Regla:
+- Si `lineas_v2 > 0`, retirar primero el item manual de la fórmula antes de intentar eliminarlo.

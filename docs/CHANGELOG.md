@@ -1,6 +1,5 @@
-- Items proveedor: el selector dentro de edición de formulados deja de mostrar slugs crudos de URL y pasa a usar `descripcion_fuente` / `articulo_prov` desde `item_seguimiento`.
-- `/api/items/[item_id]` habilita hard-delete guardado para `PROVEEDOR`, limpiando historial y rows derivados sólo cuando no hay dependencias activas de fórmula/base.
 ## Unreleased
+- UI/API: se habilita eliminación definitiva de Items Manuales (`mopt:<cost_option_id>`) con guardrail `manual_item_in_use` si el manual sigue referenciado por fórmulas v2.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
@@ -100,8 +99,6 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Fix proveedor EUMA: ya no se escribe `proveedor.motor_id_default = 2` en `app.proveedor`; la asociación al motor 2 queda inferida por URL en el flujo bulk/preview.
 
 ## 2026-04-09
-
-- Se agrega `/api/cron/provider-identity-backfill` para backfill operacional de `descripcion_fuente` / `articulo_prov` en items proveedor históricos, sin tocar ofertas ni snapshots.
 
 - Se incorpora persistencia explícita de identidad visible del item proveedor en `app.item_seguimiento` (`descripcion_fuente`, `articulo_prov`).
 - `/api/ofertas/bulk` y `/api/ofertas` ahora siembran esos campos al crear/actualizar items proveedor y además siembran `item_price_daily_pres` del día.
