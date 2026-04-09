@@ -20,7 +20,8 @@ type ItemRow = {
   estado?: string | null;
   updated_at?: string | null;
   producto_nombre?: string | null;
-  proveedor_item_nombre?: string | null;
+  provider_item_nombre?: string | null;
+  provider_item_codigo?: string | null;
   manual_nombre?: string | null;
   manual_uom?: string | null;
   manual_cantidad?: number | null;
@@ -30,19 +31,6 @@ type ItemRow = {
   pending_count?: number | null;
 };
 
-function extractSkuFromUrl(url: string): string | null {
-  try {
-    const u = new URL(String(url));
-    const fromPath = u.pathname.match(/(?:^|\/)products_id\/(\d+)(?:\/|$)/i)?.[1] ?? null;
-    if (fromPath) return fromPath;
-    const fromQuery = u.searchParams.get("products_id");
-    if (fromQuery && /^\d+$/.test(fromQuery)) return fromQuery;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function nameFromUrl(url: string): string | null {
   try {
     const u = new URL(String(url));
@@ -51,30 +39,31 @@ function nameFromUrl(url: string): string | null {
     if (!last) return null;
 
     const cleaned = decodeURIComponent(last)
-      .replace(/\.(html|htm|php)$/i, "")
+      .replace(/\.(html|htm)$/i, "")
       .replace(/[_]+/g, " ")
       .replace(/[-]+/g, " ")
       .trim();
 
     if (!cleaned || cleaned.length < 3) return null;
-    if (/^\d+$/.test(cleaned)) return null;
-    if (/^(product_info|products_id|catalog|oscsid)$/i.test(cleaned)) return null;
     return cleaned;
   } catch {
     return null;
   }
 }
 
-function providerFallbackName(url: string, proveedorNombre?: string | null): string | null {
-  const byUrl = nameFromUrl(url);
-  if (byUrl) return byUrl;
+function providerFallbackName(providerName: string, providerItemCode: string, url: string): string | null {
+  const code = providerItemCode.trim();
+  if (providerName && code) return `${providerName} · SKU ${code}`;
 
-  const sku = extractSkuFromUrl(url);
-  const prov = String(proveedorNombre ?? "").trim();
-  if (prov && sku) return `${prov} · SKU ${sku}`;
-  if (prov) return prov;
-  if (sku) return `SKU ${sku}`;
-  return null;
+  const fromUrl = nameFromUrl(url);
+  if (!fromUrl) return providerName || null;
+
+  const normalized = fromUrl.trim();
+  if (!normalized) return providerName || null;
+  if (/^products?_?id$/i.test(normalized)) return providerName || null;
+  if (/^\d+$/.test(normalized)) return providerName && code ? `${providerName} · SKU ${code}` : providerName || null;
+  if (/^oscsid$/i.test(normalized)) return providerName || null;
+  return normalized;
 }
 
 function providerStatusLabel(estado: string | null | undefined): string {
@@ -569,16 +558,19 @@ export default function ItemsClient(props: ItemsClientProps) {
               const url = String(it.url_canonica || it.url_original || "").trim();
               const showUrl = isProv && !!url;
 
+              const fuente = String(it.proveedor_nombre ?? "—").trim() || "—";
+              const providerItemName = String(it.provider_item_nombre ?? "").trim();
+              const providerItemCode = String(it.provider_item_codigo ?? "").trim();
+
               let nombre =
                 (kind === "FORMULADO" ? String(it.producto_nombre ?? "").trim() : "") ||
                 (kind === "MANUAL" ? String(it.manual_nombre ?? "").trim() : "") ||
-                (isProv ? String(it.proveedor_item_nombre ?? "").trim() : "") ||
-                (isProv ? providerFallbackName(url, it.proveedor_nombre) ?? "" : "") ||
+                (isProv ? providerItemName : "") ||
+                (isProv ? providerFallbackName(fuente === "—" ? "" : fuente, providerItemCode, url) ?? "" : "") ||
                 (url ? url : "");
 
               if (!nombre) nombre = `Item ${itemId}`;
 
-              const fuente = String(it.proveedor_nombre ?? "—") || "—";
               const estadoProveedorLabel = isProv ? providerStatusLabel(it.estado) : "—";
 
               const showCounts = hasCounts(it);

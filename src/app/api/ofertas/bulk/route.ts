@@ -18,6 +18,13 @@ type BulkBody = {
   urls?: string[] | string;
 };
 
+type PriceRow = { presentacion: number; priceArs: number };
+
+type CapturedIdentity = {
+  descripcion_fuente: string | null;
+  articulo_prov: string | null;
+};
+
 function isNonEmptyString(x: unknown): x is string {
   return typeof x === "string" && x.trim().length > 0;
 }
@@ -48,6 +55,18 @@ function splitAndCleanUrls(urls: BulkBody["urls"]): string[] {
   return [];
 }
 
+function trimToNull(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+  return s ? s : null;
+}
+
+function extractCapturedIdentity(motor: any): CapturedIdentity {
+  return {
+    descripcion_fuente: trimToNull(motor?.title),
+    articulo_prov: trimToNull(motor?.sku),
+  };
+}
+
 async function ensureProveedor(client: PoolClient, codigo: string, nombre: string, motorId: number): Promise<number> {
   const q = async <T = any>(text: string, values?: any[]) => {
     return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rows: T[]; rowCount: number }>;
@@ -64,10 +83,20 @@ async function ensureProveedor(client: PoolClient, codigo: string, nombre: strin
       `update app.proveedor
          set nombre = $2,
              codigo = $3,
+             motor_id_default = coalesce(motor_id_default, $4),
              activo = true
        where proveedor_id = $1;`,
-      [proveedorId, nombre, codigo]
-    );
+      [proveedorId, nombre, codigo, motorId]
+    ).catch(async () => {
+      await q(
+        `update app.proveedor
+           set nombre = $2,
+               codigo = $3,
+               activo = true
+         where proveedor_id = $1;`,
+        [proveedorId, nombre, codigo]
+      );
+    });
     return proveedorId;
   }
 
@@ -82,10 +111,18 @@ async function ensureProveedor(client: PoolClient, codigo: string, nombre: strin
   if (!Number.isFinite(proveedorId) || proveedorId <= 0) {
     throw new Error(`provider_insert_failed:${codigo}`);
   }
+
+  await q(
+    `update app.proveedor
+       set motor_id_default = coalesce(motor_id_default, $2)
+     where proveedor_id = $1;`,
+    [proveedorId, motorId]
+  ).catch(() => undefined);
+
   return proveedorId;
 }
 
-async function ensureMotorProveedor(client: PoolClient, motorId: number, nombre: string): Promise<number> {
+async function ensureMotorProveedor(client: PoolClient, motorId: number, motorNombre: string): Promise<void> {
   const q = async <T = any>(text: string, values?: any[]) => {
     return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rows: T[]; rowCount: number }>;
   };
@@ -102,23 +139,51 @@ async function ensureMotorProveedor(client: PoolClient, motorId: number, nombre:
               activo = true,
               updated_at = now()
         where motor_id = $1;`,
-      [motorId, nombre]
+      [motorId, motorNombre]
     );
-    return motorId;
+    return;
   }
 
-  const inserted = await q<{ motor_id: number }>(
+  await q(
     `insert into app.motor_proveedor (motor_id, motor_nombre, motor_version, activo, created_at, updated_at)
-     values ($1, $2, '1', true, now(), now())
-     returning motor_id;`,
-    [motorId, nombre]
+     values ($1, $2, '1', true, now(), now());`,
+    [motorId, motorNombre]
   );
+}
 
-  const ensuredId = Number(inserted.rows?.[0]?.motor_id ?? 0);
-  if (!Number.isFinite(ensuredId) || ensuredId <= 0) {
-    throw new Error(`motor_insert_failed:${motorId}`);
+async function seedItemPriceToday(
+  client: PoolClient,
+  itemId: number,
+  sourceUrl: string,
+  prices: PriceRow[]
+): Promise<number> {
+  const q = async (text: string, values?: any[]) => {
+    return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rowCount: number }>;
+  };
+
+  let seeded = 0;
+  for (const p of prices) {
+    const presentacion = Number(p.presentacion);
+    const priceArs = Number(p.priceArs);
+    if (!Number.isFinite(presentacion) || presentacion <= 0) continue;
+    if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
+
+    const res = await q(
+      `insert into app.item_price_daily_pres
+         (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
+       values
+         ($1, current_date, $2, $3, $4, null)
+       on conflict (item_id, as_of_date, presentacion)
+       do update set
+         price_ars = excluded.price_ars,
+         source_url = excluded.source_url,
+         scrape_run_id = excluded.scrape_run_id;`,
+      [itemId, presentacion, priceArs, sourceUrl]
+    );
+    seeded += Number(res.rowCount ?? 0) > 0 ? 1 : 0;
   }
-  return ensuredId;
+
+  return seeded;
 }
 
 export async function POST(req: NextRequest) {
@@ -143,10 +208,6 @@ export async function POST(req: NextRequest) {
 
     await q("begin;");
 
-    const todayRes = await q<{ d: string }>(`select current_date::text as d;`);
-    const asOfDate = String(todayRes.rows?.[0]?.d ?? "").trim();
-    if (!asOfDate) throw new Error("bulk_create_missing_current_date");
-
     let items_created = 0;
     let offers_created = 0;
     let prices_seeded_today = 0;
@@ -158,6 +219,8 @@ export async function POST(req: NextRequest) {
       item_id?: number;
       offers_inserted?: number;
       prices_seeded_today?: number;
+      descripcion_fuente?: string | null;
+      articulo_prov?: string | null;
       presentaciones?: Array<{ presentacion: number; priceArs: number }>;
       error?: string;
     }> = [];
@@ -170,7 +233,8 @@ export async function POST(req: NextRequest) {
       }
 
       const proveedor_id = await ensureProveedor(client, providerSpec.codigo, providerSpec.nombre, providerSpec.motorId);
-      const motor_id = await ensureMotorProveedor(client, providerSpec.motorId, providerSpec.nombre);
+      await ensureMotorProveedor(client, providerSpec.motorId, providerSpec.nombre);
+      const motor_id = providerSpec.motorId;
 
       let motor;
       try {
@@ -182,6 +246,7 @@ export async function POST(req: NextRequest) {
 
       const sourceUrl = normalizeUrl(String((motor as any)?.sourceUrl ?? url));
       const prices = Array.isArray((motor as any)?.prices) ? (motor as any).prices : [];
+      const identity = extractCapturedIdentity(motor);
 
       if (prices.length === 0) {
         results.push({ url, proveedor: providerSpec.nombre, status: "ERROR", error: "no_prices_returned_by_motor" });
@@ -202,18 +267,21 @@ export async function POST(req: NextRequest) {
                   motor_id = $3,
                   url_original = $4,
                   url_canonica = $5,
+                  descripcion_fuente = coalesce($6, descripcion_fuente),
+                  articulo_prov = coalesce($7, articulo_prov),
+                  estado = 'OK',
                   updated_at = now()
             where item_id = $1;`,
-          [item_id, proveedor_id, motor_id, url, sourceUrl]
+          [item_id, proveedor_id, motor_id, url, sourceUrl, identity.descripcion_fuente, identity.articulo_prov]
         );
       } else {
         const insItem = await q<{ item_id: number }>(
           `insert into app.item_seguimiento
-             (proveedor_id, motor_id, url_original, url_canonica, seleccionado, estado, created_at, updated_at)
+             (proveedor_id, motor_id, url_original, url_canonica, descripcion_fuente, articulo_prov, seleccionado, estado, created_at, updated_at)
            values
-             ($1, $2, $3, $4, true, 'OK', now(), now())
+             ($1, $2, $3, $4, $5, $6, true, 'OK', now(), now())
            returning item_id;`,
-          [proveedor_id, motor_id, url, sourceUrl]
+          [proveedor_id, motor_id, url, sourceUrl, identity.descripcion_fuente, identity.articulo_prov]
         );
         item_id = Number(insItem.rows?.[0]?.item_id ?? 0);
         if (!Number.isFinite(item_id) || item_id <= 0) {
@@ -223,14 +291,11 @@ export async function POST(req: NextRequest) {
         items_created += 1;
       }
 
-      const validPrices = prices
-        .map((p: any) => ({
-          presentacion: Number(p?.presentacion),
-          priceArs: Number(p?.priceArs),
-        }))
-        .filter((p: { presentacion: number; priceArs: number }) => Number.isFinite(p.presentacion) && Number.isFinite(p.priceArs) && p.priceArs > 0);
-
       let insertedForThisUrl = 0;
+      const validPrices = prices
+        .map((p: any) => ({ presentacion: Number(p.presentacion), priceArs: Number(p.priceArs) }))
+        .filter((p) => Number.isFinite(p.presentacion) && p.presentacion > 0 && Number.isFinite(p.priceArs) && p.priceArs > 0);
+
       for (const p of validPrices) {
         const insOffer = await q(
           `insert into app.offers
@@ -243,22 +308,7 @@ export async function POST(req: NextRequest) {
         insertedForThisUrl += insOffer.rowCount ?? 0;
       }
 
-      let seededForThisUrl = 0;
-      for (const p of validPrices) {
-        await q(
-          `insert into app.item_price_daily_pres
-             (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
-           values
-             ($1, $2::date, $3, $4, $5, null)
-           on conflict (item_id, as_of_date, presentacion)
-           do update set
-             price_ars = excluded.price_ars,
-             source_url = excluded.source_url,
-             scrape_run_id = excluded.scrape_run_id;`,
-          [item_id, asOfDate, p.presentacion, p.priceArs, sourceUrl]
-        );
-        seededForThisUrl += 1;
-      }
+      const seededForThisUrl = await seedItemPriceToday(client, item_id, sourceUrl, validPrices);
 
       offers_created += insertedForThisUrl;
       prices_seeded_today += seededForThisUrl;
@@ -269,13 +319,15 @@ export async function POST(req: NextRequest) {
         item_id,
         offers_inserted: insertedForThisUrl,
         prices_seeded_today: seededForThisUrl,
-        presentaciones: validPrices.map((x: any) => ({ presentacion: Number(x.presentacion), priceArs: Number(x.priceArs) })),
+        descripcion_fuente: identity.descripcion_fuente,
+        articulo_prov: identity.articulo_prov,
+        presentaciones: validPrices,
       });
     }
 
     await q("commit;");
 
-    return NextResponse.json({ ok: true, items_created, offers_created, prices_seeded_today, as_of_date: asOfDate, results });
+    return NextResponse.json({ ok: true, items_created, offers_created, prices_seeded_today, results });
   } catch (e: any) {
     if (client) {
       try {

@@ -17,12 +17,6 @@ Rutas principales enlazadas (v2):
 
 Notas:
 
-- En `/items` y `/items/[item_id]`, los items `PROVEEDOR` no deben mostrar tokens técnicos de URL (`osCsid`, `products_id`, ids desnudos) como nombre visible.
-- Prioridad del nombre visible para `PROVEEDOR`:
-  1. `proveedor_item_nombre` (cuando `/api/items` lo informa desde `app.oferta_proveedor.descripcion`)
-  2. fallback visual limpio derivado de proveedor + SKU/URL canónica
-  3. nunca preferir `url_original` con tokens de sesión si existe `url_canonica`.
-
 - Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
 - No se expone una hoja dedicada de DB health en el menú para evitar ruido en la zona de trabajo.
 
@@ -66,3 +60,14 @@ Notas:
 
 - La pantalla de alta por URL no crea proveedores desde UI.
 - `PuraQuimica` y `EUMA` se muestran como proveedores aceptados y el backend infiere proveedor/motor por dominio de la URL.
+
+## Items PROVEEDOR — naming visible
+
+- La lista `/items` y el detalle `/items/[item_id]` priorizan `item_seguimiento.descripcion_fuente` como nombre visible del item proveedor.
+- Si no existe todavía una descripción persistida, se usa fallback `Proveedor · SKU` con `item_seguimiento.articulo_prov`.
+- La URL queda como último recurso; no debe mostrarse `products_id`, `osCsid` ni IDs desnudos como nombre principal del item.
+
+## Alta por URL — persistencia explícita de identidad
+
+- El alta por `/api/ofertas/bulk` y la carga puntual por `/api/ofertas` siembran `descripcion_fuente` y `articulo_prov` en `app.item_seguimiento`.
+- Esto aplica a ambos proveedores aceptados (`PuraQuimica`, `EUMA`) y evita depender del cron o de `oferta_proveedor` para mostrar un nombre útil inmediatamente después del alta.

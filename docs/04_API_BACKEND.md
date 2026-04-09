@@ -136,14 +136,14 @@ GET:
 - **Archivo:** `src/app/api/items/route.ts`
 - **Métodos:** GET
 - **Query params:** `estado`, `limit`, `offset`, `search`, `seleccionado`, `tipo`
-- **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
+- **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `oferta_proveedor`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
 - **Response keys (heurístico):** `count`, `error`, `ok`
 
 **Docstring / comentario:**
 
 ```
 Unificación de Items:
-- PROVEEDOR: app.item_seguimiento
+- PROVEEDOR: app.item_seguimiento (+ `descripcion_fuente` / `articulo_prov`; fallback a `oferta_proveedor.descripcion` si existe)
 - FORMULADO (virtual): producto con fórmula v2 (por header o por líneas)
 - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
 item_key:
@@ -231,7 +231,7 @@ configuración por hostname de la URL.
 - **Archivo:** `src/app/api/ofertas/route.ts`
 - **Métodos:** GET, POST
 - **Query params:** `item_id`
-- **Tablas (referencias):** `motor_proveedor`, `offers`, `proveedor`
+- **Tablas (referencias):** `item_price_daily_pres`, `item_seguimiento`, `motor_proveedor`, `offers`, `proveedor`
 - **Response keys (heurístico):** `count`, `error`, `inserted_created`, `inserted_updated`, `lido`, `motor_id`, `offers`, `ok`, `prices_len`, `proveedor_codigo`, `proveedor_id`, `url_canonica`
 
 ### `/api/ofertas/bulk`
@@ -239,16 +239,16 @@ configuración por hostname de la URL.
 - **Métodos:** POST
 - **Query params:** (ninguno detectado)
 - **Tablas (referencias):** `item_price_daily_pres`, `item_seguimiento`, `motor_proveedor`, `offers`, `proveedor`
-- **Response keys (heurístico):** `as_of_date`, `code`, `debug`, `detail`, `error`, `hint`, `inactivo`, `inexistente`, `items_created`, `offers_created`, `ok`, `pg`, `prices_seeded_today`, `proveedor_nombre`, `results`, `where`
+- **Response keys (heurístico):** `code`, `debug`, `detail`, `error`, `hint`, `inactivo`, `inexistente`, `ok`, `pg`, `proveedor_nombre`, `where`
 
 **Docstring / comentario:**
 
 ```
-Crea / asegura:
- - 1 fila en app.motor_proveedor para el `motor_id` inferido por URL (si faltaba)
- - 1 fila en app.item_seguimiento por URL canónica (si no existe)
+Crea:
+ - 1 fila en app.item_seguimiento por URL (si no existe)
+ - persiste `descripcion_fuente` / `articulo_prov` capturados por el motor en `item_seguimiento`
  - N filas en app.offers (una por presentación encontrada por el motor)
- - N filas/upserts en app.item_price_daily_pres para `current_date` con el precio observado al alta
+ - siembra `item_price_daily_pres` para `current_date` con los precios detectados al alta
 ```
 
 ### `/api/ofertas/bulk/preview`

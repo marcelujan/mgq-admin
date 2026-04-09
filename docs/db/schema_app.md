@@ -290,6 +290,8 @@ Snapshot generado desde `schema_v2.sql` (pg_dump schema-only).
 - `motor_id` — bigint NOT NULL
 - `url_original` — text NOT NULL
 - `url_canonica` — text NOT NULL
+- `descripcion_fuente` — text
+- `articulo_prov` — text
 - `seleccionado` — boolean DEFAULT false NOT NULL
 - `estado` — app.item_estado DEFAULT 'PENDING_SCRAPE'::app.item_estado NOT NULL
 - `ultimo_intento_scrape` — timestamp with time zone

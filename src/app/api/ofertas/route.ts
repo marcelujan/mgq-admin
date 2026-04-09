@@ -21,14 +21,18 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
+function trimToNull(v: unknown): string | null {
+  const s = typeof v === "string" ? v.trim() : String(v ?? "").trim();
+  return s ? s : null;
+}
+
 async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
   let prov: any = null;
 
-  // intento A: proveedor.motor_id_default (si existe)
   try {
     const a: any = await sql.query(
       `
-      SELECT proveedor_id, motor_id_default
+      SELECT proveedor_id, motor_id_default, nombre
       FROM app.proveedor
       WHERE codigo = $1
       LIMIT 1
@@ -41,17 +45,16 @@ async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
     prov = null;
   }
 
-  // intento B: fallback desde motor_proveedor
   if (!prov || !prov.motor_id_default) {
     const b: any = await sql.query(
       `
       SELECT p.proveedor_id,
+             p.nombre,
              mp.motor_id AS motor_id_default
       FROM app.proveedor p
       LEFT JOIN LATERAL (
         SELECT motor_id
         FROM app.motor_proveedor
-        WHERE proveedor_id = p.proveedor_id
         ORDER BY motor_id ASC
         LIMIT 1
       ) mp ON true
@@ -67,7 +70,23 @@ async function resolveProveedorAndMotor(sql: any, proveedorCodigo: string) {
   return {
     proveedor_id: prov?.proveedor_id ?? null,
     motor_id: prov?.motor_id_default ?? null,
+    proveedor_nombre: prov?.nombre ?? proveedorCodigo,
   };
+}
+
+async function ensureMotorProveedor(sql: any, motor_id: number, motor_nombre: string) {
+  await sql.query(
+    `
+    insert into app.motor_proveedor (motor_id, motor_nombre, motor_version, activo, created_at, updated_at)
+    values ($1, $2, '1', true, now(), now())
+    on conflict (motor_id)
+    do update set
+      motor_nombre = excluded.motor_nombre,
+      activo = true,
+      updated_at = now()
+    `,
+    [motor_id, motor_nombre]
+  );
 }
 
 async function upsertOffer(sql: any, args: {
@@ -78,7 +97,6 @@ async function upsertOffer(sql: any, args: {
   url_canonica: string;
   presentacion: number;
 }) {
-  // dedupe (sin asumir unique index)
   const dup: any = await sql.query(
     `
     SELECT offer_id
@@ -129,7 +147,58 @@ async function upsertOffer(sql: any, args: {
   return { offer_id: insRows?.[0]?.offer_id ?? null, created: true };
 }
 
-// GET /api/ofertas?item_id=5
+async function updateItemSeguimientoIdentity(sql: any, args: {
+  item_id: number;
+  proveedor_id: number | string;
+  motor_id: number | string;
+  url_original: string;
+  url_canonica: string;
+  descripcion_fuente: string | null;
+  articulo_prov: string | null;
+}) {
+  await sql.query(
+    `
+    UPDATE app.item_seguimiento
+    SET
+      proveedor_id = $2,
+      motor_id = $3,
+      url_original = $4,
+      url_canonica = $5,
+      descripcion_fuente = coalesce($6, descripcion_fuente),
+      articulo_prov = coalesce($7, articulo_prov),
+      estado = 'OK',
+      updated_at = now()
+    WHERE item_id = $1
+    `,
+    [
+      args.item_id,
+      args.proveedor_id,
+      args.motor_id,
+      args.url_original,
+      args.url_canonica,
+      args.descripcion_fuente,
+      args.articulo_prov,
+    ]
+  );
+}
+
+async function seedItemPriceToday(sql: any, item_id: number, source_url: string, presentacion: number, price_ars: number) {
+  await sql.query(
+    `
+    insert into app.item_price_daily_pres
+      (item_id, as_of_date, presentacion, price_ars, source_url, scrape_run_id)
+    values
+      ($1, current_date, $2, $3, $4, null)
+    on conflict (item_id, as_of_date, presentacion)
+    do update set
+      price_ars = excluded.price_ars,
+      source_url = excluded.source_url,
+      scrape_run_id = excluded.scrape_run_id
+    `,
+    [item_id, presentacion, price_ars, source_url]
+  );
+}
+
 export async function GET(req: NextRequest) {
   try {
     const sql = db();
@@ -168,9 +237,6 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/ofertas
-// body: { item_id, proveedor_codigo, url }
-// Inserta TODAS las presentaciones reales encontradas por motor.
 export async function POST(req: NextRequest) {
   try {
     const sql = db();
@@ -193,7 +259,7 @@ export async function POST(req: NextRequest) {
     const urlCanonica = canonicalizeUrl(urlRaw);
     if (!urlCanonica) return NextResponse.json({ ok: false, error: "URL inválida" }, { status: 400 });
 
-    const { proveedor_id, motor_id } = await resolveProveedorAndMotor(sql, proveedorCodigo);
+    const { proveedor_id, motor_id, proveedor_nombre } = await resolveProveedorAndMotor(sql, proveedorCodigo);
     if (!proveedor_id) {
       return NextResponse.json({ ok: false, error: `proveedor inválido: ${proveedorCodigo}` }, { status: 400 });
     }
@@ -204,9 +270,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await ensureMotorProveedor(sql, Number(motor_id), String(proveedor_nombre ?? proveedorCodigo));
+
     const r = await runMotorForPricesByPresentacion(BigInt(motor_id), urlCanonica);
     const sourceUrl = String((r as any)?.sourceUrl ?? urlCanonica);
     const prices = Array.isArray((r as any)?.prices) ? (r as any).prices : [];
+    const descripcion_fuente = trimToNull((r as any)?.title);
+    const articulo_prov = trimToNull((r as any)?.sku);
 
     if (!prices.length) {
       return NextResponse.json(
@@ -215,15 +285,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await updateItemSeguimientoIdentity(sql, {
+      item_id,
+      proveedor_id,
+      motor_id,
+      url_original: urlRaw,
+      url_canonica: sourceUrl,
+      descripcion_fuente,
+      articulo_prov,
+    });
+
     let created = 0;
     let updated = 0;
+    let prices_seeded_today = 0;
     const offer_ids: string[] = [];
 
     for (const p of prices) {
       const pres = Number(p?.presentacion);
       const priceArs = Number(p?.priceArs);
 
-      // guardamos solo presentaciones válidas con precio válido
       if (!Number.isFinite(pres) || pres <= 0) continue;
       if (!Number.isFinite(priceArs) || priceArs <= 0) continue;
 
@@ -232,9 +312,12 @@ export async function POST(req: NextRequest) {
         proveedor_id,
         motor_id,
         url_original: urlRaw,
-        url_canonica: urlCanonica,
+        url_canonica: sourceUrl,
         presentacion: pres,
       });
+
+      await seedItemPriceToday(sql, item_id, sourceUrl, pres, priceArs);
+      prices_seeded_today += 1;
 
       if (u.offer_id) offer_ids.push(String(u.offer_id));
       if (u.created) created++;
@@ -255,10 +338,13 @@ export async function POST(req: NextRequest) {
         proveedor_codigo: proveedorCodigo,
         proveedor_id: String(proveedor_id),
         motor_id: String(motor_id),
-        url_canonica: urlCanonica,
+        url_canonica: sourceUrl,
         sourceUrl,
+        descripcion_fuente,
+        articulo_prov,
         inserted_created: created,
         inserted_updated: updated,
+        prices_seeded_today,
         offer_ids,
       },
       { status: 201 }

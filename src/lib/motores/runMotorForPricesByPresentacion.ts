@@ -3,7 +3,13 @@ import { APP_TZ_FX } from "@/lib/fx-bna";
 import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
-export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
+export type RunMotorForPricesResult = {
+  sourceUrl: string;
+  prices: PriceByPresentacion[];
+  title?: string | null;
+  sku?: string | null;
+  warnings?: string[];
+};
 
 function decodeHtmlEntities(s: string): string {
   return String(s)
@@ -14,6 +20,19 @@ function decodeHtmlEntities(s: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
+}
+
+function parseTitleFromHtml(html: string): string | null {
+  const m = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  if (!m) return null;
+  const title = decodeHtmlEntities(m[1]).replace(/\s+/g, " ").trim();
+  return title || null;
+}
+
+function parseSkuFromHtml(html: string): string | null {
+  const m = html.match(/SKU:\s*([A-Z0-9_-]+)/i);
+  const sku = m ? m[1].trim() : "";
+  return sku || null;
 }
 
 /**
@@ -32,16 +51,13 @@ function parseArsNumber(raw: string): number | null {
   let normalized = cleaned;
 
   if (lastComma !== -1 && lastDot !== -1) {
-    // tomar el último separador como decimal
     const decPos = Math.max(lastComma, lastDot);
     const intPart = cleaned.slice(0, decPos).replace(/[.,]/g, "");
     const decPart = cleaned.slice(decPos + 1).replace(/[.,]/g, "");
     normalized = `${intPart}.${decPart}`;
   } else if (lastComma !== -1) {
-    // solo coma => coma decimal
     normalized = cleaned.replace(/\./g, "").replace(",", ".");
   } else {
-    // solo punto o ninguno
     normalized = cleaned.replace(/,/g, "");
   }
 
@@ -61,17 +77,13 @@ function parsePresentacion(raw: any): number | null {
   let s = String(raw).trim();
   if (!s) return null;
 
-  // coma decimal -> punto
   s = s.replace(",", ".");
 
-  // Caso slug WooCommerce: "0-2500" / "0_2500"
-  // si matchea dígitos + separador + dígitos, convertimos separador a punto
   const m = s.match(/^(\d+)[-_](\d+)$/);
   if (m) {
     s = `${m[1]}.${m[2]}`;
   }
 
-  // limpiar a dígitos y punto (por si viene con texto)
   s = s.replace(/[^\d.]/g, "");
   if (!s) return null;
 
@@ -104,7 +116,6 @@ function parsePrecioArsByPresentacionFromHtml(
     byPres.set(presNum, { precio_ars: Number(priceNum), source });
   };
 
-  // 1) WooCommerce: data-product_variations="[...]"
   const attrRe = /data-product_variations\s*=\s*(?:"([^"]+)"|'([^']+)')/i;
   const mAttr = html.match(attrRe);
   if (mAttr) {
@@ -133,7 +144,6 @@ function parsePrecioArsByPresentacionFromHtml(
     }
   }
 
-  // 2) Fallback: JS inline "product_variations = [...]"
   if (byPres.size === 0) {
     const jsRe = /product_variations\s*=\s*(\[[\s\S]*?\])\s*;?/i;
     const mJs = html.match(jsRe);
@@ -164,7 +174,6 @@ function parsePrecioArsByPresentacionFromHtml(
 
   return byPres;
 }
-
 
 async function getFxToday(): Promise<number | null> {
   const sql = db();
@@ -208,7 +217,7 @@ export async function runMotorForPricesByPresentacion(
   motorId: bigint,
   url: string,
   opts?: { timeoutMs?: number }
-): Promise<RunMotorForPricesResult & { title?: string | null; sku?: string | null; warnings?: string[] }> {
+): Promise<RunMotorForPricesResult> {
   const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
 
   if (motorId === BigInt(1)) {
@@ -228,27 +237,33 @@ export async function runMotorForPricesByPresentacion(
 
     if (prices.length === 0) throw new Error("prices_by_presentacion_empty");
 
-    return { sourceUrl: url, prices };
+    const title = parseTitleFromHtml(html);
+    const sku = parseSkuFromHtml(html);
+    const warnings: string[] = [];
+    if (!title) warnings.push("pura_title_not_found");
+    if (!sku) warnings.push("pura_sku_not_found");
+
+    return { sourceUrl: url, title, sku, warnings, prices };
   }
 
   if (motorId === BigInt(2)) {
     const { url: canonicalUrl, html } = await fetchEumaHtml(url, timeoutMs);
     const parsed = parseEumaProductHtml(html, canonicalUrl);
     const fx = await getFxToday();
-    if (!fx) throw new Error('fx_today_not_found');
-    if (!parsed.usdPrice || parsed.usdPrice <= 0) throw new Error('euma_usd_price_not_found');
-    if (!parsed.presentationMl || parsed.presentationMl <= 0) throw new Error('euma_presentation_ml_not_found');
+    if (!fx) throw new Error("fx_today_not_found");
+    if (!parsed.usdPrice || parsed.usdPrice <= 0) throw new Error("euma_usd_price_not_found");
+    if (!parsed.presentationMl || parsed.presentationMl <= 0) throw new Error("euma_presentation_ml_not_found");
     const ars = Number((parsed.usdPrice * fx).toFixed(2));
     return {
       sourceUrl: canonicalUrl,
       title: parsed.title,
       sku: parsed.productId || null,
-      warnings: parsed.description ? [] : ['euma_description_not_found'],
+      warnings: parsed.description ? [] : ["euma_description_not_found"],
       prices: [
         {
           presentacion: parsed.presentationMl,
           priceArs: ars,
-          source: 'euma:usd*fx_today',
+          source: "euma:usd*fx_today",
         },
       ],
     };

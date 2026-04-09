@@ -92,6 +92,21 @@ Regla crítica:
 - No se aproxima automáticamente (p. ej. 50 → 100).
 - La presentación es exacta y forma parte de la identidad comercial de la oferta.
 
+## 3.2 Identidad visible del item proveedor
+
+`item_seguimiento` es la entidad canónica del **item proveedor rastreable**.
+
+Además de la identidad técnica (`proveedor_id`, `motor_id`, `url_original`, `url_canonica`), puede persistir identidad visible capturada por el motor:
+
+- `descripcion_fuente`: nombre/título capturado del producto fuente
+- `articulo_prov`: código/SKU/prod_id del proveedor
+
+### Regla operativa
+
+- Estos campos se pueden sembrar en la etapa de **alta por URL**.
+- No reemplazan la semántica de `oferta_proveedor.descripcion`; solo evitan que la UI derive nombres desde la URL antes de que exista una oferta aprobada.
+- Su granularidad es por **item proveedor** (no por presentación).
+
 ---
 
 ## 4. Pricing diario (PROVEEDOR)
@@ -210,6 +225,7 @@ Siempre será 0 o 1.
 6. Estado operacional diario refleja ejecución real de los procesos automáticos.
 7. FORMULADO solo es “OK” si es técnicamente reutilizable y está costeadо hoy.
 8. MANUAL solo es “OK” si tiene snapshot válido hoy.
+9. El nombre visible de un item proveedor recién creado puede persistirse en `item_seguimiento` sin adelantar la etapa de `oferta_proveedor`.
 
 ---
 

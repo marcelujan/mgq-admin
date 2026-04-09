@@ -62,19 +62,6 @@ function parseItemKey(raw: string): ParsedKey | null {
   return null;
 }
 
-function extractSkuFromUrl(urlStr: string): string | null {
-  try {
-    const u = new URL(urlStr);
-    const fromPath = u.pathname.match(/(?:^|\/)products_id\/(\d+)(?:\/|$)/i)?.[1] ?? null;
-    if (fromPath) return fromPath;
-    const fromQuery = u.searchParams.get("products_id");
-    if (fromQuery && /^\d+$/.test(fromQuery)) return fromQuery;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 function titleFromUrl(urlStr: string): string | null {
   try {
     const u = new URL(urlStr);
@@ -89,25 +76,29 @@ function titleFromUrl(urlStr: string): string | null {
       .trim();
 
     if (!cleaned) return null;
+    if (/^products?_?id$/i.test(cleaned)) return null;
     if (/^\d+$/.test(cleaned)) return null;
-    if (/^(product_info|products_id|catalog|oscsid)$/i.test(cleaned)) return null;
+    if (/^oscsid$/i.test(cleaned)) return null;
     return cleaned || null;
   } catch {
     return null;
   }
 }
 
-function buildProveedorFallbackTitle(proveedorNombre: string | null, canonicalUrl: string | null, originalUrl: string | null): string | null {
-  const preferredUrl = canonicalUrl || originalUrl || null;
-  const byUrl = preferredUrl ? titleFromUrl(preferredUrl) : null;
-  if (byUrl) return byUrl;
-
-  const sku = extractSkuFromUrl(canonicalUrl || originalUrl || "");
-  const prov = String(proveedorNombre ?? "").trim();
-  if (prov && sku) return `${prov} · SKU ${sku}`;
-  if (prov) return prov;
-  if (sku) return `SKU ${sku}`;
-  return null;
+function providerFallbackTitle(providerName: string | null, providerCode: string | null, canonicalUrl: string | null, originalUrl: string | null, itemId: number): string {
+  const name = String(providerName ?? "").trim();
+  const code = String(providerCode ?? "").trim();
+  if (name && code) return `${name} · SKU ${code}`;
+  if (canonicalUrl) {
+    const t = titleFromUrl(canonicalUrl);
+    if (t) return t;
+  }
+  if (originalUrl) {
+    const t = titleFromUrl(originalUrl);
+    if (t) return t;
+  }
+  if (name) return name;
+  return `Item ${itemId}`;
 }
 
 export default async function ItemPage({ params }: { params: ItemParams | Promise<ItemParams> }) {
@@ -131,40 +122,47 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
   if (parsed.kind === "PROVEEDOR") {
     let productTitle = `Item ${parsed.id}`;
     let itemUrl: string | null = null;
+    let providerCode: string | null = null;
 
     try {
       const res: any = await sql.query(
-        `select
-            i.url_original,
-            i.url_canonica,
-            pr.nombre as proveedor_nombre,
-            (
-              select op.descripcion
-              from app.oferta_proveedor op
-              where op.item_id = i.item_id
-                and coalesce(btrim(op.descripcion), '') <> ''
-              order by coalesce(op.updated_at, op.created_at) desc, op.oferta_id desc
-              limit 1
-            ) as descripcion
-         from app.item_seguimiento i
-         left join app.proveedor pr on pr.proveedor_id = i.proveedor_id
-         where i.item_id = $1
-         limit 1;`,
+        `
+        select
+          i.url_original,
+          i.url_canonica,
+          i.descripcion_fuente,
+          i.articulo_prov,
+          p.nombre as proveedor_nombre,
+          op.descripcion as oferta_descripcion
+        from app.item_seguimiento i
+        left join app.proveedor p on p.proveedor_id = i.proveedor_id
+        left join lateral (
+          select descripcion
+          from app.oferta_proveedor op
+          where op.item_id = i.item_id
+            and coalesce(trim(op.descripcion), '') <> ''
+          order by op.updated_at desc nulls last, op.oferta_id desc
+          limit 1
+        ) op on true
+        where i.item_id = $1
+        limit 1;
+        `,
         [parsed.id]
       );
       const row = normalizeQueryResult(res)[0] ?? null;
+      itemUrl = (row?.url_canonica || row?.url_original || null) as string | null;
+      providerCode = (row?.articulo_prov || null) as string | null;
+
+      const descripcionFuente = String(row?.descripcion_fuente ?? "").trim();
+      const ofertaDescripcion = String(row?.oferta_descripcion ?? "").trim();
+      const proveedorNombre = String(row?.proveedor_nombre ?? "").trim() || null;
       const urlOriginal = (row?.url_original || null) as string | null;
       const urlCanonica = (row?.url_canonica || null) as string | null;
-      const proveedorNombre = (row?.proveedor_nombre || null) as string | null;
-      const descripcion = String(row?.descripcion ?? "").trim();
-      itemUrl = (urlCanonica || urlOriginal || null) as string | null;
 
-      if (descripcion) {
-        productTitle = descripcion;
-      } else {
-        const t = buildProveedorFallbackTitle(proveedorNombre, urlCanonica, urlOriginal);
-        if (t) productTitle = t;
-      }
+      productTitle =
+        descripcionFuente ||
+        ofertaDescripcion ||
+        providerFallbackTitle(proveedorNombre, providerCode, urlCanonica, urlOriginal, parsed.id);
     } catch {}
 
     return (
@@ -173,6 +171,12 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{productTitle}</h1>
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             item_key=<code>{parsed.item_key}</code> · item_id=<code>{parsed.id}</code>
+            {providerCode ? (
+              <>
+                {" · "}
+                SKU=<code>{providerCode}</code>
+              </>
+            ) : null}
             {itemUrl ? (
               <>
                 {" · "}
@@ -212,7 +216,6 @@ export default async function ItemPage({ params }: { params: ItemParams | Promis
     );
   }
 
-  // MANUAL_COST_OPTION
   {
     let titulo = `Manual · opt ${parsed.cost_option_id}`;
     let detalle = "";
