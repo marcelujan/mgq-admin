@@ -15,6 +15,12 @@ Rutas principales enlazadas (v2):
 - `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
 - `/jobs` (Jobs manual)
 
+## Inicio (`/`)
+
+- La hoja de inicio mantiene enlaces simples a las rutas principales.
+- Se agrega un reloj internacional pequeño en la esquina superior derecha del contenido.
+- El reloj muestra **fecha + hora UTC** y es solo informativo; no altera la fecha operacional local de la app.
+
 Notas:
 
 - Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
@@ -60,24 +66,3 @@ Notas:
 
 - La pantalla de alta por URL no crea proveedores desde UI.
 - `PuraQuimica` y `EUMA` se muestran como proveedores aceptados y el backend infiere proveedor/motor por dominio de la URL.
-
-## Items PROVEEDOR — naming visible
-
-- La lista `/items` y el detalle `/items/[item_id]` priorizan `item_seguimiento.descripcion_fuente` como nombre visible del item proveedor.
-- Si no existe todavía una descripción persistida, se usa fallback `Proveedor · SKU` con `item_seguimiento.articulo_prov`.
-- La URL queda como último recurso; no debe mostrarse `products_id`, `osCsid` ni IDs desnudos como nombre principal del item.
-
-## Alta por URL — persistencia explícita de identidad
-
-- El alta por `/api/ofertas/bulk` y la carga puntual por `/api/ofertas` siembran `descripcion_fuente` y `articulo_prov` en `app.item_seguimiento`.
-- Esto aplica a ambos proveedores aceptados (`PuraQuimica`, `EUMA`) y evita depender del cron o de `oferta_proveedor` para mostrar un nombre útil inmediatamente después del alta.
-
-## Items Manuales — eliminación
-
-- `/items-manuales` habilita eliminación definitiva del `cost_option` tipo `MANUAL_PRESENTACION`.
-- La edición `/items-manuales/[cost_option_id]` también expone acción **Eliminar**.
-- Si el manual sigue usado por alguna línea en `producto_formula_linea_v2`, la UI muestra error y no ejecuta borrado destructivo.
-- `/items` mantiene comportamiento consistente: el icono 🗑️ también queda habilitado para filas `MANUAL`.
-
-
-- Borrado manual: la UI de manuales (`/items-manuales`, `/items-manuales/[cost_option_id]`) y las filas `MANUAL` en `/items` usan el endpoint dedicado `/api/cost-options/[cost_option_id]` para eliminación, evitando depender del item_key unificado `mopt:` para ese caso.

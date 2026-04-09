@@ -1,6 +1,5 @@
 ## Unreleased
-- Fix Items Manuales: la eliminación usa el endpoint dedicado `DELETE /api/cost-options/[cost_option_id]`; la UI deja de depender del path unificado `mopt:` para borrar manuales.
-- UI/API: se habilita eliminación definitiva de Items Manuales (`mopt:<cost_option_id>`) con guardrail `manual_item_in_use` si el manual sigue referenciado por fórmulas v2.
+- UI: hoja de inicio (`/`) agrega reloj pequeño de fecha/hora internacional en UTC.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
@@ -98,11 +97,3 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Fix FX/EUMA: `app.fx` pasa a resolverse por fecha local `America/Argentina/Cordoba` en vez de `current_date` UTC puro.
 - Fix FX/EUMA: flujos USD usan fallback a la última cotización disponible `<= fecha local`.
 - Fix proveedor EUMA: ya no se escribe `proveedor.motor_id_default = 2` en `app.proveedor`; la asociación al motor 2 queda inferida por URL en el flujo bulk/preview.
-
-## 2026-04-09
-
-- Se incorpora persistencia explícita de identidad visible del item proveedor en `app.item_seguimiento` (`descripcion_fuente`, `articulo_prov`).
-- `/api/ofertas/bulk` y `/api/ofertas` ahora siembran esos campos al crear/actualizar items proveedor y además siembran `item_price_daily_pres` del día.
-- `runMotorForPricesByPresentacion` expone `title` y `sku` para `PuraQuimica` y `EUMA`, unificando el contrato de preview/create entre ambos proveedores.
-- La UI de `/items` y `/items/[item_id]` deja de derivar nombres proveedor desde URLs opacas cuando existe identidad persistida; usa fallback `Proveedor · SKU` antes que mostrar IDs o `osCsid`.
-- Se agrega script SQL idempotente `db/patches/2026-04-09_item_seguimiento_provider_identity.sql` con backfill desde `oferta_proveedor`.
