@@ -67,6 +67,7 @@ function requestText(url: string, timeoutMs: number): Promise<string> {
       {
         method: 'GET',
         family: 4,
+        rejectUnauthorized: false,
         headers: {
           'user-agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
