@@ -18,6 +18,10 @@ Scrapear precios desde proveedores (por oferta) y persistir el precio diario por
 - `app.pricing_daily_run_items` (1 por offer, estado PENDING/OK/FAIL, attempts, last_error).
 - `app.item_price_daily_pres` (upsert por `(item_id, as_of_date, presentacion)`).
 
+### Relación con el alta manual de Items Proveedor
+- `/api/ofertas/bulk` también puede sembrar `app.item_price_daily_pres` para `current_date` al momento del alta.
+- `pricing-daily` conserva la misma clave natural y hace `upsert`, por lo que normaliza/sobrescribe esa fila sin romper idempotencia.
+
 ### Estados
 - `pricing_daily_run_items.status`: PENDING | OK | FAIL
 - `pricing_daily_runs.status`: RUNNING | DONE | PARTIAL

@@ -77,6 +77,9 @@ Es la representación técnica del producto:
 Regla crítica:
 `presentacion` debe existir en el proveedor.
 
+Invariante operativa adicional:
+El alta por `/api/ofertas/bulk` debe dejar sembrado el precio observado de HOY en `app.item_price_daily_pres` para que el item proveedor tenga histórico/valor inmediato sin esperar al próximo `pricing-daily`. El cron diario mantiene la misma clave natural y hace `upsert` sobre esa fila.
+
 ---
 
 # 5. Pricing Diario

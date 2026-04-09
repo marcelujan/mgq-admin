@@ -105,7 +105,7 @@ GET:
 - **Métodos:** GET, POST
 - **Query params:** `activo`, `limit`, `offset`, `search`, `tipo_uom`
 - **Tablas (referencias):** `insumo`
-- **Response keys (heurístico):** `count`, `error`, `items`, `ok`, `total`
+- **Response keys (heurístico):** `count`, `error`, `ok`
 
 ### `/api/insumos/[insumo_id]`
 - **Archivo:** `src/app/api/insumos/[insumo_id]/route.ts`
@@ -137,8 +137,7 @@ GET:
 - **Métodos:** GET
 - **Query params:** `estado`, `limit`, `offset`, `search`, `seleccionado`, `tipo`
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
-- **Response keys (heurístico):** `count`, `error`, `items`, `ok`, `total`
-- Para filas `PROVEEDOR`, la API puede devolver `proveedor_item_nombre` cuando existe una `descripcion` persistida en `app.oferta_proveedor`. Si no existe todavía, el frontend debe caer a un nombre visual derivado de proveedor + SKU/URL sin mutar dominio ni tablas.
+- **Response keys (heurístico):** `count`, `error`, `ok`
 
 **Docstring / comentario:**
 
@@ -239,15 +238,17 @@ configuración por hostname de la URL.
 - **Archivo:** `src/app/api/ofertas/bulk/route.ts`
 - **Métodos:** POST
 - **Query params:** (ninguno detectado)
-- **Tablas (referencias):** `item_seguimiento`, `offers`, `proveedor`
-- **Response keys (heurístico):** `code`, `debug`, `detail`, `error`, `hint`, `inactivo`, `inexistente`, `ok`, `pg`, `proveedor_nombre`, `where`
+- **Tablas (referencias):** `item_price_daily_pres`, `item_seguimiento`, `motor_proveedor`, `offers`, `proveedor`
+- **Response keys (heurístico):** `as_of_date`, `code`, `debug`, `detail`, `error`, `hint`, `inactivo`, `inexistente`, `items_created`, `offers_created`, `ok`, `pg`, `prices_seeded_today`, `proveedor_nombre`, `results`, `where`
 
 **Docstring / comentario:**
 
 ```
-Crea:
- - 1 fila en app.item_seguimiento por URL (si no existe)
+Crea / asegura:
+ - 1 fila en app.motor_proveedor para el `motor_id` inferido por URL (si faltaba)
+ - 1 fila en app.item_seguimiento por URL canónica (si no existe)
  - N filas en app.offers (una por presentación encontrada por el motor)
+ - N filas/upserts en app.item_price_daily_pres para `current_date` con el precio observado al alta
 ```
 
 ### `/api/ofertas/bulk/preview`

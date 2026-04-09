@@ -129,7 +129,7 @@ export default function ItemsNewClient(props: ItemsNewClientProps) {
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setCommitOkMsg(`OK. items_creados=${data.items_created ?? "?"}, offers_creadas=${data.offers_created ?? "?"}`);
+      setCommitOkMsg(`OK. items_creados=${data.items_created ?? "?"}, offers_creadas=${data.offers_created ?? "?"}, precios_hoy=${data.prices_seeded_today ?? "?"}, fecha=${data.as_of_date ?? "?"}`);
     } catch (e: any) {
       setCommitErr(e?.message || "Error creando items/offers");
     } finally {
