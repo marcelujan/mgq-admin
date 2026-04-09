@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { APP_TZ_FX } from "@/lib/fx-bna";
 import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };

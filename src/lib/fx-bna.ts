@@ -20,7 +20,7 @@ export const FX_SOURCE_MANUAL = "MANUAL";
 export const APP_TZ_FX = "America/Argentina/Cordoba";
 
 async function getFxAppDatePg(client: { query: (sql: string, params?: any[]) => Promise<any> }): Promise<string> {
-  const q = await client.query(`select ((now() at time zone 'America/Argentina/Cordoba')::date)::text as d`);
+  const q = await client.query(`select ((now() at time zone $1)::date)::text as d`, [APP_TZ_FX]);
   return String(q?.rows?.[0]?.d ?? "");
 }
 

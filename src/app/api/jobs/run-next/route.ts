@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { APP_TZ_FX } from "@/lib/fx-bna";
 import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
-const APP_TZ_FX = 'America/Argentina/Cordoba';
 
 type JobRow = {
   job_id: string | number | bigint;
