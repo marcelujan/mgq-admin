@@ -1,4 +1,5 @@
 ## Unreleased
+- Fix items proveedor EUMA: `POST /api/ofertas/bulk` asegura el motor built-in en `app.motor_proveedor` antes de insertar/actualizar `app.item_seguimiento`, evitando el FK `item_seguimiento_motor_id_fkey`.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.

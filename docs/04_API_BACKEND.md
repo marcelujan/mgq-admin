@@ -508,5 +508,5 @@ Notas:
 
 - `app.fx` se considera por fecha de aplicación local `America/Argentina/Cordoba`, no por `current_date` UTC puro.
 - Los flujos USD (`motor 2 / EUMA` y `jobs/run-next`) resuelven FX con fallback a la última cotización disponible con `fecha <= fecha local de aplicación`.
-- La TZ de aplicación para FX debe centralizarse en `src/lib/fx-bna.ts` (`APP_TZ_FX`) y reutilizarse en consumidores para evitar hardcodes divergentes.
 - El proveedor `EUMA` se asegura por código, pero no escribe `proveedor.motor_id_default=2` mientras la FK a `app.motor` no garantice la existencia del motor 2. El flujo bulk/preview infiere `motor_id=2` por URL.
+- `POST /api/ofertas/bulk` asegura de forma idempotente la fila faltante en `app.motor_proveedor` para motores built-in antes de escribir `app.item_seguimiento.motor_id`; esto evita el FK `item_seguimiento_motor_id_fkey` al crear items proveedor EUMA y deja consistente el posterior `job_result.motor_id`.

@@ -48,7 +48,43 @@ function splitAndCleanUrls(urls: BulkBody["urls"]): string[] {
   return [];
 }
 
-async function ensureProveedor(client: PoolClient, codigo: string, nombre: string, motorId: number): Promise<number> {
+async function ensureMotorProveedor(client: PoolClient, motorId: number, motorNombre: string): Promise<number> {
+  const q = async <T = any>(text: string, values?: any[]) => {
+    return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rows: T[]; rowCount: number }>;
+  };
+
+  const found = await q<{ motor_id: number }>(
+    `select motor_id from app.motor_proveedor where motor_id = $1 limit 1;`,
+    [motorId]
+  );
+
+  if (found.rows?.length) {
+    await q(
+      `update app.motor_proveedor
+          set motor_nombre = coalesce(nullif($2, ''), motor_nombre),
+              activo = true,
+              updated_at = now()
+        where motor_id = $1;`,
+      [motorId, motorNombre]
+    );
+    return motorId;
+  }
+
+  const inserted = await q<{ motor_id: number }>(
+    `insert into app.motor_proveedor (motor_id, motor_nombre, motor_version, activo, created_at, updated_at)
+     values ($1, $2, '1', true, now(), now())
+     returning motor_id;`,
+    [motorId, motorNombre]
+  );
+
+  const ensuredMotorId = Number(inserted.rows?.[0]?.motor_id ?? 0);
+  if (!Number.isFinite(ensuredMotorId) || ensuredMotorId <= 0) {
+    throw new Error(`motor_insert_failed:${motorId}`);
+  }
+  return ensuredMotorId;
+}
+
+async function ensureProveedor(client: PoolClient, codigo: string, nombre: string): Promise<number> {
   const q = async <T = any>(text: string, values?: any[]) => {
     return (client as any).query({ text, values, queryMode: "simple" }) as Promise<{ rows: T[]; rowCount: number }>;
   };
@@ -127,8 +163,8 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const proveedor_id = await ensureProveedor(client, providerSpec.codigo, providerSpec.nombre, providerSpec.motorId);
-      const motor_id = providerSpec.motorId;
+      const motor_id = await ensureMotorProveedor(client, providerSpec.motorId, providerSpec.nombre);
+      const proveedor_id = await ensureProveedor(client, providerSpec.codigo, providerSpec.nombre);
 
       let motor;
       try {
