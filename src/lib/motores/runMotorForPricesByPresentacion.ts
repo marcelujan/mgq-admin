@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { buildEumaCandidateUrls, parseEumaProductFromHtml } from "@/lib/motores/euma";
+import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
 export type PriceByPresentacion = { presentacion: number; priceArs: number; source: string };
 export type RunMotorForPricesResult = { sourceUrl: string; prices: PriceByPresentacion[] };
@@ -178,14 +178,6 @@ async function getFxToday(): Promise<number | null> {
   return Number.isFinite(n as any) ? (n as number) : null;
 }
 
-function isEumaUrl(url: string): boolean {
-  try {
-    return new URL(url).hostname.toLowerCase().includes("euma.com.ar");
-  } catch {
-    return false;
-  }
-}
-
 async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -193,14 +185,10 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   try {
     const res = await fetch(url, {
       headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
-        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "accept-language": "es-AR,es;q=0.9,en;q=0.8",
-        "cache-control": "no-cache",
-        pragma: "no-cache",
+        "user-agent": "MGqBot/1.0 (+https://vercel.app)",
+        accept: "text/html,application/xhtml+xml",
       },
       cache: "no-store",
-      redirect: "follow",
       signal: controller.signal,
     });
 
@@ -211,27 +199,11 @@ async function fetchHtml(url: string, timeoutMs: number): Promise<string> {
   }
 }
 
-async function fetchEumaHtml(url: string, timeoutMs: number): Promise<{ html: string; sourceUrl: string }> {
-  const candidates = buildEumaCandidateUrls(url);
-  const errors: string[] = [];
-
-  for (const candidate of candidates) {
-    try {
-      const html = await fetchHtml(candidate, timeoutMs);
-      return { html, sourceUrl: candidate };
-    } catch (e: any) {
-      errors.push(`${candidate} => ${String(e?.message ?? e)}`);
-    }
-  }
-
-  throw new Error(`euma_fetch_failed: ${errors.join(" | ")}`);
-}
-
 export async function runMotorForPricesByPresentacion(
   motorId: bigint,
   url: string,
   opts?: { timeoutMs?: number }
-): Promise<RunMotorForPricesResult> {
+): Promise<RunMotorForPricesResult & { title?: string | null; sku?: string | null; warnings?: string[] }> {
   const timeoutMs = Math.max(1_000, Number(opts?.timeoutMs ?? 15_000));
 
   if (motorId === BigInt(1)) {
@@ -255,29 +227,23 @@ export async function runMotorForPricesByPresentacion(
   }
 
   if (motorId === BigInt(2)) {
-    if (!isEumaUrl(url)) throw new Error("euma_invalid_url");
-
-    const fetched = await fetchEumaHtml(url, timeoutMs);
-    const html = fetched.html;
-    const parsed = parseEumaProductFromHtml(html);
-    if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
-      throw new Error("euma_presentacion_not_found");
-    }
-    if (!parsed.priceUsd || !Number.isFinite(parsed.priceUsd) || parsed.priceUsd <= 0) {
-      throw new Error("euma_price_usd_not_found");
-    }
-
+    const { url: canonicalUrl, html } = await fetchEumaHtml(url, timeoutMs);
+    const parsed = parseEumaProductHtml(html, canonicalUrl);
     const fx = await getFxToday();
-    if (!fx || !Number.isFinite(fx) || fx <= 0) throw new Error("fx_today_not_found");
-
-    const priceArs = Number((parsed.priceUsd * fx).toFixed(6));
+    if (!fx) throw new Error('fx_today_not_found');
+    if (!parsed.usdPrice || parsed.usdPrice <= 0) throw new Error('euma_usd_price_not_found');
+    if (!parsed.presentationMl || parsed.presentationMl <= 0) throw new Error('euma_presentation_ml_not_found');
+    const ars = Number((parsed.usdPrice * fx).toFixed(2));
     return {
-      sourceUrl: fetched.sourceUrl,
+      sourceUrl: canonicalUrl,
+      title: parsed.title,
+      sku: parsed.productId || null,
+      warnings: parsed.description ? [] : ['euma_description_not_found'],
       prices: [
         {
-          presentacion: parsed.presentacionMl,
-          priceArs,
-          source: "euma:usd*fx",
+          presentacion: parsed.presentationMl,
+          priceArs: ars,
+          source: 'euma:usd*fx_today',
         },
       ],
     };

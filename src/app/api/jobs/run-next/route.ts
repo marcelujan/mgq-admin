@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { buildEumaCandidateUrls, parseEumaProductFromHtml } from "@/lib/motores/euma";
+import { fetchEumaHtml, parseEumaProductHtml } from "@/lib/motores/euma";
 
 type JobRow = {
   job_id: string | number | bigint;
@@ -433,168 +433,6 @@ function attachScaleEconomyMetrics(candidatos: any[]) {
   return mins;
 }
 
-
-async function motorEuma(
-  sql: any,
-  payload: any,
-  job: JobRow,
-  itemId: bigint | null
-) {
-  let url = normalizeUrl(payload?.url);
-
-  if (!url && itemId) {
-    const rows = (await sql`
-      SELECT url_canonica, url_original
-      FROM app.item_seguimiento
-      WHERE item_id = ${itemId}
-      LIMIT 1
-    `) as any[];
-
-    const r = rows?.[0];
-    url = normalizeUrl(r?.url_canonica) ?? normalizeUrl(r?.url_original);
-  }
-
-  if (!url) {
-    return {
-      status: "ERROR" as const,
-      candidatos: [],
-      warnings: [],
-      errors: ["payload.url inválida o ausente (y no se pudo resolver por item_id)"],
-      meta: {},
-    };
-  }
-
-  let html = "";
-  let fetchedUrl = url;
-  const fetchErrors: string[] = [];
-  const candidates = buildEumaCandidateUrls(url);
-
-  for (const candidate of candidates) {
-    try {
-      const res = await fetch(candidate, {
-        headers: {
-          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "es-AR,es;q=0.9,en;q=0.8",
-          "cache-control": "no-cache",
-          pragma: "no-cache",
-        },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        fetchErrors.push(`${candidate} => HTTP ${res.status}`);
-        continue;
-      }
-
-      html = await res.text();
-      fetchedUrl = candidate;
-      break;
-    } catch (e: any) {
-      fetchErrors.push(`${candidate} => ${String(e?.message ?? e)}`);
-    }
-  }
-
-  if (!html) {
-    return {
-      status: "ERROR" as const,
-      candidatos: [],
-      warnings: [],
-      errors: [`fetch falló: ${fetchErrors.join(" | ")}`],
-      meta: { url, fetch_candidates: candidates },
-    };
-  }
-  const htmlSnippet = html.slice(0, 1200);
-  const parsed = parseEumaProductFromHtml(html);
-  const fxUsed = await getFxToday(sql);
-
-  const warnings: string[] = [];
-  const errors: string[] = [];
-
-  if (!parsed.title) warnings.push("No se pudo extraer el nombre del producto");
-  if (!parsed.description) warnings.push("No se pudo extraer la descripción del producto");
-  if (!parsed.productsId) warnings.push("No se pudo extraer products_id");
-
-  if (!parsed.presentacionMl || !Number.isFinite(parsed.presentacionMl) || parsed.presentacionMl <= 0) {
-    errors.push("No se pudo extraer la presentación Cm3/mL");
-  }
-
-  if (!parsed.priceUsd || !Number.isFinite(parsed.priceUsd) || parsed.priceUsd <= 0) {
-    errors.push("No se pudo extraer el precio USD");
-  }
-
-  if (!fxUsed) {
-    errors.push("FX (BNA venta) no disponible en app.fx para current_date");
-  }
-
-  const fechaScrape = new Date().toISOString();
-  const precioArs =
-    parsed.priceUsd !== null && fxUsed !== null
-      ? Number((parsed.priceUsd * fxUsed).toFixed(6))
-      : null;
-
-  const unit = computeUnitPricing(
-    "ML",
-    parsed.presentacionMl ?? 0,
-    precioArs,
-    parsed.priceUsd
-  );
-
-  const candidatos =
-    errors.length > 0
-      ? []
-      : [
-          {
-            proveedor_id: job.proveedor_id ?? null,
-            item_id: itemId ? String(itemId) : null,
-            descripcion: parsed.description ?? parsed.title ?? "Producto sin descripción",
-            articulo_prov: parsed.productsId ?? null,
-            uom: "ML",
-            presentacion: parsed.presentacionMl,
-            costo_base_usd: parsed.priceUsd,
-            fx_usado_en_alta: fxUsed,
-            fecha_scrape_base: fechaScrape,
-            precio_ars_observado: precioArs,
-            precio_ars_source: "euma:usd*fx",
-            fx_origen: "DB",
-            ars_por_unidad: unit.ars_por_unidad,
-            usd_por_unidad: unit.usd_por_unidad,
-            unidad_base: unit.unidad_base,
-            sanity_fx_as_price: false,
-            sanity_fx_ratio: null,
-            sanity_fx_band: null,
-            densidad: null,
-            source_url: fetchedUrl,
-            source_presentacion_raw: parsed.presentacionMl,
-            source_title: parsed.title,
-          },
-        ];
-
-  const status =
-    errors.length > 0
-      ? ("ERROR" as const)
-      : warnings.length > 0
-      ? ("WARNING" as const)
-      : ("OK" as const);
-
-  return {
-    status,
-    candidatos,
-    warnings,
-    errors,
-    meta: {
-      url,
-      title: parsed.title,
-      description: parsed.description,
-      products_id: parsed.productsId,
-      presentacion_ml: parsed.presentacionMl,
-      price_usd: parsed.priceUsd,
-      fx_used: fxUsed,
-      html_snippet: htmlSnippet,
-    },
-  };
-}
-
 async function motorPuraQuimica(
   sql: any,
   payload: any,
@@ -628,46 +466,25 @@ async function motorPuraQuimica(
 
   const cfg = providerConfigFromUrl(url);
 
-  let html = "";
-  let fetchedUrl = url;
-  const fetchErrors: string[] = [];
-  const candidates = buildEumaCandidateUrls(url);
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "MGqBot/1.0 (+https://vercel.app)",
+      accept: "text/html,application/xhtml+xml",
+    },
+    cache: "no-store",
+  });
 
-  for (const candidate of candidates) {
-    try {
-      const res = await fetch(candidate, {
-        headers: {
-          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "es-AR,es;q=0.9,en;q=0.8",
-          "cache-control": "no-cache",
-          pragma: "no-cache",
-        },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        fetchErrors.push(`${candidate} => HTTP ${res.status}`);
-        continue;
-      }
-
-      html = await res.text();
-      fetchedUrl = candidate;
-      break;
-    } catch (e: any) {
-      fetchErrors.push(`${candidate} => ${String(e?.message ?? e)}`);
-    }
-  }
-
-  if (!html) {
+  if (!res.ok) {
     return {
       status: "ERROR" as const,
       candidatos: [],
       warnings: [],
-      errors: [`fetch falló: ${fetchErrors.join(" | ")}`],
-      meta: { url, fetch_candidates: candidates },
+      errors: [`fetch falló: HTTP ${res.status}`],
+      meta: { url },
     };
   }
+
+  const html = await res.text();
   const htmlSnippet = html.slice(0, 1200);
 
   const title = parseTitleFromHtml(html);
@@ -785,7 +602,7 @@ async function motorPuraQuimica(
       densidad: null,
 
       // opcional: para auditoría
-      source_url: fetchedUrl,
+      source_url: url,
       source_presentacion_raw: p,
     };
   });
@@ -852,6 +669,112 @@ async function motorPuraQuimica(
       unit_price_missing: unitMissing.length,
       scale_mins_by_uom: mins, // queda como objeto en meta
       html_snippet: htmlSnippet,
+    },
+  };
+}
+
+
+
+async function motorEuma(sql: any, payload: any, job: JobRow, itemId: bigint | null) {
+  let url = normalizeUrl(payload?.url);
+
+  if (!url && itemId) {
+    const rows = (await sql`
+      SELECT url_canonica
+      FROM app.item_seguimiento
+      WHERE item_id = ${itemId}
+      LIMIT 1
+    `) as any[];
+    url = normalizeUrl(rows?.[0]?.url_canonica);
+  }
+
+  if (!url) {
+    return {
+      status: "ERROR" as const,
+      candidatos: [],
+      warnings: [],
+      errors: ["payload.url inválida o ausente (y no se pudo resolver por item_id)"],
+      meta: { url: payload?.url ?? null },
+    };
+  }
+
+  let fetched;
+  try {
+    fetched = await fetchEumaHtml(url, 15000);
+  } catch (e: any) {
+    return {
+      status: "ERROR" as const,
+      candidatos: [],
+      warnings: [],
+      errors: [String(e?.message ?? e)],
+      meta: { url },
+    };
+  }
+
+  const parsed = parseEumaProductHtml(fetched.html, fetched.url);
+  const fxUsed = await getFxToday(sql);
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  if (!parsed.title) warnings.push('No se pudo extraer el título del producto');
+  if (!parsed.description) warnings.push('No se pudo extraer la descripción del producto');
+  if (!parsed.productId) warnings.push('No se pudo extraer products_id');
+  if (!parsed.presentationMl) errors.push('No se pudo extraer presentación (Cm3)');
+  if (!parsed.usdPrice) errors.push('No se pudo extraer precio USD');
+  if (!fxUsed) errors.push('FX (BNA venta) no disponible (app.fx)');
+
+  if (errors.length > 0) {
+    return {
+      status: "ERROR" as const,
+      candidatos: [],
+      warnings,
+      errors,
+      meta: { url: fetched.url, parsed },
+    };
+  }
+
+  const precio_ars_observado = Number(((parsed.usdPrice as number) * (fxUsed as number)).toFixed(2));
+  const costo_base_usd = Number((parsed.usdPrice as number).toFixed(6));
+  const unit = computeUnitPricing('ML', parsed.presentationMl as number, precio_ars_observado, costo_base_usd);
+  const fechaScrape = new Date().toISOString();
+
+  const candidatos = [{
+    proveedor_id: job.proveedor_id ?? null,
+    item_id: itemId ? String(itemId) : null,
+    descripcion: parsed.title ?? 'Producto sin título',
+    articulo_prov: parsed.productId || null,
+    uom: 'ML',
+    presentacion: parsed.presentationMl,
+    costo_base_usd,
+    fx_usado_en_alta: fxUsed ?? null,
+    fecha_scrape_base: fechaScrape,
+    precio_ars_observado,
+    precio_ars_source: 'euma:usd*fx_today',
+    fx_origen: 'DB',
+    ars_por_unidad: unit.ars_por_unidad,
+    usd_por_unidad: unit.usd_por_unidad,
+    unidad_base: unit.unidad_base,
+    sanity_fx_as_price: false,
+    sanity_fx_ratio: costo_base_usd,
+    sanity_fx_band: null,
+    densidad: null,
+    source_url: fetched.url,
+    source_presentacion_raw: parsed.presentationMl,
+  }];
+
+  return {
+    status: warnings.length > 0 ? ("WARNING" as const) : ("OK" as const),
+    candidatos,
+    warnings,
+    errors: [],
+    meta: {
+      url: fetched.url,
+      title: parsed.title,
+      sku: parsed.productId,
+      fx_used: fxUsed,
+      usd_price: parsed.usdPrice,
+      presentation_ml: parsed.presentationMl,
+      description: parsed.description,
     },
   };
 }
