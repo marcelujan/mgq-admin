@@ -200,3 +200,95 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ cost_opti
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
+
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ cost_option_id: string }> }) {
+  const sql = db();
+  try {
+    const { cost_option_id } = await ctx.params;
+    const id = Number(cost_option_id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return NextResponse.json({ ok: false, error: "invalid_manual_item_id" }, { status: 400 });
+    }
+
+    const existingRes: any = await sql.query(
+      `
+      select cost_option_id, tipo
+      from app.cost_option
+      where cost_option_id = $1
+      limit 1
+      `,
+      [id]
+    );
+    const existingRows = normalizeQueryResult(existingRes);
+    const existing = existingRows[0] ?? null;
+    if (!existing || String(existing.tipo ?? "") !== "MANUAL_PRESENTACION") {
+      return NextResponse.json(
+        { ok: false, error: "manual_item_not_found", details: { cost_option_id: id } },
+        { status: 404 }
+      );
+    }
+
+    const depRes: any = await sql.query(
+      `
+      select
+        (select count(*)::int from app.producto_formula_linea_v2 where cost_option_id = $1) as formula_lineas_v2_count,
+        (select count(*)::int from app.cost_option_snapshot where cost_option_id = $1) as snapshot_count
+      `,
+      [id]
+    );
+    const depRows = normalizeQueryResult(depRes);
+    const deps = depRows[0] ?? {};
+    const formulaLineasV2Count = Number(deps?.formula_lineas_v2_count ?? 0);
+    const snapshotCount = Number(deps?.snapshot_count ?? 0);
+
+    if (formulaLineasV2Count > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "manual_item_in_use",
+          details: {
+            cost_option_id: id,
+            formula_lineas_v2_count: formulaLineasV2Count,
+            snapshot_count: snapshotCount,
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    await sql.query("begin");
+    const rSnap: any = await sql.query(
+      `delete from app.cost_option_snapshot where cost_option_id = $1 returning 1`,
+      [id]
+    );
+    const rManual: any = await sql.query(
+      `delete from app.cost_option where cost_option_id = $1 and tipo = 'MANUAL_PRESENTACION' returning cost_option_id`,
+      [id]
+    );
+
+    const deletedRows = normalizeQueryResult(rManual);
+    if (!deletedRows.length) {
+      await sql.query("rollback");
+      return NextResponse.json(
+        { ok: false, error: "manual_item_not_found", details: { cost_option_id: id } },
+        { status: 404 }
+      );
+    }
+
+    await sql.query("commit");
+
+    return NextResponse.json({
+      ok: true,
+      kind: "MANUAL",
+      deleted: {
+        cost_option: deletedRows.length,
+        cost_option_snapshot: normalizeQueryResult(rSnap).length,
+      },
+    });
+  } catch (e: any) {
+    try {
+      await sql.query("rollback");
+    } catch {}
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+  }
+}

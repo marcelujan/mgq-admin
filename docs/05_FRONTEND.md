@@ -79,3 +79,5 @@ Notas:
 - Si el manual sigue usado por alguna línea en `producto_formula_linea_v2`, la UI muestra error y no ejecuta borrado destructivo.
 - `/items` mantiene comportamiento consistente: el icono 🗑️ también queda habilitado para filas `MANUAL`.
 
+
+- Borrado manual: la UI de manuales (`/items-manuales`, `/items-manuales/[cost_option_id]`) y las filas `MANUAL` en `/items` usan el endpoint dedicado `/api/cost-options/[cost_option_id]` para eliminación, evitando depender del item_key unificado `mopt:` para ese caso.

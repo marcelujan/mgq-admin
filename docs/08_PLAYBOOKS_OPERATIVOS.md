@@ -320,3 +320,10 @@ where cost_option_id = <cost_option_id>;
 
 Regla:
 - Si `lineas_v2 > 0`, retirar primero el item manual de la fórmula antes de intentar eliminarlo.
+
+
+# Playbook — Eliminar Item Manual
+
+- La acción UI elimina vía `DELETE /api/cost-options/[cost_option_id]`.
+- Si el manual sigue referenciado en `producto_formula_linea_v2`, responde `409 manual_item_in_use`.
+- Si el registro no existe o no es `MANUAL_PRESENTACION`, responde `404 manual_item_not_found`.

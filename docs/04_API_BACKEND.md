@@ -40,10 +40,10 @@ GET:
 
 ### `/api/cost-options/[cost_option_id]`
 - **Archivo:** `src/app/api/cost-options/[cost_option_id]/route.ts`
-- **Métodos:** PATCH
+- **Métodos:** GET, PATCH, DELETE
 - **Query params:** (ninguno detectado)
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `formula_linea_v2`
-- **Response keys (heurístico):** `cost_option_id`, `error`, `ok`
+- **Response keys (heurístico):** `cost_option_id`, `deleted`, `error`, `kind`, `ok`
 
 ---
 

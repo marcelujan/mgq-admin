@@ -236,7 +236,16 @@ Acción irreversible.`);
 
     setError(null);
     try {
-      const res = await fetch(`/api/items/${encodeURIComponent(item.item_key)}`, { method: "DELETE" });
+      const deleteUrl = item.kind === "MANUAL"
+        ? (() => {
+            const raw = String(item.item_key ?? "");
+            const match = raw.match(/^mopt:(\d+)$/);
+            if (!match) throw new Error("manual_item_key_invalido");
+            return `/api/cost-options/${match[1]}`;
+          })()
+        : `/api/items/${encodeURIComponent(item.item_key)}`;
+
+      const res = await fetch(deleteUrl, { method: "DELETE" });
       const j = await res.json().catch(() => null);
 
       if (!res.ok || !j?.ok) {

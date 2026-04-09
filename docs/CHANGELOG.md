@@ -1,4 +1,5 @@
 ## Unreleased
+- Fix Items Manuales: la eliminación usa el endpoint dedicado `DELETE /api/cost-options/[cost_option_id]`; la UI deja de depender del path unificado `mopt:` para borrar manuales.
 - UI/API: se habilita eliminación definitiva de Items Manuales (`mopt:<cost_option_id>`) con guardrail `manual_item_in_use` si el manual sigue referenciado por fórmulas v2.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.

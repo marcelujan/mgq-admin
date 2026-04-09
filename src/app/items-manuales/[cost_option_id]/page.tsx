@@ -151,7 +151,7 @@ export default function ItemManualEditPage() {
 
     setDeleting(true);
     try {
-      const r = await fetch(`/api/items/${encodeURIComponent(`mopt:${id}`)}`, { method: "DELETE" });
+      const r = await fetch(`/api/cost-options/${id}`, { method: "DELETE" });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) {
         if (r.status === 409 && j?.error === "manual_item_in_use") {
