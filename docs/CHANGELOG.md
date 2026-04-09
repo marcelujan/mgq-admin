@@ -1,3 +1,5 @@
+- Items proveedor: el selector dentro de edición de formulados deja de mostrar slugs crudos de URL y pasa a usar `descripcion_fuente` / `articulo_prov` desde `item_seguimiento`.
+- `/api/items/[item_id]` habilita hard-delete guardado para `PROVEEDOR`, limpiando historial y rows derivados sólo cuando no hay dependencias activas de fórmula/base.
 ## Unreleased
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.

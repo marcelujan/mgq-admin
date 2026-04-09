@@ -215,16 +215,21 @@ export default function ItemsClient(props: ItemsClientProps) {
   }, [search, tipo, estadoProveedor, estadoItem, seleccionado, limit, offset, sortBy, sortDir, estadoProveedorDisabled, reloadToken, showSeleccionadoFilter]);
 
   async function handleDelete(item: ItemRow) {
-    if (item.kind !== "FORMULADO") {
-      setError("Eliminar definitivo sólo está habilitado para FORMULADO en esta versión.");
+    if (item.kind !== "FORMULADO" && item.kind !== "PROVEEDOR") {
+      setError("Eliminar definitivo sólo está habilitado para FORMULADO y PROVEEDOR en esta versión.");
       return;
     }
 
-    const ok = confirm(
-      `Eliminar definitivamente este FORMULADO?\n\n` +
-        `Esto borra: producto, fórmula, item_formulado y snapshots.\n` +
-        `Acción irreversible.`
-    );
+    const label = item.kind === "FORMULADO" ? "FORMULADO" : "ITEM PROVEEDOR";
+    const detail =
+      item.kind === "FORMULADO"
+        ? `Esto borra: producto, fórmula, item_formulado y snapshots.`
+        : `Esto borra: item_seguimiento, offers, historial diario, jobs y cost_options ITEM_PRESENTACION asociados.`;
+
+    const ok = confirm(`Eliminar definitivamente este ${label}?
+
+${detail}
+Acción irreversible.`);
     if (!ok) return;
 
     setError(null);
@@ -646,11 +651,11 @@ export default function ItemsClient(props: ItemsClientProps) {
                       )}
                       <button
                         onClick={() => void handleDelete(it)}
-                        title={it.kind === "FORMULADO" ? "Eliminar definitivamente" : `Eliminar no está habilitado para ${it.kind}`}
-                        disabled={it.kind !== "FORMULADO"}
+                        title={it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? "Eliminar definitivamente" : `Eliminar no está habilitado para ${it.kind}`}
+                        disabled={it.kind !== "FORMULADO" && it.kind !== "PROVEEDOR"}
                         style={{
-                          opacity: it.kind === "FORMULADO" ? 0.9 : 0.5,
-                          cursor: it.kind === "FORMULADO" ? "pointer" : "not-allowed",
+                          opacity: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? 0.9 : 0.5,
+                          cursor: it.kind === "FORMULADO" || it.kind === "PROVEEDOR" ? "pointer" : "not-allowed",
                           background: "transparent",
                           border: "none",
                           padding: 0,

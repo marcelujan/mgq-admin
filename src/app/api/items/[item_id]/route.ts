@@ -121,11 +121,106 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ item_id:
       });
     }
 
-    // Mantener comportamiento previo: no implementamos aquí hard-delete para p:/mopt: en este patch.
-    // Si se requiere, se extiende con los mismos guardrails documentados.
-    if (prefix === "p" || prefix === "mopt") {
-      // En esta versión: avisar explícitamente.
-      return jsonError(409, "hard_delete_not_enabled_for_kind", { item_key: rawKey, kind: prefix === "p" ? "PROVEEDOR" : "MANUAL" });
+    if (prefix === "p") {
+      const itemId = Number(idPart);
+      if (!Number.isFinite(itemId) || itemId <= 0) return jsonError(400, "invalid_provider_item_id", { item_key: rawKey });
+
+      const depRes: any = await sql.query(
+        `
+        with co as (
+          select cost_option_id
+          from app.cost_option
+          where tipo = 'ITEM_PRESENTACION' and item_id = $1
+        )
+        select
+          (select count(*)::int from app.cost_option where tipo = 'ITEM_PRESENTACION' and item_id = $1) as cost_option_count,
+          (select count(*)::int from app.producto_formula_linea_v2 where cost_option_id in (select cost_option_id from co)) as formula_lineas_v2_count,
+          (select count(*)::int from app.producto_base where item_id = $1) as producto_base_count
+        `,
+        [itemId]
+      );
+      const deps = Array.isArray(depRes?.rows) && depRes.rows.length ? depRes.rows[0] : {};
+      const costOptionCount = Number(deps?.cost_option_count ?? 0);
+      const formulaLineasV2Count = Number(deps?.formula_lineas_v2_count ?? 0);
+      const productoBaseCount = Number(deps?.producto_base_count ?? 0);
+
+      if (!force && (formulaLineasV2Count > 0 || productoBaseCount > 0)) {
+        return jsonError(409, "provider_item_in_use", {
+          item_key: rawKey,
+          item_id: itemId,
+          cost_option_count: costOptionCount,
+          formula_lineas_v2_count: formulaLineasV2Count,
+          producto_base_count: productoBaseCount,
+        });
+      }
+
+      await sql.query("begin");
+
+      const rRunItems: any = await sql.query(
+        `delete from app.pricing_daily_run_items where offer_id in (select offer_id from app.offers where item_id = $1) returning 1`,
+        [itemId]
+      );
+      const rOfferDaily: any = await sql.query(
+        `delete from app.offer_prices_daily where offer_id in (select offer_id from app.offers where item_id = $1) returning 1`,
+        [itemId]
+      );
+      const rOffers: any = await sql.query(
+        `delete from app.offers where item_id = $1 returning 1`,
+        [itemId]
+      );
+      const rItemPriceDaily: any = await sql.query(
+        `delete from app.item_price_daily_pres where item_id = $1 returning 1`,
+        [itemId]
+      );
+      const rOfertaProv: any = await sql.query(
+        `delete from app.oferta_proveedor where item_id = $1 returning 1`,
+        [itemId]
+      );
+      const rJobResult: any = await sql.query(
+        `delete from app.job_result where job_id in (select job_id from app.job where item_id = $1) returning 1`,
+        [itemId]
+      );
+      const rJob: any = await sql.query(
+        `delete from app.job where item_id = $1 returning 1`,
+        [itemId]
+      );
+      const rCostSnap: any = await sql.query(
+        `delete from app.cost_option_snapshot where cost_option_id in (select cost_option_id from app.cost_option where tipo = 'ITEM_PRESENTACION' and item_id = $1) returning 1`,
+        [itemId]
+      );
+      const rCostOption: any = await sql.query(
+        `delete from app.cost_option where tipo = 'ITEM_PRESENTACION' and item_id = $1 returning 1`,
+        [itemId]
+      );
+      const rProvider: any = await sql.query(
+        `delete from app.item_seguimiento where item_id = $1 returning item_id`,
+        [itemId]
+      );
+
+      await sql.query("commit");
+
+      const deletedProvider = Array.isArray(rProvider?.rows) && rProvider.rows.length > 0;
+      return NextResponse.json({
+        ok: true,
+        kind: "PROVEEDOR",
+        item_key: rawKey,
+        deleted: {
+          item_seguimiento: deletedProvider ? 1 : 0,
+          offers: Array.isArray(rOffers?.rows) ? rOffers.rows.length : 0,
+          pricing_daily_run_items: Array.isArray(rRunItems?.rows) ? rRunItems.rows.length : 0,
+          offer_prices_daily: Array.isArray(rOfferDaily?.rows) ? rOfferDaily.rows.length : 0,
+          item_price_daily_pres: Array.isArray(rItemPriceDaily?.rows) ? rItemPriceDaily.rows.length : 0,
+          oferta_proveedor: Array.isArray(rOfertaProv?.rows) ? rOfertaProv.rows.length : 0,
+          job_result: Array.isArray(rJobResult?.rows) ? rJobResult.rows.length : 0,
+          job: Array.isArray(rJob?.rows) ? rJob.rows.length : 0,
+          cost_option_snapshot: Array.isArray(rCostSnap?.rows) ? rCostSnap.rows.length : 0,
+          cost_option: Array.isArray(rCostOption?.rows) ? rCostOption.rows.length : 0,
+        },
+      });
+    }
+
+    if (prefix === "mopt") {
+      return jsonError(409, "hard_delete_not_enabled_for_kind", { item_key: rawKey, kind: "MANUAL" });
     }
 
     return jsonError(400, "unknown_item_key_prefix", { item_key: rawKey });

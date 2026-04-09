@@ -352,3 +352,5 @@ limit 20;
 - Este backfill no crea ofertas nuevas.
 - No modifica snapshots ni gráficos.
 - Si un item falla por URL caída o motor sin título, queda pendiente para un próximo intento.
+
+- `fetch_failed_http_404`: la URL histórica ya no existe. Si el item histórico ya no es útil y no tiene dependencias activas, puede eliminarse desde `/items` (DELETE `p:<item_id>`).

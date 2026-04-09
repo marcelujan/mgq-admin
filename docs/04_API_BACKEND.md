@@ -28,13 +28,15 @@ Notas:
 - **Métodos:** GET, POST
 - **Query params:** `limit`, `search`, `solo_seleccionados`
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `proveedor`
-- **Response keys (heurístico):** `cost_option_id`, `cost_options_extra`, `error`, `ok`
+- **Response keys (heurístico):** `cost_option_id`, `cost_options_extra`, `error`, `item_options`, `ok`
 
 **Docstring / comentario:**
 
 ```
 GET:
-- ITEM_PRESENTACION: desde app.item_price_daily_pres (última fecha por item/presentación) + app.item_seguimiento + app.proveedor
+- ITEM_PRESENTACION: desde app.item_price_daily_pres (última fecha por item/presentación) + app.item_seguimiento + app.proveedor.
+- En `item_options` expone también `provider_item_nombre` / `provider_item_codigo` desde `item_seguimiento` para que el editor de formulados muestre el mismo naming visible que `/items`.
+- La búsqueda `search_items` también matchea `descripcion_fuente` y `articulo_prov`.
 - MANUAL/BULK: desde app.cost_option
 ```
 
@@ -489,7 +491,7 @@ Devuelve productos + densidad + ars_por_kg.
 
 Elimina definitivamente el entity subyacente al `item_key` unificado.
 
-- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123`.
+- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123` o `p:270`.
 
 ### FORMULADO (fprod:<producto_id>)
 
@@ -510,9 +512,29 @@ Notas:
 - Operación irreversible.
 - Al borrar el producto, desaparece de **Productos** y del listado virtual de **Items**.
 
+### PROVEEDOR (p:<item_id>)
+
+Hard-delete guardado por dependencias. Borra, en orden:
+
+- `app.pricing_daily_run_items` (por `offer_id` del item)
+- `app.offer_prices_daily` (por `offer_id` del item)
+- `app.offers`
+- `app.item_price_daily_pres`
+- `app.oferta_proveedor`
+- `app.job_result`, `app.job`
+- `app.cost_option_snapshot`, `app.cost_option` tipo `ITEM_PRESENTACION`
+- `app.item_seguimiento`
+
+Guardrails:
+- Si el item proveedor está en uso por `producto_formula_linea_v2` (vía `cost_option`) o en `producto_base`, la API responde `409 provider_item_in_use` y no borra.
+- `force=1` sólo evita el bloqueo preventivo; no elimina líneas de fórmula ni bases asociadas.
+
+Respuesta: `{ ok: true, kind: "PROVEEDOR", deleted: { ... } }`
+
+
 ## GET /api/productos/:producto_id/formula-v2/lineas — campos adicionales
 
-- Se agregan `item_url_original` y `item_url_canonica` (desde `app.item_seguimiento`) para renderizar nombres derivados de URL en `ITEM_PRESENTACION`.
+- Se agregan `item_url_original`, `item_url_canonica`, `item_descripcion_fuente` y `item_articulo_prov` (desde `app.item_seguimiento`) para renderizar nombres visibles consistentes en `ITEM_PRESENTACION` dentro del editor de formulados.
 - Se agrega `bulk_producto_nombre` (desde `app.producto`) para renderizar nombre real en `BULK_PRODUCTO`.
 
 ### Regla: SQL en consola Neon (v2)

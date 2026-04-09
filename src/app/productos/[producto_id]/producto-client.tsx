@@ -51,6 +51,8 @@ type ItemOption = {
   as_of_date: string;
   proveedor_codigo: string;
   proveedor_nombre: string;
+  provider_item_nombre: string;
+  provider_item_codigo: string;
   url_original: string;
   url_canonica: string;
 };
@@ -87,6 +89,8 @@ type LineaV2 = {
 
   item_url_original?: string | null;
   item_url_canonica?: string | null;
+  item_descripcion_fuente?: string | null;
+  item_articulo_prov?: string | null;
   bulk_producto_nombre?: string | null;
   job_price_ars: number | null;
   job_as_of_date: string | null;
@@ -1154,12 +1158,31 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     }
   }
 
+  function providerOptionName(x: Pick<ItemOption, "provider_item_nombre" | "provider_item_codigo" | "proveedor_nombre" | "proveedor_codigo" | "url_original" | "url_canonica">): string {
+    const explicit = String(x.provider_item_nombre ?? "").trim();
+    if (explicit) return explicit;
+
+    const provider = String(x.proveedor_nombre || x.proveedor_codigo || "Item proveedor").trim();
+    const code = String(x.provider_item_codigo ?? "").trim();
+    if (provider && code) return `${provider} · SKU ${code}`;
+
+    const url = String(x.url_canonica || x.url_original || "").trim();
+    const slug = url ? urlToSlug(url) : "";
+    if (!slug) return provider || "Item proveedor";
+    if (/^\d+$/.test(slug)) return provider && code ? `${provider} · SKU ${code}` : provider || `Item ${slug}`;
+    if (/^products?_id$/i.test(slug)) return provider || "Item proveedor";
+    if (/^oscsid$/i.test(slug)) return provider || "Item proveedor";
+    return slug;
+  }
+
   function lineaLabel(l: LineaV2) {
     if (l.tipo === "ITEM_PRESENTACION") {
+      const explicit = String(l.item_descripcion_fuente ?? "").trim();
+      const providerCode = String(l.item_articulo_prov ?? "").trim();
       const url = (l.item_url_canonica ?? l.item_url_original ?? "").trim();
-      const slug = url ? urlToSlug(url) : "";
+      const providerName = explicit || (providerCode ? `Proveedor · SKU ${providerCode}` : (url ? urlToSlug(url) : "")) || `Item ${l.item_id}`;
       const pres = fmtGrFromKg(numOrNull(l.item_presentacion), 0);
-      return `${slug || `Item ${l.item_id}`} — ${pres}`;
+      return `${providerName} — ${pres}`;
     }
     if (l.tipo === "MANUAL_PRESENTACION") return `${l.manual_nombre ?? "Manual"} — ${l.manual_cantidad ?? "?"} ${l.manual_uom ?? ""}`;
     if (l.tipo === "BULK_PRODUCTO") return l.bulk_producto_nombre ?? `Bulk producto ${l.bulk_producto_id}`;
@@ -1204,8 +1227,7 @@ export default function ProductoClient({ productoId }: { productoId: number }) {
     return itemOptions
       .map((x, idx) => {
         const arsKg = toARSporKgFromPresentation(numOrNull(x.price_ars), numOrNull(x.presentacion)); // presentacion en KG
-        const url = (x.url_original || x.url_canonica || "").trim();
-        const nombre = url ? urlToSlug(url) : "";
+        const nombre = providerOptionName(x);
         const prov = x.proveedor_nombre || x.proveedor_codigo || "-";
         const origen = `Proveedor: ${prov}`;
         return {

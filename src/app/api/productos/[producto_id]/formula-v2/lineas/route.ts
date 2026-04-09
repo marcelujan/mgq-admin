@@ -34,6 +34,8 @@ export async function GET(_: NextRequest, ctx: { params: Promise<{ producto_id: 
 
         iseg.url_original::text as item_url_original,
         iseg.url_canonica::text as item_url_canonica,
+        iseg.descripcion_fuente::text as item_descripcion_fuente,
+        iseg.articulo_prov::text as item_articulo_prov,
         pb.nombre::text as bulk_producto_nombre
 
       FROM app.producto_formula_linea_v2 l

@@ -63,6 +63,8 @@ export async function GET(req: NextRequest) {
       whereItem += ` AND (
         coalesce(pv.nombre,'') ILIKE $${p} OR
         coalesce(pv.codigo,'') ILIKE $${p} OR
+        coalesce(i.descripcion_fuente,'') ILIKE $${p} OR
+        coalesce(i.articulo_prov,'') ILIKE $${p} OR
         coalesce(i.url_original,'') ILIKE $${p} OR
         coalesce(i.url_canonica,'') ILIKE $${p}
       )`;
@@ -79,6 +81,8 @@ export async function GET(req: NextRequest) {
         i.item_id,
         coalesce(pv.codigo,'') as proveedor_codigo,
         coalesce(pv.nombre,'') as proveedor_nombre,
+        coalesce(nullif(i.descripcion_fuente,''), '') as provider_item_nombre,
+        coalesce(nullif(i.articulo_prov,''), '') as provider_item_codigo,
         i.url_original,
         i.url_canonica,
         lr.presentacion::float8 as presentacion,
@@ -104,6 +108,8 @@ export async function GET(req: NextRequest) {
       as_of_date: String(r.as_of_date ?? ""),
       proveedor_codigo: String(r.proveedor_codigo ?? ""),
       proveedor_nombre: String(r.proveedor_nombre ?? ""),
+      provider_item_nombre: String(r.provider_item_nombre ?? ""),
+      provider_item_codigo: String(r.provider_item_codigo ?? ""),
       url_original: String(r.url_original ?? ""),
       url_canonica: String(r.url_canonica ?? ""),
     }));
