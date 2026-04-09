@@ -18,7 +18,7 @@ function formatUtc(now: Date) {
     hour12: false,
   }).format(now);
 
-  return { date, time };
+  return `UTC · ${date} ${time}`;
 }
 
 export default function HomeUtcClock() {
@@ -29,30 +29,20 @@ export default function HomeUtcClock() {
     return () => window.clearInterval(id);
   }, []);
 
-  const { date, time } = useMemo(() => formatUtc(now), [now]);
+  const label = useMemo(() => formatUtc(now), [now]);
 
   return (
-    <div
+    <span
       aria-label="Reloj UTC"
       title="Hora internacional (UTC)"
       style={{
-        justifySelf: "end",
-        display: "inline-flex",
-        flexDirection: "column",
-        alignItems: "flex-end",
-        gap: 2,
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.03)",
-        minWidth: 122,
+        fontSize: 12,
+        opacity: 0.58,
+        whiteSpace: "nowrap",
+        fontVariantNumeric: "tabular-nums",
       }}
     >
-      <span style={{ fontSize: 11, opacity: 0.72, letterSpacing: 0.4 }}>UTC</span>
-      <span style={{ fontSize: 12, opacity: 0.86 }}>{date}</span>
-      <span style={{ fontSize: 14, fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-        {time}
-      </span>
-    </div>
+      {label}
+    </span>
   );
 }

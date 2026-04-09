@@ -20,21 +20,22 @@ export default function Home() {
         gap: 16,
       }}
     >
-      <div
-        style={{
-          display: "grid",
-          gap: 16,
-          gridTemplateColumns: "1fr auto",
-          alignItems: "start",
-        }}
-      >
-        <div style={{ display: "grid", gap: 4 }}>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>mgq-admin</div>
+      <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ fontSize: 28, fontWeight: 700 }}>mgq-admin</div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            minHeight: 18,
+          }}
+        >
           <div style={{ fontSize: 13, opacity: 0.72 }}>
             Accesos principales de la app.
           </div>
+          <HomeUtcClock />
         </div>
-        <HomeUtcClock />
       </div>
 
       <ul style={{ lineHeight: 1.9, margin: 0, paddingLeft: 18 }}>
