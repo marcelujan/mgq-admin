@@ -77,9 +77,6 @@ Es la representación técnica del producto:
 Regla crítica:
 `presentacion` debe existir en el proveedor.
 
-Invariante operativa adicional:
-El alta por `/api/ofertas/bulk` debe dejar sembrado el precio observado de HOY en `app.item_price_daily_pres` para que el item proveedor tenga histórico/valor inmediato sin esperar al próximo `pricing-daily`. El cron diario mantiene la misma clave natural y hace `upsert` sobre esa fila.
-
 ---
 
 # 5. Pricing Diario
@@ -303,3 +300,55 @@ aplicar este checklist **antes** de continuar:
    - firmas/bloques con `{ {` (con o sin espacios), por ejemplo `function X(...) { {`
 2. Corregir cierres (JSX y llaves) sin reestructurar lógica.
 3. Re-ejecutar `npm run build`.
+
+
+---
+
+# Backfill identidad proveedor histórica
+
+Objetivo:
+- Hacer que items proveedor viejos se vean como los nuevos, persistiendo `descripcion_fuente` (y `articulo_prov` si el motor lo devuelve) en `app.item_seguimiento`.
+
+## Paso 1 — Medir backlog
+```sql
+select count(*) as pendientes
+from app.item_seguimiento
+where motor_id in (1,2)
+  and coalesce(nullif(trim(descripcion_fuente),''),'') = '';
+```
+
+## Paso 2 — Dry run opcional
+```bash
+curl.exe -X POST ^
+  -H "Authorization: Bearer <CRON_SECRET>" ^
+  -H "Content-Type: application/json" ^
+  -d "{"limit":10,"dry_run":true}" ^
+  "https://<BASE_URL>/api/cron/provider-identity-backfill"
+```
+
+## Paso 3 — Ejecutar por lotes
+```bash
+curl.exe -X POST ^
+  -H "Authorization: Bearer <CRON_SECRET>" ^
+  -H "Content-Type: application/json" ^
+  -d "{"limit":25}" ^
+  "https://<BASE_URL>/api/cron/provider-identity-backfill"
+```
+
+Repetir hasta que la respuesta devuelva:
+- `pending_remaining = 0`
+- `should_continue = false`
+
+## Paso 4 — Verificar items corregidos
+```sql
+select item_id, descripcion_fuente, articulo_prov, url_canonica
+from app.item_seguimiento
+where motor_id in (1,2)
+order by item_id desc
+limit 20;
+```
+
+## Notas
+- Este backfill no crea ofertas nuevas.
+- No modifica snapshots ni gráficos.
+- Si un item falla por URL caída o motor sin título, queda pendiente para un próximo intento.

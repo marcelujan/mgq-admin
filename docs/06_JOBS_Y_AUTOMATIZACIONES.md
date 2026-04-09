@@ -18,10 +18,6 @@ Scrapear precios desde proveedores (por oferta) y persistir el precio diario por
 - `app.pricing_daily_run_items` (1 por offer, estado PENDING/OK/FAIL, attempts, last_error).
 - `app.item_price_daily_pres` (upsert por `(item_id, as_of_date, presentacion)`).
 
-### Relación con el alta manual de Items Proveedor
-- `/api/ofertas/bulk` también puede sembrar `app.item_price_daily_pres` para `current_date` al momento del alta.
-- `pricing-daily` conserva la misma clave natural y hace `upsert`, por lo que normaliza/sobrescribe esa fila sin romper idempotencia.
-
 ### Estados
 - `pricing_daily_run_items.status`: PENDING | OK | FAIL
 - `pricing_daily_runs.status`: RUNNING | DONE | PARTIAL
@@ -66,6 +62,34 @@ Interpretación:
 ### Verificación rápida
 - `select status, count(*) from app.pricing_daily_run_items where run_id=<id> group by status;`
 - `select status, pending_count, ok_count, fail_count, last_error from app.pricing_daily_runs where id=<id>;`
+
+
+## 1.bis Cron: /api/cron/provider-identity-backfill (manual / on-demand)
+
+### Propósito
+Backfill operativo de identidad visible para items proveedor históricos que todavía no tienen `descripcion_fuente` persistida.
+
+### Entradas
+- `app.item_seguimiento` filtrando `motor_id in (1,2)` y `descripcion_fuente` vacía.
+- URLs históricas (`url_canonica` / `url_original`).
+
+### Salidas (DB)
+- `app.item_seguimiento.descripcion_fuente`
+- `app.item_seguimiento.articulo_prov`
+- actualización de `url_canonica` si el motor devuelve URL canónica más limpia.
+
+### Alcance
+- No crea `offers`.
+- No escribe `item_price_daily_pres`.
+- No toca snapshots ni jobs.
+
+### Ejecución recomendada
+- Ejecutar por lotes (`limit` 10–25) hasta que `pending_remaining = 0`.
+- En `dry_run=true` permite validar cuántos items históricos serían actualizados.
+
+### Verificación rápida
+- `select count(*) from app.item_seguimiento where motor_id in (1,2) and coalesce(nullif(trim(descripcion_fuente),''),'')='';`
+- `select item_id, descripcion_fuente, articulo_prov from app.item_seguimiento where item_id in (...);`
 
 ## 2. Cron: /api/cron/manual-costs-daily (03:15)
 
