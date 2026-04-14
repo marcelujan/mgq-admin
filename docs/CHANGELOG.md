@@ -1,20 +1,24 @@
 ## Unreleased
-- Docs: consolidada la línea futura de comercialización (`Items Comerciales`, `Items Envase`, `Items Etiqueta`, `Items Paquetería`) como propuesta aceptada y todavía no implementada.
-- Docs: fijadas reglas de stock/ofertabilidad sobre orígenes técnicos, unidades `GR|ML|UN`, densidad única por origen técnico y paquetería no bloqueante.
+
+## 2026-04-14
+
+- Docs: `05_FRONTEND.md` se alinea al código real del header actual: incluye `Dólar Histórico`, mantiene indicador DB no clickeable y reconoce `/db-health` como hoja técnica no enlazada.
+- Docs: `07_ESTANDARES_UI.md` incorpora convenciones observadas en la UI real del snapshot: tablas compactas, tipografía chica (`12/13`), una sola línea por fila, acciones inline y controles de baja ornamentación.
+- Docs: `09_DECISIONES_TECNICAS.md` consolida el modelo comercial futuro aprobado: `Items Comerciales`, `Items Envases`, `Items Etiqueta`, `Items Paquetería`, origen técnico único, unidades `GR/ML/UN`, densidad única por origen técnico y stock gobernado desde orígenes técnicos.
 
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
 - Fix histórico formulados: `/api/items/[item_id]/price-history` prioriza el BULK activo con más snapshots/continuidad.
 
-- 2026-02-22: estado real actual de navegación/documentación corregido: el menú incluye `Dólar Histórico`, el indicador `DB` no es clickeable y `/db-health` existe como hoja técnica no enlazada en el menú principal.
+- 2026-02-22: DB health: se elimina entrada de menú/hoja; el indicador 'DB' en header es clickeable y abre `/api/db-health`.
 
-## UI v2 — Estado real actual del shell
-- Header enlazado: Items → Items Manuales → Items Formulados → Items Proveedores → Dólar Histórico → Jobs manual.
+## UI v2 — Reordenamiento de navegación y hojas por tipo de Item
+- Header: orden fijo: Items → Items Manuales → Items Formulados → Items Proveedores → Jobs manual → DB health.
 - `/items`: se elimina acción de alta; queda como vista agregada.
 - `/items-manuales`: alta + edición de manuales (cost_option MANUAL_PRESENTACION).
 - `/items-proveedores`: alta por URLs + panel embebido de Jobs diario.
-- DB health: semáforo en header + hoja técnica `/db-health` no enlazada.
+- DB health: indicador (verde/rojo) en header + página `/db-health`.
 
 - Fix: costo-bulk ahora resuelve BULK_PRODUCTO preferiendo snapshot diario (evita error "fórmula sin líneas" cuando el componente ya tiene snapshot válido).
 

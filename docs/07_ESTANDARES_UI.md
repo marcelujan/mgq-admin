@@ -194,3 +194,47 @@ Separación estricta de responsabilidades.
 - Orden por defecto: `Fecha` descendente.
 - Tipografía, paddings y acciones deben seguir el mismo patrón de tablas compactas del resto de la app.
 - Los gráficos históricos simples deben exponer selector de intervalo cuando sigan el patrón de publicaciones/productos (`30`, `60`, `100`, `180`, `365`, `Todo`) y arrancar en `30 días`.
+
+
+## 2026-04-14 — Convenciones observadas en la UI real (snapshot actual)
+
+Estas reglas se desprenden del código actual de `src/app/**` y deben respetarse en nuevas hojas para no desentonar visualmente.
+
+### Densidad visual
+
+- UI compacta. Priorizar lectura rápida y ocupación eficiente del alto de pantalla.
+- Tablas con `fontSize: 13` como base.
+- Metadatos, ayudas y badges con `fontSize: 12`.
+- Filas de tabla compactas: paddings verticales de `5px` a `6px` y `lineHeight` entre `1.15` y `1.2`.
+- Sin doble renglón por fila en tablas operativas.
+- Textos largos truncados con `ellipsis` y `title` para tooltip.
+
+### Tablas
+
+- `borderCollapse: collapse`.
+- Contenedor con borde tenue y `borderRadius` entre `12` y `14`.
+- Encabezado de tabla con fondo tenue `rgba(255,255,255,0.04)` cuando aplica.
+- Celdas numéricas con `fontVariantNumeric: tabular-nums`.
+- En tablas densas, preferir `tableLayout: fixed` si ayuda a sostener una sola línea por celda.
+
+### Acciones
+
+- Acciones inline y compactas.
+- Mezcla aceptada de texto corto (`Ver`) e iconos simples (`✏️`, `🗑️`).
+- No usar botones grandes por fila.
+- Mantener las acciones en una sola línea, con separación breve (`gap` ~ `10px`).
+
+### Controles y formularios
+
+- Inputs/selects/links de acción con `padding` típico `8px 10px`.
+- `borderRadius` típico `10`.
+- Bordes suaves: `1px solid rgba(255,255,255,0.14)` o cercanos.
+- Fondo translúcido tenue: `rgba(255,255,255,0.02)` a `0.06`.
+- Labels y ayudas en `fontSize: 12`.
+- Formularios en grid simple, sin ornamentación extra.
+
+### Iconografía y estilo general
+
+- Estilo práctico, operativo, sin decoraciones innecesarias.
+- Iconos pequeños y utilitarios; no introducir iconografía pesada ni botones prominentes si no aportan una acción crítica.
+- Mantener coherencia con el header actual: cápsulas compactas, radios suaves, opacidades bajas y fondo oscuro translúcido.

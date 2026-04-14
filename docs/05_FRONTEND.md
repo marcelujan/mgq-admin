@@ -12,20 +12,18 @@ Rutas principales enlazadas (v2):
 - `/items` (Items — vista agregada)
 - `/items-manuales` (Items Manuales — catálogo y edición)
 - `/productos` (Items Formulados — UI de Producto / fórmula v2; ver nota de naming)
-- `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
+- `/items-proveedores` (Items Proveedores — alta por URLs con acceso a Cron / Items)
 - `/dolar-historico` (Dólar Histórico)
 - `/jobs` (Jobs manual)
 
 Notas:
 
-- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. No es clickeable.
-- Existe la hoja técnica `/db-health`, pero no está enlazada en el menú principal.
-- El detalle técnico puede consultarse en `/db-health` (UI) y `/api/db-health` (JSON).
-
+- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. **No es clickeable**.
+- Existe la hoja técnica `/db-health`, pero **no** está enlazada en el menú principal.
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`
   - Manual: `/items-manuales`
-- `/jobs-diario` queda como ruta técnica legacy (no enlazada en el header) y su panel se embebe en `/items-proveedores`.
+- `/jobs-diario` sigue existiendo como ruta técnica separada. No está enlazada en el header.
 - Naming: la ruta `/productos` continúa administrando la entidad **Producto** (fórmula v2). En la navegación se muestra como **"Items Formulados"** para alinear el menú con el uso operativo, sin cambiar el modelo de dominio.
 
 ## Editor de Producto (Fórmula v2) — ajustes UI
