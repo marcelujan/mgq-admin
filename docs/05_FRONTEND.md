@@ -61,9 +61,5 @@ Notas:
 - La pantalla de alta por URL no crea proveedores desde UI.
 - `PuraQuimica` y `EUMA` se muestran como proveedores aceptados y el backend infiere proveedor/motor por dominio de la URL.
 
-## Home (`/`) — reloj internacional sutil
 
-- La home no agrega bloques, títulos ni tarjetas extra.
-- En `/` se muestra un reloj UTC pequeño y discreto en la misma línea del breadcrumb `Inicio`, alineado a la derecha.
-- El formato visible es `UTC · DD/MM/AAAA HH:MM:SS`.
-- El reloj no se muestra en otras pantallas.
+- La hoja **Items formulados** reutiliza el hard-delete de `FORMULADO` vía `/api/items/fprod:<producto_id>`, igual que la hoja general `Items`.

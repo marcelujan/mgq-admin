@@ -75,6 +75,39 @@ export default function ProductosClient() {
     }
   }
 
+  async function handleDelete(productoId: number, nombre: string) {
+    const ok = confirm(
+      `Eliminar definitivamente este ITEM FORMULADO?
+
+` +
+        `Nombre: ${nombre}
+` +
+        `ID: ${productoId}
+
+` +
+        `Esto borra producto, fórmula, ofertas y snapshots asociados.
+` +
+        `Si el formulado participa en otras fórmulas, también se eliminará de esas líneas.
+
+` +
+        `Acción irreversible.`
+    );
+    if (!ok) return;
+
+    setError(null);
+    try {
+      const res = await fetch(`/api/items/${encodeURIComponent(`fprod:${productoId}`)}`, { method: "DELETE" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok || !j?.ok) {
+        setError(j?.error || `http_${res.status}`);
+        return;
+      }
+      await load();
+    } catch (e: any) {
+      setError(e?.message || "error");
+    }
+  }
+
   function toggleSort(key: SortKey) {
     setSortKey((prev) => {
       if (prev === key) {
@@ -184,7 +217,23 @@ export default function ProductosClient() {
                       ) : (
                         <span style={{ opacity: 0.45 }}>✏️</span>
                       )}
-                      <span title="Eliminar item formulado requiere confirmación específica" style={{ opacity: 0.45 }}>🗑️</span>
+                      {idOk ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(idNum, r.nombre)}
+                          title="Eliminar item formulado"
+                          style={{
+                            all: "unset",
+                            cursor: "pointer",
+                            opacity: 0.9,
+                            lineHeight: 1,
+                          }}
+                        >
+                          🗑️
+                        </button>
+                      ) : (
+                        <span style={{ opacity: 0.45 }}>🗑️</span>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -1,5 +1,3 @@
-
-- DELETE de `FORMULADO` (`/api/items/fprod:<producto_id>`) ahora elimina también: referencias externas `BULK_PRODUCTO` en otras fórmulas (`producto_formula_linea_v2`, `cost_option_snapshot`, `cost_option`), y tablas hijas de `producto_oferta` (`producto_oferta_costo_snapshot_packaging`, `producto_oferta_costo_snapshot`, `producto_oferta_extra`, `producto_oferta_packaging`) antes de borrar `producto_oferta`.
 ## Unreleased
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
@@ -98,3 +96,5 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Fix FX/EUMA: `app.fx` pasa a resolverse por fecha local `America/Argentina/Cordoba` en vez de `current_date` UTC puro.
 - Fix FX/EUMA: flujos USD usan fallback a la última cotización disponible `<= fecha local`.
 - Fix proveedor EUMA: ya no se escribe `proveedor.motor_id_default = 2` en `app.proveedor`; la asociación al motor 2 queda inferida por URL en el flujo bulk/preview.
+
+- Fix UI: el icono eliminar en **Items formulados** dejó de estar deshabilitado y ahora ejecuta el mismo DELETE de formulados que la hoja `Items`.
