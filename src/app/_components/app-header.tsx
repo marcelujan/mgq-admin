@@ -79,6 +79,10 @@ export default function AppHeader() {
     { href: "/items-manuales", label: "Items Manuales" },
     { href: "/productos", label: "Items Formulados" },
     { href: "/items-proveedores", label: "Items Proveedores" },
+    { href: "/items-comerciales", label: "Items Comerciales" },
+    { href: "/items-envases", label: "Items Envases" },
+    { href: "/items-etiqueta", label: "Items Etiqueta" },
+    { href: "/items-paqueteria", label: "Items Paquetería" },
     { href: "/dolar-historico", label: "Dólar Histórico" },
     { href: "/jobs", label: "Jobs manual" },
   ];
