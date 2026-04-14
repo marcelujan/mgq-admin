@@ -667,3 +667,79 @@ No entran todavía:
 - integración de `COMERCIAL / ENVASE / ETIQUETA / PAQUETERIA` dentro de `/api/items`
 
 Motivo: mantener el primer corte corto, validable y sin abrir demasiados frentes a la vez.
+
+
+## /api/items-comerciales
+
+### `/api/items-comerciales`
+- **Archivo:** `src/app/api/items-comerciales/route.ts`
+- **Métodos:** GET, POST
+- **Query params:** `include_inactivos`, `search`
+- **Tablas (referencias):** `item_comercial`, `item_seguimiento`, `proveedor`, `cost_option`, `item_formulado`, `producto`
+- **Response keys (heurístico):** `error`, `items`, `item_comercial_id`, `ok`
+- **Notas operacionales:**
+  - lote 1: solo alta/listado base;
+  - origen técnico único obligatorio (`PROVEEDOR | MANUAL | FORMULADO`);
+  - no maneja stock propio ni asociaciones a envases/etiquetas.
+
+### `/api/items-comerciales/[item_comercial_id]`
+- **Archivo:** `src/app/api/items-comerciales/[item_comercial_id]/route.ts`
+- **Métodos:** GET, PATCH, DELETE
+- **Query params:** (ninguno detectado)
+- **Tablas (referencias):** `item_comercial`
+- **Response keys (heurístico):** `error`, `item`, `ok`
+
+## /api/items-envases
+
+### `/api/items-envases`
+- **Archivo:** `src/app/api/items-envases/route.ts`
+- **Métodos:** GET, POST
+- **Query params:** `include_inactivos`, `search`
+- **Tablas (referencias):** `item_envase`, `item_seguimiento`, `proveedor`, `cost_option`
+- **Response keys (heurístico):** `error`, `items`, `item_envase_id`, `ok`
+- **Notas operacionales:**
+  - origen técnico único obligatorio (`PROVEEDOR | MANUAL`).
+
+### `/api/items-envases/[item_envase_id]`
+- **Archivo:** `src/app/api/items-envases/[item_envase_id]/route.ts`
+- **Métodos:** GET, PATCH, DELETE
+- **Query params:** (ninguno detectado)
+- **Tablas (referencias):** `item_envase`
+- **Response keys (heurístico):** `error`, `item`, `ok`
+
+## /api/items-etiqueta
+
+### `/api/items-etiqueta`
+- **Archivo:** `src/app/api/items-etiqueta/route.ts`
+- **Métodos:** GET, POST
+- **Query params:** `include_inactivos`, `search`
+- **Tablas (referencias):** `item_etiqueta`, `item_seguimiento`, `proveedor`, `cost_option`
+- **Response keys (heurístico):** `error`, `items`, `item_etiqueta_id`, `ok`
+- **Notas operacionales:**
+  - `medidas` requerida en formato libre `ancho x largo`;
+  - origen técnico único obligatorio (`PROVEEDOR | MANUAL`).
+
+### `/api/items-etiqueta/[item_etiqueta_id]`
+- **Archivo:** `src/app/api/items-etiqueta/[item_etiqueta_id]/route.ts`
+- **Métodos:** GET, PATCH, DELETE
+- **Query params:** (ninguno detectado)
+- **Tablas (referencias):** `item_etiqueta`
+- **Response keys (heurístico):** `error`, `item`, `ok`
+
+## /api/items-paqueteria
+
+### `/api/items-paqueteria`
+- **Archivo:** `src/app/api/items-paqueteria/route.ts`
+- **Métodos:** GET, POST
+- **Query params:** `include_inactivos`, `search`
+- **Tablas (referencias):** `item_paqueteria`, `item_seguimiento`, `proveedor`, `cost_option`
+- **Response keys (heurístico):** `error`, `items`, `item_paqueteria_id`, `ok`
+- **Notas operacionales:**
+  - lote 1: catálogo separado; no hay relación fija todavía con `item_comercial`.
+
+### `/api/items-paqueteria/[item_paqueteria_id]`
+- **Archivo:** `src/app/api/items-paqueteria/[item_paqueteria_id]/route.ts`
+- **Métodos:** GET, PATCH, DELETE
+- **Query params:** (ninguno detectado)
+- **Tablas (referencias):** `item_paqueteria`
+- **Response keys (heurístico):** `error`, `item`, `ok`

@@ -104,3 +104,8 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Docs: definido primer lote mínimo de endpoints vNext para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`.
 - Docs: se fija que el lote 1 no incluye todavía asociaciones de envases/etiquetas ni integración con `/api/items`.
 - Docs: se documenta el patrón UI compacto requerido para las nuevas hojas comerciales.
+
+- Código: agregado esqueleto del lote 1 en `src/` para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`.
+- Código: creados handlers `GET/POST` por colección y `GET/PATCH/DELETE` por id para las cuatro entidades nuevas.
+- Código: creadas hojas compactas de listado/alta/edición siguiendo el patrón visual actual (`page.tsx` + `*-client.tsx`, tabla densa y acciones inline).
+- Código: agregadas etiquetas de breadcrumbs para las nuevas rutas; el header principal no se amplía todavía en este lote.

@@ -13,12 +13,13 @@ Rutas principales enlazadas (v2):
 - `/items-manuales` (Items Manuales — catálogo y edición)
 - `/productos` (Items Formulados — UI de Producto / fórmula v2; ver nota de naming)
 - `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
+- `/dolar-historico` (Dólar Histórico)
 - `/jobs` (Jobs manual)
 
 Notas:
 
-- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
-- No se expone una hoja dedicada de DB health en el menú para evitar ruido en la zona de trabajo.
+- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. No es clickeable.
+- Existe una hoja técnica `/db-health`, pero no está enlazada en el menú principal.
 
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`
@@ -66,7 +67,7 @@ Notas:
 
 ## vNext — Hojas nuevas (primer corte)
 
-Primer lote de hojas propuesto, alineado con el patrón actual `page.tsx` + `*-client.tsx`:
+Primer lote de hojas ya esbozado en `src/`, alineado con el patrón actual `page.tsx` + `*-client.tsx`:
 
 - `/items-comerciales`
 - `/items-envases`
@@ -84,3 +85,20 @@ En esta primera iteración, las hojas nuevas **no** se incorporan todavía al he
 - Tabla compacta de catálogo.
 - Acciones inline `Ver`, `Editar`, `Eliminar`.
 - `Items Etiqueta` agrega columna `Medidas` con formato `ancho x largo`.
+
+## vNext — Lote 1 implementado en `src`
+
+Rutas nuevas creadas en el snapshot de trabajo:
+
+- `/items-comerciales`, `/items-comerciales/new`, `/items-comerciales/[item_comercial_id]`
+- `/items-envases`, `/items-envases/new`, `/items-envases/[item_envase_id]`
+- `/items-etiqueta`, `/items-etiqueta/new`, `/items-etiqueta/[item_etiqueta_id]`
+- `/items-paqueteria`, `/items-paqueteria/new`, `/items-paqueteria/[item_paqueteria_id]`
+
+Criterios de esta primera implementación:
+
+- no se incorporan todavía al header principal;
+- sí se agregan labels de breadcrumbs para las nuevas rutas;
+- `Items Comerciales` solo cubre alta/edición base (`nombre`, `descripcion`, `cantidad`, `unidad`, origen técnico único);
+- todavía no se editan asociaciones a envases/etiquetas desde la UI;
+- la edición de densidad desde `Items Comerciales` queda para el siguiente corte, porque la densidad sigue viviendo en el origen técnico.

@@ -29,6 +29,14 @@ function labelForSegment(seg: string): string {
       return "Insumos";
     case "dolar-historico":
       return "Dólar Histórico";
+    case "items-comerciales":
+      return "Items Comerciales";
+    case "items-envases":
+      return "Items Envases";
+    case "items-etiqueta":
+      return "Items Etiqueta";
+    case "items-paqueteria":
+      return "Items Paquetería";
     default:
       return seg.replace(/-/g, " ");
   }
