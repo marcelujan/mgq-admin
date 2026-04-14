@@ -24,34 +24,83 @@ Fuera de alcance por ahora:
 - En PuraQuimica la ausencia de SKU no bloquea ni degrada el preview/create.
 - La identidad mínima aceptada del item proveedor PuraQuimica es `url_canonica` + `descripcion_fuente` cuando existe.
 
-## 2026-04-14 — Línea de trabajo aceptada para capa comercial (no implementada aún)
 
-Se fija la siguiente terminología operativa para la evolución comercial de la app:
+## 2026-04-14 — Capa comercial futura (dirección aceptada, no implementada aún)
 
-- **Items Comerciales**: nombre preferido para la futura capa comercial operativa.
-- **Items Envases** y **Items Paquetería**: listas separadas, fuera de las listas actuales de Proveedor / Manual / Formulado.
+Se fija la siguiente dirección funcional para la evolución comercial de la app, sin declararla como implementada todavía:
 
-Aclaraciones:
+### Capas
 
-- Esto **no** implica cambio inmediato de esquema ni migración masiva.
-- Mientras no exista un cambio explícito de dominio, la app mantiene sus entidades actuales (`producto`, `item_formulado`, `offers`, `producto_oferta`, `cost_option`, etc.).
-- La intención aceptada es que la capa comercial se apoye sobre un objeto listo para vender, etiquetar, envasar, costear y luego publicar, pero su implementación concreta queda pendiente de diagnóstico completo.
+- **Orígenes técnicos**: `PROVEEDOR`, `MANUAL`, `FORMULADO`.
+- **Items Formulados**: deben tender a representar **bulks técnicos**.
+- **Catálogos operativos futuros**: `Items Envases`, `Items Etiqueta`, `Items Paquetería`.
+- **Capa comercial futura**: `Items Comerciales`, creada manualmente solo para los casos que efectivamente se van a vender.
 
-Regla de alcance aceptada para la próxima etapa:
+### Reglas aceptadas
 
-- No se crearán ítems comerciales de forma masiva.
-- Solo se crearán manualmente los ítems comerciales de interés a partir de ítems Proveedor, Manual o Formulado que efectivamente se quieran comercializar.
+- Cada `Item Comercial` referencia **un único origen técnico**.
+- Si para vender algo hay que consolidar varios orígenes, esa consolidación debe ocurrir primero en `Items Formulados`, y luego el `Item Comercial` nace de ese formulado consolidado.
+- `Item Comercial` no crea envases/etiquetas/paquetería desde cero: selecciona ítems existentes de los catálogos operativos.
+- Los campos del `Item Comercial` deben permanecer **editables** luego del alta, incluido el nombre.
 
-Regla operativa proyectada (todavía no implementada):
+### Campos mínimos aceptados para `Item Comercial`
 
-- Las futuras hojas **Items Comerciales**, **Items Envases** e **Items Paquetería** deberán integrarse a la tabla general de `/items` para poder verificar su actualización de precios / costos con el mismo criterio operacional visible desde la hoja Items.
+**Obligatorios**
+- nombre
+- origen técnico único
+- cantidad
+- unidad
 
-## 2026-04-14 — Línea futura de etiquetado con BarTender (no implementada aún)
+**Condicionales**
+- densidad, solo si la conversión `GR ↔ ML` es necesaria para controlar stock
 
-Se adopta la siguiente línea técnica para no perder continuidad funcional:
+**Opcionales**
+- descripción
+- asociaciones a `Items Envases`
+- asociaciones a `Items Etiqueta`
+- paquetería usada al preparar la venta
 
-- `mgq-admin` será la **fuente de verdad** para los datos de etiquetado.
-- **BarTender Designer 2022 R8** y las impresoras **Honeywell PC42t Plus** / **TSC TE200** se consideran parte de la futura capa de impresión estandarizada.
-- La integración objetivo será de **lectura** desde una estructura preparada por la app (vista, consulta o tabla derivada), evitando que BarTender gobierne estados operativos del sistema.
-- El etiquetado queda separado conceptualmente de pricing, snapshots y publicación comercial; se documenta ahora como línea futura, no como funcionalidad vigente.
+### Unidades operativas
 
+La app continúa trabajando exclusivamente con las unidades internas ya existentes:
+
+- `GR`
+- `ML`
+- `UN`
+
+Reglas:
+
+- El origen técnico define la unidad operativa de stock.
+- `Item Comercial` puede venderse en otra cantidad/unidad, pero siempre consume del origen técnico normalizando contra esa unidad.
+- En `UN`, el `Item Comercial` puede representar packs o agrupaciones (por ejemplo, `1000 UN`) siempre que el consumo por venta sea una cantidad entera positiva de `UN`.
+- Si la conversión entre masa y volumen es necesaria, se exige densidad única del origen técnico.
+
+### Densidad
+
+- Existe una sola densidad por cada origen técnico (`MANUAL`, `FORMULADO`, `PROVEEDOR`).
+- No es obligatoria al crear el origen técnico.
+- Al crear o editar un `Item Comercial`, la densidad del origen técnico debe mostrarse allí mismo y poder editarse, sin crear una segunda densidad comercial.
+- Si no es necesaria para la unidad elegida, el flujo puede continuar sin densidad.
+- Si es necesaria para la conversión `GR ↔ ML`, el ingreso numérico de densidad es obligatorio.
+
+### Stock y ofertabilidad
+
+- La app no modela stock de producto terminado para `Items Comerciales`; modela **capacidad armable** a partir del stock real de los orígenes técnicos y de los componentes operativos obligatorios.
+- Un `Item Comercial` es ofertable si tiene stock suficiente de su origen técnico y de todos sus componentes **bloqueantes** para al menos una unidad.
+- Los componentes bloqueantes aceptados son:
+  - contenido base / origen técnico
+  - `Item Envase`
+  - `Item Etiqueta`
+  - accesorio/extra obligatorio si aplica
+- `Item Paquetería` **no bloquea** la oferta: se informa manualmente al preparar el pedido y solo descuenta stock para control operativo.
+
+### Etiquetas
+
+- `Item Etiqueta` funciona como consumible bloqueante y, además, aporta el dato operativo mínimo para la futura impresión con BarTender.
+- El dato útil adicional aceptado es un único campo de medidas en formato `ancho x largo` (milímetros), por ejemplo `100 x 50`.
+- La futura integración con BarTender deberá usar a `mgq-admin` como fuente de verdad y tomar desde `Item Etiqueta` el tamaño necesario para asociar el modelo adecuado de impresión.
+
+### Movimientos no comerciales
+
+- Las salidas no comerciales (`consumo interno`, `regalo/muestra`, `merma/pérdida`, `ajuste`) deben operar sobre el stock de los **orígenes técnicos**, no sobre `Items Comerciales`.
+- Esto evita duplicar lógica de stock en la capa comercial y preserva una única fuente real de inventario.

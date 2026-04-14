@@ -1,20 +1,17 @@
 ## Unreleased
-- Docs: `05_FRONTEND.md` alineado con el código actual del header (incluye `Dólar Histórico`, indicador DB no clickeable y hoja `/db-health` no enlazada).
-- Docs: registrada línea futura para `Items Comerciales`, `Items Envases`, `Items Paquetería` e integración futura con la tabla general `Items`.
-- Docs: registrada línea futura de etiquetado con BarTender Designer 2022 R8 como consumidor de lectura desde `mgq-admin`.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
 - Fix histórico formulados: `/api/items/[item_id]/price-history` prioriza el BULK activo con más snapshots/continuidad.
 
-- 2026-02-22: DB health: se mantiene como indicador visual en header; `/db-health` sigue disponible como hoja técnica no enlazada y `/api/db-health` como endpoint de diagnóstico.
+- 2026-02-22: DB health: se elimina entrada de menú/hoja; el indicador 'DB' en header es clickeable y abre `/api/db-health`.
 
 ## UI v2 — Reordenamiento de navegación y hojas por tipo de Item
-- Header: orden fijo: Items → Items Manuales → Items Formulados → Items Proveedores → Dólar Histórico → Jobs manual.
+- Header: orden fijo: Items → Items Manuales → Items Formulados → Items Proveedores → Jobs manual → DB health.
 - `/items`: se elimina acción de alta; queda como vista agregada.
 - `/items-manuales`: alta + edición de manuales (cost_option MANUAL_PRESENTACION).
 - `/items-proveedores`: alta por URLs + panel embebido de Jobs diario.
-- DB health: indicador (verde/rojo) en header; página técnica `/db-health` no enlazada en el menú.
+- DB health: indicador (verde/rojo) en header + página `/db-health`.
 
 - Fix: costo-bulk ahora resuelve BULK_PRODUCTO preferiendo snapshot diario (evita error "fórmula sin líneas" cuando el componente ya tiene snapshot válido).
 
@@ -101,3 +98,10 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Fix proveedor EUMA: ya no se escribe `proveedor.motor_id_default = 2` en `app.proveedor`; la asociación al motor 2 queda inferida por URL en el flujo bulk/preview.
 
 - Fix UI: el icono eliminar en **Items formulados** dejó de estar deshabilitado y ahora ejecuta el mismo DELETE de formulados que la hoja `Items`.
+
+
+## 2026-04-14
+
+- Docs: corregido `05_FRONTEND.md` para reflejar el estado real actual del header: incluye `Dólar Histórico`, el indicador DB no es clickeable y `/db-health` existe como hoja técnica no enlazada en el menú principal.
+- Docs: registrada en `09_DECISIONES_TECNICAS.md` la dirección futura aceptada para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería` (sin declararla como implementada).
+- Docs: fijadas reglas de stock y ofertabilidad para `Items Comerciales`: origen técnico único, unidades internas `GR | ML | UN`, densidad única por origen técnico y salidas no comerciales operando sobre orígenes técnicos.
