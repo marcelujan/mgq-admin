@@ -23,72 +23,37 @@ Este archivo es el “mapa curado” del esquema (orientado a decisiones de prod
 - Mismatch de presentación es una causa esperable de FAIL: `last_error like 'no_or_invalid_price_for_presentacion:%'`.
 
 
+---
 
-## Propuesta mínima — Línea comercial v2 (no implementada aún)
+## Propuesta vNext — Capa comercial nueva (2026-04-14)
 
-Esta sección no describe el estado actual de la base. Describe el corte mínimo propuesto para soportar `Items Comerciales` sin alterar la base viva de `PROVEEDOR`, `MANUAL` y `FORMULADO`.
+Se propone **no reutilizar** `app.producto_oferta*` ni `app.packaging_item` como base conceptual de la nueva comercialización. La base viva actual permanece en:
 
-### Matriz de tablas nuevas propuestas
+- `app.item_seguimiento` (PROVEEDOR)
+- `app.cost_option` (MANUAL)
+- `app.item_formulado` (FORMULADO)
 
-| Tabla propuesta | PK | FKs mínimas | Checks mínimos | Índices mínimos | Notas |
-|---|---|---|---|---|---|
-| `app.item_comercial` | `item_comercial_id` | `proveedor_item_id -> app.item_seguimiento(item_id)`; `manual_cost_option_id -> app.cost_option(cost_option_id)`; `formulado_item_formulado_id -> app.item_formulado(item_formulado_id)` | exactamente una FK de origen técnico debe estar informada; `unidad in ('GR','ML','UN')`; `cantidad > 0` | índice por cada FK de origen; índice por `activo`; índice por `nombre` | Variante vendible concreta. No guarda stock propio ni una segunda densidad. |
-| `app.item_envase` | `item_envase_id` | `proveedor_item_id -> app.item_seguimiento(item_id)`; `manual_cost_option_id -> app.cost_option(cost_option_id)` | exactamente una FK de origen técnico; `activo` not null | índice por cada FK de origen; índice por `activo`; índice por `nombre` | Catálogo separado de envases y accesorios funcionales. |
-| `app.item_etiqueta` | `item_etiqueta_id` | `proveedor_item_id -> app.item_seguimiento(item_id)`; `manual_cost_option_id -> app.cost_option(cost_option_id)` | exactamente una FK de origen técnico; `medidas` not null; `activo` not null | índice por cada FK de origen; índice por `activo`; índice por `medidas` | Consumible exigible por variante. `medidas` usa formato `ancho x largo`. |
-| `app.item_paqueteria` | `item_paqueteria_id` | `proveedor_item_id -> app.item_seguimiento(item_id)`; `manual_cost_option_id -> app.cost_option(cost_option_id)` | exactamente una FK de origen técnico; `activo` not null | índice por cada FK de origen; índice por `activo`; índice por `nombre` | No bloquea ofertabilidad; solo control de stock. |
-| `app.item_comercial_envase` | `item_comercial_envase_id` | `item_comercial_id -> app.item_comercial(item_comercial_id)`; `item_envase_id -> app.item_envase(item_envase_id)` | `cantidad > 0`; `obligatorio` not null; UNIQUE (`item_comercial_id`, `item_envase_id`) | índice por `item_comercial_id`; índice por `item_envase_id` | Relación N:M entre comercial y envases requeridos. |
-| `app.item_comercial_etiqueta` | `item_comercial_etiqueta_id` | `item_comercial_id -> app.item_comercial(item_comercial_id)`; `item_etiqueta_id -> app.item_etiqueta(item_etiqueta_id)` | `cantidad > 0`; `obligatorio` not null; UNIQUE (`item_comercial_id`, `item_etiqueta_id`) | índice por `item_comercial_id`; índice por `item_etiqueta_id` | Relación N:M entre comercial y etiquetas requeridas. |
+Sobre esa base se agrega una capa nueva mínima:
 
-### Campos mínimos recomendados por tabla
+- `app.item_comercial`
+- `app.item_envase`
+- `app.item_etiqueta`
+- `app.item_paqueteria`
+- `app.item_comercial_envase`
+- `app.item_comercial_etiqueta`
 
-#### `app.item_comercial`
+### Reglas estructurales fijadas
 
-- `item_comercial_id`
-- `nombre` — obligatorio y editable
-- `descripcion` — opcional y editable
-- `cantidad` — obligatorio
-- `unidad` — obligatorio (`GR`, `ML`, `UN`)
-- `activo`
-- `proveedor_item_id` / `manual_cost_option_id` / `formulado_item_formulado_id`
-- `created_at`
-- `updated_at`
+- `item_comercial` nace de **un único origen técnico**.
+- Un origen técnico posible es exactamente uno de:
+  - `app.item_seguimiento.item_id`
+  - `app.cost_option.cost_option_id`
+  - `app.item_formulado.item_formulado_id`
+- `item_envase`, `item_etiqueta` e `item_paqueteria` nacen de un origen `PROVEEDOR` o `MANUAL`.
+- No se crea relación fija `item_comercial_paqueteria` en esta fase.
+- `item_comercial` **no** almacena stock propio.
+- Las unidades internas oficiales siguen siendo `GR`, `ML` y `UN`.
 
-#### `app.item_envase`
+### Script listo para correr
 
-- `item_envase_id`
-- `nombre`
-- `descripcion`
-- `activo`
-- `proveedor_item_id` / `manual_cost_option_id`
-- `created_at`
-- `updated_at`
-
-#### `app.item_etiqueta`
-
-- `item_etiqueta_id`
-- `nombre`
-- `material`
-- `medidas`
-- `descripcion`
-- `activo`
-- `proveedor_item_id` / `manual_cost_option_id`
-- `created_at`
-- `updated_at`
-
-#### `app.item_paqueteria`
-
-- `item_paqueteria_id`
-- `nombre`
-- `descripcion`
-- `activo`
-- `proveedor_item_id` / `manual_cost_option_id`
-- `created_at`
-- `updated_at`
-
-### Invariantes nuevas propuestas
-
-- `Item Comercial` siempre referencia un único origen técnico.
-- La ofertabilidad mira contenido base + componentes obligatorios de `Item Envase` y `Item Etiqueta`.
-- `Item Paquetería` no bloquea la oferta.
-- El stock real sigue anclado al origen técnico; `Item Comercial` no guarda stock propio.
-- Los movimientos no comerciales siguen operando sobre `MANUAL`, `PROVEEDOR` o `FORMULADO`.
+Ver: `docs/db/2026_04_14_item_comercial_vnext.sql`

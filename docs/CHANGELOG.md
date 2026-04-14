@@ -1,7 +1,4 @@
 ## Unreleased
-- Docs: añadidos endpoints mínimos y pantallas UI mínimas propuestas para la línea comercial v2 (`Items Comerciales`, `Items Envases`, `Items Etiqueta`, `Items Paquetería`).
-- Docs: añadida matriz de esquema mínimo propuesto para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería` (tablas nuevas, PK/FKs, checks e índices mínimos).
-- Docs: corregido `05_FRONTEND.md` al estado real actual del menú/DB health y consolidada la dirección futura de `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`, incluyendo lineamientos de UI compacta.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
@@ -104,6 +101,6 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 
 ## 2026-04-14
 
-- Docs: agregados payloads mínimos propuestos para la línea comercial v2 en `04_API_BACKEND.md`.
-- Docs: fijado orden corto de implementación (`BD -> catálogos -> items comerciales -> integración con Items`) en `09_DECISIONES_TECNICAS.md`.
-- Docs: consolidado criterio de contratos API en `snake_case` y respuestas `{ ok: ... }` para la nueva capa comercial.
+- Docs: definido primer lote mínimo de endpoints vNext para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`.
+- Docs: se fija que el lote 1 no incluye todavía asociaciones de envases/etiquetas ni integración con `/api/items`.
+- Docs: se documenta el patrón UI compacto requerido para las nuevas hojas comerciales.

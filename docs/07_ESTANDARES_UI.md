@@ -195,62 +195,46 @@ Separación estricta de responsabilidades.
 - Tipografía, paddings y acciones deben seguir el mismo patrón de tablas compactas del resto de la app.
 - Los gráficos históricos simples deben exponer selector de intervalo cuando sigan el patrón de publicaciones/productos (`30`, `60`, `100`, `180`, `365`, `Todo`) y arrancar en `30 días`.
 
+## Regla adicional — nuevas hojas comerciales vNext
 
-## Estándar visual observado en código (snapshot actual)
+Las hojas `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería` deben respetar el patrón visual ya usado por `Items`, `Items Manuales` e `Items Formulados`:
 
-Convenciones confirmadas en `Items`, `Items Manuales`, `Items Proveedores`, `Items Formulados` y editor de formulados:
+- tipografía base chica (`~13px`)
+- filas de una sola línea
+- `padding` corto por celda
+- acciones inline
+- truncado con tooltip cuando haga falta
+- evitar cards grandes o layout tipo dashboard
 
-- Layout base de hoja: `padding: 16`, `display: grid`, `gap: 12`.
-- Título principal: `fontSize: 22`, `fontWeight: 700`, `margin: 0`.
-- Botones/links de cabecera: `padding: 6px 10px`, `borderRadius: 10`, `fontSize: 13`, fondo tenue.
-- Inputs/filtros: `padding: 8px 10px`, `borderRadius: 10`, borde tenue, fondo translúcido.
-- Tablas: `fontSize: 13`, encabezados con `6px 10px`, filas de una sola línea, `lineHeight: 1.2` o menor.
-- Acciones por fila: compactas, inline, sin botones grandes ni dobles renglones.
-- Textos largos: truncados con `ellipsis` + `title` para tooltip.
-- En vistas más densas (editor de formulados), se permite modo aún más compacto (`3px 8px`, iconos pequeños) para tablas auxiliares.
+### Columnas sugeridas para el primer corte
 
-## Nuevas hojas — lineamiento de UI aprobado
+#### Items Comerciales
+1. Item #
+2. Nombre
+3. Origen
+4. Cantidad
+5. Unidad
+6. Acciones
 
-### `Items Comerciales`
-- Tabla principal compacta, sin tarjetas ni layout tipo dashboard.
-- Columnas sugeridas v1:
-  1. Item #
-  2. Nombre
-  3. Origen
-  4. Cantidad
-  5. Unidad
-  6. Requisitos
-  7. Estado
-  8. Acciones
-- `Requisitos` debe resumir en una sola línea si tiene envase y/o etiqueta obligatoria.
-- `Estado` debe ser textual; no usar solo color.
-- Acciones mínimas: `Ver`, `Editar`, `Duplicar`, `Eliminar`.
+#### Items Envases
+1. Item #
+2. Nombre
+3. Origen
+4. Estado
+5. Acciones
 
-### `Items Envases`
-- Misma densidad visual que `Items Manuales`.
-- Columnas sugeridas v1:
-  1. Item #
-  2. Nombre
-  3. Origen
-  4. Estado
-  5. Actualizado
-  6. Acciones
-- No usar segunda línea por fila.
+#### Items Etiqueta
+1. Item #
+2. Nombre
+3. Material
+4. Medidas
+5. Origen
+6. Estado
+7. Acciones
 
-### `Items Etiqueta`
-- Igual patrón que `Items Envases`, agregando columna `Medidas`.
-- `Medidas` se muestra como texto corto en formato `ancho x largo`.
-- `Material` se edita en formulario, pero no necesita ocupar una segunda línea en la tabla principal.
-
-### `Items Paquetería`
-- Tabla compacta igual a `Items Envases`.
-- No mostrarla como bloqueador de oferta.
-- Debe priorizar rapidez de carga/edición de stock y nombres simples.
-
-### Formularios nuevos
-- Reutilizar patrón visual de edición de `Items Manuales`:
-  - bloque único con borde tenue y `padding: 14`
-  - labels a `fontSize: 12`
-  - campos compactos
-  - botones `Guardar` / `Eliminar` / `Volver` en cabecera
-- Evitar wizard de múltiples pasos. Mantener alta/edición en una sola hoja práctica.
+#### Items Paquetería
+1. Item #
+2. Nombre
+3. Origen
+4. Estado
+5. Acciones

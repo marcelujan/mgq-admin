@@ -520,283 +520,150 @@ Notas:
 - Los flujos USD (`motor 2 / EUMA` y `jobs/run-next`) resuelven FX con fallback a la última cotización disponible con `fecha <= fecha local de aplicación`.
 - El proveedor `EUMA` se asegura por código, pero no escribe `proveedor.motor_id_default=2` mientras la FK a `app.motor` no garantice la existencia del motor 2. El flujo bulk/preview infiere `motor_id=2` por URL.
 
-
 ---
 
-## Propuesta mínima — Endpoints comerciales v2 (no implementados aún)
+## vNext — Primer lote de endpoints propuesto
 
-Esta sección no describe rutas activas del snapshot. Describe el corte mínimo propuesto para montar la nueva línea comercial v2 reutilizando el patrón actual de Next.js App Router (`page.tsx` liviana + `*-client.tsx` + handlers REST por colección / por id).
+Objetivo: abrir una primera iteración funcional sin tocar cron, snapshots ni la hoja agregada `Items`.
 
-### Colecciones nuevas propuestas
+### Lote 1 (mínimo)
 
-#### `/api/items-comerciales`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y crear `Items Comerciales`.
-- **Query params mínimos propuestos:** `search`, `activo`, `origen_tipo`, `limit`, `offset`
-- **Payload POST mínimo propuesto:**
-  - `nombre` (obligatorio)
-  - `descripcion` (opcional)
-  - `cantidad` (obligatorio)
-  - `unidad` (`GR | ML | UN`)
-  - exactamente un origen técnico: `proveedor_item_id` o `manual_cost_option_id` o `formulado_item_formulado_id`
-- **Respuesta esperada:** fila normalizada + metadatos mínimos para tabla compacta.
+Se propone implementar primero **8 handlers**:
 
-#### `/api/items-comerciales/[item_comercial_id]`
-- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
-- **Objetivo:** ver, editar y desactivar/eliminar `Item Comercial`.
-- **PATCH:** todos los campos operativos y comerciales quedan editables.
-- **DELETE:** preferible soft delete (`activo=false`) en v1 para no perder trazabilidad de asociaciones.
+#### Catálogos operativos
 
-#### `/api/items-comerciales/[item_comercial_id]/envases`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y asociar envases al comercial.
-- **Payload POST mínimo propuesto:** `item_envase_id`, `cantidad`, `obligatorio`
+### `/api/items-envases`
+- **Archivo propuesto:** `src/app/api/items-envases/route.ts`
+- **Métodos:** `GET`, `POST`
+- **Campos base:** `nombre`, `descripcion`, `activo`, `proveedor_item_id`, `manual_cost_option_id`
+- **Regla:** exactamente un origen técnico (`PROVEEDOR` o `MANUAL`)
 
-#### `/api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]`
-- **Métodos propuestos:** `PATCH`, `DELETE`
-- **Objetivo:** editar o quitar asociación comercial ↔ envase.
-
-#### `/api/items-comerciales/[item_comercial_id]/etiquetas`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y asociar etiquetas al comercial.
-- **Payload POST mínimo propuesto:** `item_etiqueta_id`, `cantidad`, `obligatorio`
-
-#### `/api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]`
-- **Métodos propuestos:** `PATCH`, `DELETE`
-- **Objetivo:** editar o quitar asociación comercial ↔ etiqueta.
-
-#### `/api/items-comerciales/[item_comercial_id]/duplicate`
-- **Métodos propuestos:** `POST`
-- **Objetivo:** duplicar rápido una variante comercial para crear otra presentación.
-- **Debe copiar:** origen técnico, nombre base, cantidad/unidad, asociaciones de envase/etiqueta.
-- **No debe copiar automáticamente:** publicaciones, código de barras, estados transaccionales.
-
-### Catálogos operativos nuevos propuestos
-
-#### `/api/items-envases`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y crear `Items Envase`.
-- **Payload POST mínimo propuesto:** `nombre`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
-
-#### `/api/items-envases/[item_envase_id]`
-- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
-- **Objetivo:** ver, editar y desactivar/eliminar `Item Envase`.
-
-#### `/api/items-etiqueta`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y crear `Items Etiqueta`.
-- **Payload POST mínimo propuesto:** `nombre`, `material`, `medidas`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
-
-#### `/api/items-etiqueta/[item_etiqueta_id]`
-- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
-- **Objetivo:** ver, editar y desactivar/eliminar `Item Etiqueta`.
-
-#### `/api/items-paqueteria`
-- **Métodos propuestos:** `GET`, `POST`
-- **Objetivo:** listar y crear `Items Paquetería`.
-- **Payload POST mínimo propuesto:** `nombre`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
-
-#### `/api/items-paqueteria/[item_paqueteria_id]`
-- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
-- **Objetivo:** ver, editar y desactivar/eliminar `Item Paquetería`.
-
-### Principios de backend aceptados para esta línea futura
-
-- La nueva capa comercial no modifica los cron ni snapshots existentes.
-- `Items Comerciales` no guardan stock propio.
-- La ofertabilidad mira origen técnico + asociaciones obligatorias de envase / etiqueta.
-- `Items Paquetería` no bloquea oferta y no requiere asociación fija al comercial en v1.
-- La futura integración con la hoja general `Items` debe resolver una política `OK | FAIL | PEND` específica antes de activarse.
-
-
----
-
-## Línea comercial v2 — Payloads mínimos propuestos (no implementados aún)
-
-Principios de contrato alineados con el estilo actual de la app:
-- payloads en `snake_case`
-- respuestas con forma `{ ok: boolean, ... }`
-- ids numéricos
-- validaciones tempranas con `400` para campos requeridos inválidos y `422` para combinaciones semánticamente inválidas
-- `PATCH` parcial por campos presentes
-
-### `/api/items-comerciales` — POST
-
-Body mínimo:
-
-```json
-{
-  "nombre": "Lavandina x 1000 mL",
-  "descripcion": "",
-  "cantidad": 1000,
-  "unidad": "ML",
-  "proveedor_item_id": 123,
-  "manual_cost_option_id": null,
-  "formulado_item_formulado_id": null,
-  "densidad_g_ml": 1.08
-}
-```
-
-Reglas:
-- exactamente una FK de origen técnico debe estar informada
-- `cantidad > 0`
-- `unidad in ('GR','ML','UN')`
-- `densidad_g_ml` solo se exige si la conversión `GR ↔ ML` la necesita
-
-Response esperada:
-
-```json
-{ "ok": true, "item_comercial_id": 10 }
-```
-
-### `/api/items-comerciales/[item_comercial_id]` — PATCH
-
-Body parcial típico:
-
-```json
-{
-  "nombre": "Lavandina x 1 L",
-  "descripcion": "Bidón blanco",
-  "cantidad": 1000,
-  "unidad": "ML",
-  "densidad_g_ml": 1.08,
-  "activo": true
-}
-```
-
-Notas:
-- no cambia el origen técnico en v1; si hiciera falta cambiarlo, conviene crear otro `Item Comercial`
-- todos los campos del `Item Comercial` quedan editables después del alta
-
-### `/api/items-comerciales/[item_comercial_id]/duplicate` — POST
-
-Body opcional:
-
-```json
-{ "nombre": "Lavandina x 5 L" }
-```
-
-Comportamiento esperado:
-- duplica nombre/cantidad/unidad/descripción y asociaciones a envases/etiquetas
-- no duplica publicaciones ni estados transaccionales
-
-### `/api/items-comerciales/[item_comercial_id]/envases` — POST
-
-Body mínimo:
-
-```json
-{
-  "item_envase_id": 7,
-  "cantidad": 1,
-  "obligatorio": true
-}
-```
-
-Response esperada:
-
-```json
-{ "ok": true, "item_comercial_envase_id": 41 }
-```
-
-### `/api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]` — PATCH
-
-Body parcial típico:
-
-```json
-{
-  "cantidad": 2,
-  "obligatorio": true
-}
-```
-
-### `/api/items-comerciales/[item_comercial_id]/etiquetas` — POST
-
-Body mínimo:
-
-```json
-{
-  "item_etiqueta_id": 12,
-  "cantidad": 1,
-  "obligatorio": true
-}
-```
-
-### `/api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]` — PATCH
-
-Body parcial típico:
-
-```json
-{
-  "cantidad": 1,
-  "obligatorio": true
-}
-```
-
-### `/api/items-envases` — POST
-
-Body mínimo:
-
-```json
-{
-  "nombre": "Botella PET 1 L",
-  "descripcion": "",
-  "proveedor_item_id": 321,
-  "manual_cost_option_id": null,
-  "activo": true
-}
-```
-
-Regla:
-- exactamente una FK de origen técnico (`PROVEEDOR` o `MANUAL`)
-
-### `/api/items-etiqueta` — POST
-
-Body mínimo:
-
-```json
-{
-  "nombre": "Etiqueta lavandina 100 x 50",
-  "material": "Papel adhesivo",
-  "medidas": "100 x 50",
-  "descripcion": "",
-  "proveedor_item_id": null,
-  "manual_cost_option_id": 55,
-  "activo": true
-}
-```
-
-Regla:
-- `medidas` obligatoria en formato visible `ancho x largo`
-- `material` y `medidas` son los únicos campos propios agregados a `Item Etiqueta` en v1
-
-### `/api/items-paqueteria` — POST
-
-Body mínimo:
-
-```json
-{
-  "nombre": "Caja cartón mediana",
-  "descripcion": "",
-  "proveedor_item_id": 500,
-  "manual_cost_option_id": null,
-  "activo": true
-}
-```
-
-Notas:
-- paquetería no bloquea ofertabilidad
-- no se asocia fijo al `Item Comercial` en v1
-
-### GETs mínimos esperados
-
-Todas las colecciones deben soportar, al menos:
+**GET — query params sugeridos**
 - `search`
-- `include_inactivos=true|false`
+- `activo`
 - `limit`
 - `offset`
 
-Y responder con forma compacta, por ejemplo:
+**POST — body mínimo**
+```json
+{
+  "nombre": "Botella 500 ml",
+  "descripcion": "PET transparente",
+  "activo": true,
+  "proveedor_item_id": 123
+}
+```
+
+o
 
 ```json
-{ "ok": true, "items": [], "count": 0 }
+{
+  "nombre": "Tapa rosca 28 mm",
+  "manual_cost_option_id": 456
+}
 ```
+
+### `/api/items-envases/[item_envase_id]`
+- **Archivo propuesto:** `src/app/api/items-envases/[item_envase_id]/route.ts`
+- **Métodos:** `GET`, `PATCH`, `DELETE`
+- **PATCH:** parcial por campos presentes
+
+---
+
+### `/api/items-etiqueta`
+- **Archivo propuesto:** `src/app/api/items-etiqueta/route.ts`
+- **Métodos:** `GET`, `POST`
+- **Campos base:** `nombre`, `material`, `medidas`, `descripcion`, `activo`, `proveedor_item_id`, `manual_cost_option_id`
+- **Regla:** exactamente un origen técnico (`PROVEEDOR` o `MANUAL`)
+
+**POST — body mínimo**
+```json
+{
+  "nombre": "Etiqueta lavandina 100 x 50",
+  "material": "Autoadhesiva",
+  "medidas": "100 x 50",
+  "proveedor_item_id": 123
+}
+```
+
+### `/api/items-etiqueta/[item_etiqueta_id]`
+- **Archivo propuesto:** `src/app/api/items-etiqueta/[item_etiqueta_id]/route.ts`
+- **Métodos:** `GET`, `PATCH`, `DELETE`
+
+---
+
+### `/api/items-paqueteria`
+- **Archivo propuesto:** `src/app/api/items-paqueteria/route.ts`
+- **Métodos:** `GET`, `POST`
+- **Campos base:** `nombre`, `descripcion`, `activo`, `proveedor_item_id`, `manual_cost_option_id`
+- **Regla:** exactamente un origen técnico (`PROVEEDOR` o `MANUAL`)
+
+### `/api/items-paqueteria/[item_paqueteria_id]`
+- **Archivo propuesto:** `src/app/api/items-paqueteria/[item_paqueteria_id]/route.ts`
+- **Métodos:** `GET`, `PATCH`, `DELETE`
+
+---
+
+#### Comerciales base
+
+### `/api/items-comerciales`
+- **Archivo propuesto:** `src/app/api/items-comerciales/route.ts`
+- **Métodos:** `GET`, `POST`
+- **Campos base:** `nombre`, `descripcion`, `cantidad`, `unidad`, `densidad_g_ml`, `activo`, y exactamente un origen técnico (`proveedor_item_id`, `manual_cost_option_id`, `formulado_item_formulado_id`)
+
+**GET — query params sugeridos**
+- `search`
+- `activo`
+- `origen_tipo` (`PROVEEDOR | MANUAL | FORMULADO`)
+- `limit`
+- `offset`
+
+**POST — body mínimo**
+```json
+{
+  "nombre": "Lavandina x 500 mL",
+  "descripcion": "Uso doméstico",
+  "cantidad": 500,
+  "unidad": "ML",
+  "formulado_item_formulado_id": 12
+}
+```
+
+**POST — ejemplo UN**
+```json
+{
+  "nombre": "Sahumerios x 1000 unidades",
+  "cantidad": 1000,
+  "unidad": "UN",
+  "manual_cost_option_id": 345
+}
+```
+
+**POST — ejemplo con densidad requerida**
+```json
+{
+  "nombre": "Producto x 1 L",
+  "cantidad": 1000,
+  "unidad": "ML",
+  "manual_cost_option_id": 345,
+  "densidad_g_ml": 1.03
+}
+```
+
+### `/api/items-comerciales/[item_comercial_id]`
+- **Archivo propuesto:** `src/app/api/items-comerciales/[item_comercial_id]/route.ts`
+- **Métodos:** `GET`, `PATCH`, `DELETE`
+- **PATCH:** parcial por campos presentes; todos los campos del `Item Comercial` permanecen editables
+
+---
+
+## Fuera de este lote 1
+
+No entran todavía:
+
+- `/api/items-comerciales/[item_comercial_id]/envases`
+- `/api/items-comerciales/[item_comercial_id]/etiquetas`
+- `/api/items-comerciales/[item_comercial_id]/duplicate`
+- integración de `COMERCIAL / ENVASE / ETIQUETA / PAQUETERIA` dentro de `/api/items`
+
+Motivo: mantener el primer corte corto, validable y sin abrir demasiados frentes a la vez.

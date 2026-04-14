@@ -13,13 +13,12 @@ Rutas principales enlazadas (v2):
 - `/items-manuales` (Items Manuales — catálogo y edición)
 - `/productos` (Items Formulados — UI de Producto / fórmula v2; ver nota de naming)
 - `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
-- `/dolar-historico` (Dólar Histórico)
 - `/jobs` (Jobs manual)
 
 Notas:
 
-- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. No es clickeable.
-- Existe una hoja técnica `/db-health` y un endpoint `/api/db-health`, pero la hoja no se enlaza desde el menú principal.
+- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
+- No se expone una hoja dedicada de DB health en el menú para evitar ruido en la zona de trabajo.
 
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`
@@ -65,128 +64,23 @@ Notas:
 
 - La hoja **Items formulados** reutiliza el hard-delete de `FORMULADO` vía `/api/items/fprod:<producto_id>`, igual que la hoja general `Items`.
 
+## vNext — Hojas nuevas (primer corte)
 
-## Línea futura aceptada — nuevas hojas comerciales
+Primer lote de hojas propuesto, alineado con el patrón actual `page.tsx` + `*-client.tsx`:
 
-Dirección aprobada para la próxima iteración (todavía no implementada en código):
-
-- `Items Comerciales`
-- `Items Envases`
-- `Items Etiqueta`
-- `Items Paquetería`
-
-Reglas funcionales ya cerradas:
-
-- `Item Comercial` nace de **un único origen técnico** (`PROVEEDOR`, `MANUAL` o `FORMULADO`).
-- `Item Comercial` guarda como mínimo: `nombre`, `cantidad`, `unidad`; `descripción` es opcional.
-- Todos los campos del `Item Comercial` quedan **editables** luego del alta.
-- `Items Envases` e `Items Etiqueta` pueden bloquear ofertabilidad **solo si esa variante los marca como obligatorios**.
-- `Items Paquetería` no bloquea la oferta; se informa manualmente al preparar la venta y solo afecta control de stock.
-- La UI de estas nuevas hojas debe seguir el patrón compacto actual: tablas densas, una línea por fila, acciones inline e inputs pequeños.
-
-
-## Línea futura aceptada — pantallas mínimas v2
-
-Patrón a respetar, alineado con el snapshot actual:
-
-- `page.tsx` liviana
-- `*-client.tsx` para la grilla principal
-- tablas compactas de una sola línea por fila
-- acciones inline (`Ver`, `Editar`, `Duplicar`, `Eliminar`)
-- formularios simples, sin wizard
-
-### `Items Comerciales`
-
-Rutas propuestas:
 - `/items-comerciales`
-- `/items-comerciales/new`
-- `/items-comerciales/[item_comercial_id]`
-
-Tabla principal propuesta:
-- `Item #`
-- `Nombre`
-- `Origen`
-- `Cantidad`
-- `Unidad`
-- `Requisitos`
-- `Estado`
-- `Acciones`
-
-Editor propuesto:
-- bloque principal con `nombre`, `descripción`, `origen técnico`, `cantidad`, `unidad`
-- densidad visible/editable solo cuando la conversión `GR ↔ ML` la necesite
-- tablas auxiliares compactas para asociaciones a `Items Envase` y `Items Etiqueta`
-
-### `Items Envases`
-
-Rutas propuestas:
 - `/items-envases`
-- `/items-envases/new`
-- `/items-envases/[item_envase_id]`
-
-Tabla principal propuesta:
-- `Item #`
-- `Nombre`
-- `Origen`
-- `Estado`
-- `Actualizado`
-- `Acciones`
-
-Editor propuesto:
-- `nombre`
-- `descripción`
-- `origen`
-- `activo`
-
-### `Items Etiqueta`
-
-Rutas propuestas:
 - `/items-etiqueta`
-- `/items-etiqueta/new`
-- `/items-etiqueta/[item_etiqueta_id]`
-
-Tabla principal propuesta:
-- `Item #`
-- `Nombre`
-- `Material`
-- `Medidas`
-- `Origen`
-- `Estado`
-- `Acciones`
-
-Editor propuesto:
-- `nombre`
-- `material`
-- `medidas` (`ancho x largo`)
-- `descripción`
-- `origen`
-- `activo`
-
-### `Items Paquetería`
-
-Rutas propuestas:
 - `/items-paqueteria`
-- `/items-paqueteria/new`
-- `/items-paqueteria/[item_paqueteria_id]`
 
-Tabla principal propuesta:
-- `Item #`
-- `Nombre`
-- `Origen`
-- `Estado`
-- `Actualizado`
-- `Acciones`
+En esta primera iteración, las hojas nuevas **no** se incorporan todavía al header ni a la hoja agregada `Items`. Primero deben validarse sus entidades y handlers mínimos.
 
-Editor propuesto:
-- `nombre`
-- `descripción`
-- `origen`
-- `activo`
+### Items Comerciales
+- Tabla compacta.
+- Columnas mínimas: `Item #`, `Nombre`, `Origen`, `Cantidad`, `Unidad`, `Acciones`.
+- Alta/edición con formulario simple, sin wizard.
 
-### Criterios visuales obligatorios para estas hojas
-
-- tipografía compacta, alineada con `Items`, `Items Manuales` e `Items Proveedores`
-- sin dobles renglones por fila
-- truncado con tooltip para textos largos
-- botones y acciones chicas
-- evitar cards grandes o layouts tipo dashboard
+### Items Envases / Items Etiqueta / Items Paquetería
+- Tabla compacta de catálogo.
+- Acciones inline `Ver`, `Editar`, `Eliminar`.
+- `Items Etiqueta` agrega columna `Medidas` con formato `ancho x largo`.
