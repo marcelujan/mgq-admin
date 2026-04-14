@@ -40,10 +40,10 @@ GET:
 
 ### `/api/cost-options/[cost_option_id]`
 - **Archivo:** `src/app/api/cost-options/[cost_option_id]/route.ts`
-- **Métodos:** GET, PATCH, DELETE
+- **Métodos:** PATCH
 - **Query params:** (ninguno detectado)
 - **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `formula_linea_v2`
-- **Response keys (heurístico):** `cost_option_id`, `deleted`, `error`, `kind`, `ok`
+- **Response keys (heurístico):** `cost_option_id`, `error`, `ok`
 
 ---
 
@@ -136,14 +136,14 @@ GET:
 - **Archivo:** `src/app/api/items/route.ts`
 - **Métodos:** GET
 - **Query params:** `estado`, `limit`, `offset`, `search`, `seleccionado`, `tipo`
-- **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `oferta_proveedor`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
+- **Tablas (referencias):** `cost_option`, `cost_option_snapshot`, `item_formulado`, `item_formulado_snapshot`, `item_price_daily_pres`, `item_seguimiento`, `producto`, `producto_formula_linea_v2`, `producto_formula_v2`, `proveedor`
 - **Response keys (heurístico):** `count`, `error`, `ok`
 
 **Docstring / comentario:**
 
 ```
 Unificación de Items:
-- PROVEEDOR: app.item_seguimiento (+ `descripcion_fuente` / `articulo_prov`; fallback a `oferta_proveedor.descripcion` si existe)
+- PROVEEDOR: app.item_seguimiento
 - FORMULADO (virtual): producto con fórmula v2 (por header o por líneas)
 - MANUAL (catálogo): app.cost_option tipo='MANUAL_PRESENTACION'
 item_key:
@@ -231,14 +231,14 @@ configuración por hostname de la URL.
 - **Archivo:** `src/app/api/ofertas/route.ts`
 - **Métodos:** GET, POST
 - **Query params:** `item_id`
-- **Tablas (referencias):** `item_price_daily_pres`, `item_seguimiento`, `motor_proveedor`, `offers`, `proveedor`
+- **Tablas (referencias):** `motor_proveedor`, `offers`, `proveedor`
 - **Response keys (heurístico):** `count`, `error`, `inserted_created`, `inserted_updated`, `lido`, `motor_id`, `offers`, `ok`, `prices_len`, `proveedor_codigo`, `proveedor_id`, `url_canonica`
 
 ### `/api/ofertas/bulk`
 - **Archivo:** `src/app/api/ofertas/bulk/route.ts`
 - **Métodos:** POST
 - **Query params:** (ninguno detectado)
-- **Tablas (referencias):** `item_price_daily_pres`, `item_seguimiento`, `motor_proveedor`, `offers`, `proveedor`
+- **Tablas (referencias):** `item_seguimiento`, `offers`, `proveedor`
 - **Response keys (heurístico):** `code`, `debug`, `detail`, `error`, `hint`, `inactivo`, `inexistente`, `ok`, `pg`, `proveedor_nombre`, `where`
 
 **Docstring / comentario:**
@@ -246,9 +246,7 @@ configuración por hostname de la URL.
 ```
 Crea:
  - 1 fila en app.item_seguimiento por URL (si no existe)
- - persiste `descripcion_fuente` / `articulo_prov` capturados por el motor en `item_seguimiento`
  - N filas en app.offers (una por presentación encontrada por el motor)
- - siembra `item_price_daily_pres` para `current_date` con los precios detectados al alta
 ```
 
 ### `/api/ofertas/bulk/preview`
@@ -476,41 +474,36 @@ Devuelve productos + densidad + ars_por_kg.
 
 Elimina definitivamente el entity subyacente al `item_key` unificado.
 
-- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123`, `p:270`, `mopt:45`.
+- `item_id`: `item_key` (URL-encoded), por ejemplo: `fprod:123`.
 
 ### FORMULADO (fprod:<producto_id>)
 
 Hard-delete destructivo. Borra, en orden:
 
+- referencias externas donde ese formulado se usa como componente `BULK_PRODUCTO` en otras fórmulas:
+  - `app.producto_formula_linea_v2`
+  - `app.cost_option_snapshot`
+  - `app.cost_option` (`tipo='BULK_PRODUCTO'` y `bulk_producto_id=<producto_id>`)
 - `app.item_formulado_snapshot` (por `item_formulado_id`)
 - `app.item_formulado`
-- `app.producto_formula_linea_v2`, `app.producto_formula_v2`
+- `app.producto_formula_linea_v2`, `app.producto_formula_v2` propias del producto
 - `app.producto_formula_linea`, `app.producto_formula` (si existieran)
 - `app.producto_costos_produccion`
-- `app.producto_oferta` (si existiera)
+- tablas hijas de `app.producto_oferta`:
+  - `app.producto_oferta_costo_snapshot_packaging`
+  - `app.producto_oferta_costo_snapshot`
+  - `app.producto_oferta_extra`
+  - `app.producto_oferta_packaging`
+- `app.producto_oferta`
 - `app.producto_base` (si existiera)
 - `app.producto`
-
-### PROVEEDOR (p:<item_id>)
-
-Hard-delete destructivo con guardrails:
-
-- Bloquea (`409 provider_item_in_use`) si el item proveedor todavía está referenciado por `producto_formula_linea_v2` a través de `cost_option ITEM_PRESENTACION`, o por `producto_base`.
-- Si no está en uso, borra `item_seguimiento`, `offers`, historial diario, jobs y `cost_option ITEM_PRESENTACION` asociados.
-
-### MANUAL (mopt:<cost_option_id>)
-
-Hard-delete destructivo con guardrails:
-
-- Bloquea (`409 manual_item_in_use`) si el `cost_option MANUAL_PRESENTACION` sigue usado en `producto_formula_linea_v2`.
-- Si no está en uso, borra `app.cost_option_snapshot` y luego `app.cost_option` (`tipo='MANUAL_PRESENTACION'`).
 
 Respuesta: `{ ok: true, deleted: { ... } }`
 
 Notas:
 - Operación irreversible.
-- Al borrar el entity subyacente, desaparece del listado virtual de **Items**.
-- El botón de UI no usa `force=1`; si un manual o proveedor sigue en uso, primero hay que retirarlo de fórmulas/bases.
+- Si el formulado estaba siendo usado como componente `BULK_PRODUCTO` en otras fórmulas, esas líneas también se eliminan.
+- Al borrar el producto, desaparece de **Productos** y del listado virtual de **Items**.
 
 ## GET /api/productos/:producto_id/formula-v2/lineas — campos adicionales
 

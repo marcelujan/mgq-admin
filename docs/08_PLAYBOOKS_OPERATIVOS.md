@@ -13,7 +13,7 @@ conectando DB + API + UI + Jobs.
 - **Items Proveedores (operación):** `/items-proveedores`  
   Alta por URLs visible siempre + consultas de `Corrida diaria` e `Items Proveedor` bajo demanda.
 - **Items Manuales (operación):** `/items-manuales`  
-  Alta, edición y borrado de `cost_option` tipo `MANUAL_PRESENTACION`.
+  Alta y edición de `cost_option` tipo `MANUAL_PRESENTACION`.
 - **Items Formulados:** `/productos`  
   Editor de Producto / fórmula v2 (la navegación lo muestra como “Items Formulados”; el dominio sigue siendo Producto). Incluye `Notas` persistidas en `producto.descripcion`.
 
@@ -243,12 +243,14 @@ Fin de flujos oficiales v1.0
 Ruta: **Items** → filtrar `Tipo = Formulado` → botón 🗑️.
 
 Efecto:
-- Elimina definitivamente el producto formulado y todo lo relacionado (fórmulas, item_formulado y snapshots).
+- Elimina definitivamente el producto formulado y todo lo relacionado (fórmulas, item_formulado, ofertas, snapshots y tablas hijas de ofertas).
+- Si ese formulado estaba usado como componente `BULK_PRODUCTO` en otras fórmulas, también elimina esas líneas y sus `cost_option` asociados.
 - El producto desaparece también de la hoja **Productos**.
 
 Advertencias:
 - Es irreversible.
 - Se pierde el historial (`item_formulado_snapshot`).
+- Puede modificar fórmulas de otros productos si usaban ese bulk como componente.
 
 
 
@@ -300,30 +302,3 @@ aplicar este checklist **antes** de continuar:
    - firmas/bloques con `{ {` (con o sin espacios), por ejemplo `function X(...) { {`
 2. Corregir cierres (JSX y llaves) sin reestructurar lógica.
 3. Re-ejecutar `npm run build`.
-
-## Borrado de Item Manual
-
-1. Ejecutar desde `/items-manuales`, `/items-manuales/[cost_option_id]` o `/items` sobre la fila `MANUAL`.
-2. El backend intenta `DELETE /api/items/mopt:<cost_option_id>`.
-3. Si el manual sigue en uso por una fórmula v2, responde `409 manual_item_in_use` y la UI no borra nada.
-4. Si no está en uso, el backend borra:
-   - `app.cost_option_snapshot`
-   - `app.cost_option` (`tipo='MANUAL_PRESENTACION'`)
-
-Chequeo SQL rápido para un manual puntual:
-
-```sql
-select count(*) as lineas_v2
-from app.producto_formula_linea_v2
-where cost_option_id = <cost_option_id>;
-```
-
-Regla:
-- Si `lineas_v2 > 0`, retirar primero el item manual de la fórmula antes de intentar eliminarlo.
-
-
-# Playbook — Eliminar Item Manual
-
-- La acción UI elimina vía `DELETE /api/cost-options/[cost_option_id]`.
-- Si el manual sigue referenciado en `producto_formula_linea_v2`, responde `409 manual_item_in_use`.
-- Si el registro no existe o no es `MANUAL_PRESENTACION`, responde `404 manual_item_not_found`.
