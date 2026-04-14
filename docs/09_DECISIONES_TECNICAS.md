@@ -66,3 +66,40 @@ Se adopta la siguiente dirección conceptual para comercialización:
 
 - La nueva capa comercial debe respetar el estilo compacto ya usado en la app: tablas densas, tipografía chica, una línea por fila, acciones inline y formularios simples.
 - No se adopta un estilo dashboard ni componentes visuales grandes para estas hojas.
+
+
+## 2026-04-14 — Esquema mínimo propuesto para la línea comercial v2 (no implementado aún)
+
+Se adopta como corte mínimo propuesto el siguiente esquema nuevo, sin reemplazar todavía la base viva de `PROVEEDOR`, `MANUAL` y `FORMULADO`:
+
+- `app.item_comercial`
+- `app.item_envase`
+- `app.item_etiqueta`
+- `app.item_paqueteria`
+- `app.item_comercial_envase`
+- `app.item_comercial_etiqueta`
+
+### Reglas estructurales
+
+- `app.item_comercial` referencia exactamente un origen técnico mediante una de estas FKs:
+  - `proveedor_item_id`
+  - `manual_cost_option_id`
+  - `formulado_item_formulado_id`
+- `app.item_envase`, `app.item_etiqueta` y `app.item_paqueteria` referencian exactamente un origen técnico de tipo `PROVEEDOR` o `MANUAL`.
+- `app.item_comercial_envase` y `app.item_comercial_etiqueta` modelan asociaciones N:M con `cantidad` y `obligatorio`.
+- No se propone `app.item_comercial_paqueteria` en v1.
+
+### Checks mínimos aceptados
+
+- exactamente una FK de origen técnico por fila en `item_comercial`, `item_envase`, `item_etiqueta` e `item_paqueteria`
+- `unidad in ('GR','ML','UN')` en `item_comercial`
+- `cantidad > 0` en `item_comercial`, `item_comercial_envase` e `item_comercial_etiqueta`
+- `medidas` obligatoria en `item_etiqueta`
+- UNIQUE (`item_comercial_id`, `item_envase_id`) en `item_comercial_envase`
+- UNIQUE (`item_comercial_id`, `item_etiqueta_id`) en `item_comercial_etiqueta`
+
+### Restricciones de alcance
+
+- No se tocan todavía cron ni snapshots existentes.
+- No se reutiliza `producto_oferta` como molde obligatorio del nuevo diseño comercial.
+- La capa comercial legacy puede mantenerse transitoriamente en código/base mientras se la reemplaza, pero queda descartada como modelo conceptual para la v2.

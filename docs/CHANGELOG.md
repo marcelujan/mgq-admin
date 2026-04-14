@@ -1,4 +1,5 @@
 ## Unreleased
+- Docs: añadida matriz de esquema mínimo propuesto para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería` (tablas nuevas, PK/FKs, checks e índices mínimos).
 - Docs: corregido `05_FRONTEND.md` al estado real actual del menú/DB health y consolidada la dirección futura de `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`, incluyendo lineamientos de UI compacta.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
