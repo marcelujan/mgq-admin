@@ -1,11 +1,5 @@
 ## Unreleased
-
-## 2026-04-14
-
-- Docs: `05_FRONTEND.md` se alinea al código real del header actual: incluye `Dólar Histórico`, mantiene indicador DB no clickeable y reconoce `/db-health` como hoja técnica no enlazada.
-- Docs: `07_ESTANDARES_UI.md` incorpora convenciones observadas en la UI real del snapshot: tablas compactas, tipografía chica (`12/13`), una sola línea por fila, acciones inline y controles de baja ornamentación.
-- Docs: `09_DECISIONES_TECNICAS.md` consolida el modelo comercial futuro aprobado: `Items Comerciales`, `Items Envases`, `Items Etiqueta`, `Items Paquetería`, origen técnico único, unidades `GR/ML/UN`, densidad única por origen técnico y stock gobernado desde orígenes técnicos.
-
+- Docs: corregido `05_FRONTEND.md` al estado real actual del menú/DB health y consolidada la dirección futura de `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`, incluyendo lineamientos de UI compacta.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.

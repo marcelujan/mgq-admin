@@ -196,45 +196,61 @@ Separación estricta de responsabilidades.
 - Los gráficos históricos simples deben exponer selector de intervalo cuando sigan el patrón de publicaciones/productos (`30`, `60`, `100`, `180`, `365`, `Todo`) y arrancar en `30 días`.
 
 
-## 2026-04-14 — Convenciones observadas en la UI real (snapshot actual)
+## Estándar visual observado en código (snapshot actual)
 
-Estas reglas se desprenden del código actual de `src/app/**` y deben respetarse en nuevas hojas para no desentonar visualmente.
+Convenciones confirmadas en `Items`, `Items Manuales`, `Items Proveedores`, `Items Formulados` y editor de formulados:
 
-### Densidad visual
+- Layout base de hoja: `padding: 16`, `display: grid`, `gap: 12`.
+- Título principal: `fontSize: 22`, `fontWeight: 700`, `margin: 0`.
+- Botones/links de cabecera: `padding: 6px 10px`, `borderRadius: 10`, `fontSize: 13`, fondo tenue.
+- Inputs/filtros: `padding: 8px 10px`, `borderRadius: 10`, borde tenue, fondo translúcido.
+- Tablas: `fontSize: 13`, encabezados con `6px 10px`, filas de una sola línea, `lineHeight: 1.2` o menor.
+- Acciones por fila: compactas, inline, sin botones grandes ni dobles renglones.
+- Textos largos: truncados con `ellipsis` + `title` para tooltip.
+- En vistas más densas (editor de formulados), se permite modo aún más compacto (`3px 8px`, iconos pequeños) para tablas auxiliares.
 
-- UI compacta. Priorizar lectura rápida y ocupación eficiente del alto de pantalla.
-- Tablas con `fontSize: 13` como base.
-- Metadatos, ayudas y badges con `fontSize: 12`.
-- Filas de tabla compactas: paddings verticales de `5px` a `6px` y `lineHeight` entre `1.15` y `1.2`.
-- Sin doble renglón por fila en tablas operativas.
-- Textos largos truncados con `ellipsis` y `title` para tooltip.
+## Nuevas hojas — lineamiento de UI aprobado
 
-### Tablas
+### `Items Comerciales`
+- Tabla principal compacta, sin tarjetas ni layout tipo dashboard.
+- Columnas sugeridas v1:
+  1. Item #
+  2. Nombre
+  3. Origen
+  4. Cantidad
+  5. Unidad
+  6. Requisitos
+  7. Estado
+  8. Acciones
+- `Requisitos` debe resumir en una sola línea si tiene envase y/o etiqueta obligatoria.
+- `Estado` debe ser textual; no usar solo color.
+- Acciones mínimas: `Ver`, `Editar`, `Duplicar`, `Eliminar`.
 
-- `borderCollapse: collapse`.
-- Contenedor con borde tenue y `borderRadius` entre `12` y `14`.
-- Encabezado de tabla con fondo tenue `rgba(255,255,255,0.04)` cuando aplica.
-- Celdas numéricas con `fontVariantNumeric: tabular-nums`.
-- En tablas densas, preferir `tableLayout: fixed` si ayuda a sostener una sola línea por celda.
+### `Items Envases`
+- Misma densidad visual que `Items Manuales`.
+- Columnas sugeridas v1:
+  1. Item #
+  2. Nombre
+  3. Origen
+  4. Estado
+  5. Actualizado
+  6. Acciones
+- No usar segunda línea por fila.
 
-### Acciones
+### `Items Etiqueta`
+- Igual patrón que `Items Envases`, agregando columna `Medidas`.
+- `Medidas` se muestra como texto corto en formato `ancho x largo`.
+- `Material` se edita en formulario, pero no necesita ocupar una segunda línea en la tabla principal.
 
-- Acciones inline y compactas.
-- Mezcla aceptada de texto corto (`Ver`) e iconos simples (`✏️`, `🗑️`).
-- No usar botones grandes por fila.
-- Mantener las acciones en una sola línea, con separación breve (`gap` ~ `10px`).
+### `Items Paquetería`
+- Tabla compacta igual a `Items Envases`.
+- No mostrarla como bloqueador de oferta.
+- Debe priorizar rapidez de carga/edición de stock y nombres simples.
 
-### Controles y formularios
-
-- Inputs/selects/links de acción con `padding` típico `8px 10px`.
-- `borderRadius` típico `10`.
-- Bordes suaves: `1px solid rgba(255,255,255,0.14)` o cercanos.
-- Fondo translúcido tenue: `rgba(255,255,255,0.02)` a `0.06`.
-- Labels y ayudas en `fontSize: 12`.
-- Formularios en grid simple, sin ornamentación extra.
-
-### Iconografía y estilo general
-
-- Estilo práctico, operativo, sin decoraciones innecesarias.
-- Iconos pequeños y utilitarios; no introducir iconografía pesada ni botones prominentes si no aportan una acción crítica.
-- Mantener coherencia con el header actual: cápsulas compactas, radios suaves, opacidades bajas y fondo oscuro translúcido.
+### Formularios nuevos
+- Reutilizar patrón visual de edición de `Items Manuales`:
+  - bloque único con borde tenue y `padding: 14`
+  - labels a `fontSize: 12`
+  - campos compactos
+  - botones `Guardar` / `Eliminar` / `Volver` en cabecera
+- Evitar wizard de múltiples pasos. Mantener alta/edición en una sola hoja práctica.

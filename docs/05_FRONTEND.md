@@ -12,18 +12,19 @@ Rutas principales enlazadas (v2):
 - `/items` (Items — vista agregada)
 - `/items-manuales` (Items Manuales — catálogo y edición)
 - `/productos` (Items Formulados — UI de Producto / fórmula v2; ver nota de naming)
-- `/items-proveedores` (Items Proveedores — alta por URLs con acceso a Cron / Items)
+- `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
 - `/dolar-historico` (Dólar Histórico)
 - `/jobs` (Jobs manual)
 
 Notas:
 
-- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. **No es clickeable**.
-- Existe la hoja técnica `/db-health`, pero **no** está enlazada en el menú principal.
+- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. No es clickeable.
+- Existe una hoja técnica `/db-health` y un endpoint `/api/db-health`, pero la hoja no se enlaza desde el menú principal.
+
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`
   - Manual: `/items-manuales`
-- `/jobs-diario` sigue existiendo como ruta técnica separada. No está enlazada en el header.
+- `/jobs-diario` queda como ruta técnica legacy (no enlazada en el header) y su panel se embebe en `/items-proveedores`.
 - Naming: la ruta `/productos` continúa administrando la entidad **Producto** (fórmula v2). En la navegación se muestra como **"Items Formulados"** para alinear el menú con el uso operativo, sin cambiar el modelo de dominio.
 
 ## Editor de Producto (Fórmula v2) — ajustes UI
@@ -63,3 +64,22 @@ Notas:
 
 
 - La hoja **Items formulados** reutiliza el hard-delete de `FORMULADO` vía `/api/items/fprod:<producto_id>`, igual que la hoja general `Items`.
+
+
+## Línea futura aceptada — nuevas hojas comerciales
+
+Dirección aprobada para la próxima iteración (todavía no implementada en código):
+
+- `Items Comerciales`
+- `Items Envases`
+- `Items Etiqueta`
+- `Items Paquetería`
+
+Reglas funcionales ya cerradas:
+
+- `Item Comercial` nace de **un único origen técnico** (`PROVEEDOR`, `MANUAL` o `FORMULADO`).
+- `Item Comercial` guarda como mínimo: `nombre`, `cantidad`, `unidad`; `descripción` es opcional.
+- Todos los campos del `Item Comercial` quedan **editables** luego del alta.
+- `Items Envases` e `Items Etiqueta` pueden bloquear ofertabilidad **solo si esa variante los marca como obligatorios**.
+- `Items Paquetería` no bloquea la oferta; se informa manualmente al preparar la venta y solo afecta control de stock.
+- La UI de estas nuevas hojas debe seguir el patrón compacto actual: tablas densas, una línea por fila, acciones inline e inputs pequeños.
