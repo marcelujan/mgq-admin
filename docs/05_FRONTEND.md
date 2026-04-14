@@ -19,7 +19,8 @@ Rutas principales enlazadas (v2):
 Notas:
 
 - Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. No es clickeable.
-- Existe la hoja técnica `/db-health`, pero no se expone en el menú principal. El detalle técnico puede consultarse allí o en `/api/db-health`.
+- Existe la hoja técnica `/db-health`, pero no está enlazada en el menú principal.
+- El detalle técnico puede consultarse en `/db-health` (UI) y `/api/db-health` (JSON).
 
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`

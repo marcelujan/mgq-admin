@@ -25,175 +25,157 @@ Fuera de alcance por ahora:
 - La identidad mínima aceptada del item proveedor PuraQuimica es `url_canonica` + `descripcion_fuente` cuando existe.
 
 
-## 2026-04-14 — Capa comercial futura (dirección aceptada, no implementada aún)
+## 2026-04-14 — Línea futura de comercialización (propuesta aceptada, no implementada)
 
-Se fija la siguiente dirección funcional para la evolución comercial de la app, sin declararla como implementada todavía:
+Estado: **definición de diseño aceptada, todavía no implementada en código ni schema**.
 
-### Capas
+### Corte de dominio
 
-- **Orígenes técnicos**: `PROVEEDOR`, `MANUAL`, `FORMULADO`.
-- **Items Formulados**: deben tender a representar **bulks técnicos**.
-- **Catálogos operativos futuros**: `Items Envases`, `Items Etiqueta`, `Items Paquetería`.
-- **Capa comercial futura**: `Items Comerciales`, creada manualmente solo para los casos que efectivamente se van a vender.
+Se preserva como base viva actual:
 
-### Reglas aceptadas
+- `item_seguimiento` / `offers` / `pricing_daily_run_items` para PROVEEDOR
+- `cost_option` / `cost_option_snapshot` para MANUAL
+- `producto` / `producto_formula_v2` / `producto_formula_linea_v2` / `item_formulado` / `item_formulado_snapshot` para FORMULADO
 
-- Cada `Item Comercial` referencia **un único origen técnico**.
-- Si para vender algo hay que consolidar varios orígenes, esa consolidación debe ocurrir primero en `Items Formulados`, y luego el `Item Comercial` nace de ese formulado consolidado.
-- `Item Comercial` no crea envases/etiquetas/paquetería desde cero: selecciona ítems existentes de los catálogos operativos.
-- Los campos del `Item Comercial` deben permanecer **editables** luego del alta, incluido el nombre.
+La capa comercial legacy actual (`producto_oferta`, `producto_oferta_packaging`, `producto_oferta_costo_snapshot`, `producto_oferta_extra`, `packaging_item`) se considera **legacy no activa** para el nuevo diseño comercial. No debe tomarse como base conceptual obligatoria del rediseño.
 
-### Campos mínimos aceptados para `Item Comercial`
+### Nuevas listas operativas deseadas
 
-**Obligatorios**
-- nombre
-- origen técnico único
-- cantidad
-- unidad
+Se define como dirección futura la separación en listas independientes:
 
-**Condicionales**
-- densidad, solo si la conversión `GR ↔ ML` es necesaria para controlar stock
+- `Items Comerciales`
+- `Items Envase`
+- `Items Etiqueta`
+- `Items Paquetería`
 
-**Opcionales**
-- descripción
-- asociaciones a `Items Envases`
+### Reglas de `Item Comercial`
+
+`Item Comercial` representa una **variante vendible concreta** y debe nacer de un **único origen técnico**.
+
+Origen técnico permitido:
+
+- `PROVEEDOR`
+- `MANUAL`
+- `FORMULADO`
+
+Si una variante vendible requiere consolidar múltiples orígenes, esa consolidación debe resolverse **antes** en `Items Formulados`. `Item Comercial` no mezcla múltiples orígenes técnicos.
+
+Campos mínimos aceptados para `Item Comercial`:
+
+Obligatorios:
+- `nombre`
+- `origen técnico único`
+- `cantidad`
+- `unidad` (`GR`, `ML` o `UN`)
+
+Opcionales:
+- `descripcion`
+- asociaciones a `Items Envase`
 - asociaciones a `Items Etiqueta`
-- paquetería usada al preparar la venta
 
-### Unidades operativas
+Todos los campos del `Item Comercial` deben permanecer **editables** luego del alta, incluido el nombre.
 
-La app continúa trabajando exclusivamente con las unidades internas ya existentes:
+### Reglas de stock y ofertabilidad
+
+La app opera internamente solo con las unidades:
 
 - `GR`
 - `ML`
 - `UN`
 
+El stock real vive en los **orígenes técnicos**. `Item Comercial` no mantiene stock propio de producto terminado.
+
+Para un `Item Comercial`, el mínimo operativo para cálculo de stock/ofertabilidad es:
+
+- `cantidad`
+- `unidad`
+
 Reglas:
 
-- El origen técnico define la unidad operativa de stock.
-- `Item Comercial` puede venderse en otra cantidad/unidad, pero siempre consume del origen técnico normalizando contra esa unidad.
-- En `UN`, el `Item Comercial` puede representar packs o agrupaciones (por ejemplo, `1000 UN`) siempre que el consumo por venta sea una cantidad entera positiva de `UN`.
-- Si la conversión entre masa y volumen es necesaria, se exige densidad única del origen técnico.
+- Si la unidad es `UN`, no se exige nada más. El item comercial consume una cantidad entera positiva de unidades base por venta.
+- Si la unidad es `GR` o `ML` y no hay conversión masa↔volumen, no se exige nada más.
+- Si existe conversión `GR ↔ ML`, la densidad se vuelve obligatoria.
 
 ### Densidad
 
-- Existe una sola densidad por cada origen técnico (`MANUAL`, `FORMULADO`, `PROVEEDOR`).
+Existe una sola densidad por origen técnico (`MANUAL`, `PROVEEDOR`, `FORMULADO`).
+
 - No es obligatoria al crear el origen técnico.
-- Al crear o editar un `Item Comercial`, la densidad del origen técnico debe mostrarse allí mismo y poder editarse, sin crear una segunda densidad comercial.
-- Si no es necesaria para la unidad elegida, el flujo puede continuar sin densidad.
-- Si es necesaria para la conversión `GR ↔ ML`, el ingreso numérico de densidad es obligatorio.
+- Debe mostrarse y poder editarse durante el alta/edición del `Item Comercial`.
+- Solo debe exigirse cuando la conversión `GR ↔ ML` realmente la necesita.
+- No se crean nuevas tablas, listas ni campos paralelos de densidad.
 
-### Stock y ofertabilidad
+### Reglas de componentes operativos
 
-- La app no modela stock de producto terminado para `Items Comerciales`; modela **capacidad armable** a partir del stock real de los orígenes técnicos y de los componentes operativos obligatorios.
-- Un `Item Comercial` es ofertable si tiene stock suficiente de su origen técnico y de todos sus componentes **bloqueantes** para al menos una unidad.
-- Los componentes bloqueantes aceptados son:
-  - contenido base / origen técnico
-  - `Item Envase`
-  - `Item Etiqueta`
-  - accesorio/extra obligatorio si aplica
-- `Item Paquetería` **no bloquea** la oferta: se informa manualmente al preparar el pedido y solo descuenta stock para control operativo.
+`Item Comercial` puede asociar componentes de tres listas distintas:
 
-### Etiquetas
-
-- `Item Etiqueta` funciona como consumible bloqueante y, además, aporta el dato operativo mínimo para la futura impresión con BarTender.
-- El dato útil adicional aceptado es un único campo de medidas en formato `ancho x largo` (milímetros), por ejemplo `100 x 50`.
-- La futura integración con BarTender deberá usar a `mgq-admin` como fuente de verdad y tomar desde `Item Etiqueta` el tamaño necesario para asociar el modelo adecuado de impresión.
-
-### Movimientos no comerciales
-
-- Las salidas no comerciales (`consumo interno`, `regalo/muestra`, `merma/pérdida`, `ajuste`) deben operar sobre el stock de los **orígenes técnicos**, no sobre `Items Comerciales`.
-- Esto evita duplicar lógica de stock en la capa comercial y preserva una única fuente real de inventario.
-
-## 2026-04-14 — Corte limpio para la nueva capa comercial (dirección aceptada, no implementada aún)
-
-Se adopta **Opción 2** para la futura capa comercial:
-
-- `Items Comerciales` deberán poder nacer desde **los tres orígenes técnicos** ya existentes: `PROVEEDOR`, `MANUAL` y `FORMULADO`.
-- No se hará una migración masiva de los ítems existentes a una capa comercial.
-- Solo se crearán manualmente `Items Comerciales` para los casos que efectivamente se quieran vender.
-
-### Consecuencia sobre la capa comercial actual
-
-La estructura comercial hoy presente en código y schema (`producto_oferta`, `producto_oferta_packaging`, `producto_oferta_costo_snapshot`, `packaging_item`, etc.) se considera **draft legacy / no activa operacionalmente** para el nuevo diseño comercial.
-
-Regla aceptada:
-
-- esa estructura existente **no condiciona** el rediseño de `Items Comerciales`;
-- puede descartarse conceptualmente como base de la nueva capa comercial;
-- pero no debe eliminarse físicamente del código o de la base **antes** de contar con reemplazo explícito, porque sigue siendo referenciada por rutas y borrados actuales de `FORMULADO`.
-
-### Principio de implementación
-
-- La base viva y operativa actual sigue siendo: `MANUAL`, `PROVEEDOR`, `FORMULADO` y sus snapshots existentes.
-- La nueva capa comercial debe montarse **encima** de esos tres dominios, sin reutilizar por obligación la semántica actual de `producto_oferta`.
-- Si algo de la capa comercial previa resulta reutilizable, será por conveniencia técnica puntual y no por dependencia de dominio.
-
-
-## 2026-04-14 — Matriz de transición mínima para la nueva capa comercial (diagnóstico, no implementado aún)
-
-Tomando el snapshot actual del código y del schema, se fija el siguiente criterio de transición para implementar la nueva capa comercial sin romper la base viva actual.
-
-### 1) Se conserva como base operativa vigente
-
-Se mantiene sin rediseño inmediato:
-
-- `item_seguimiento` + `offers` + `pricing_daily_run_items` para `PROVEEDOR`
-- `cost_option` + `cost_option_snapshot` para `MANUAL`
-- `producto` + `producto_formula_v2` + `producto_formula_linea_v2` + `item_formulado` + `item_formulado_snapshot` para `FORMULADO`
-- `/api/items` como tabla agregada principal de estado operacional diario
-
-Principio:
-- la nueva capa comercial no reemplaza estos dominios; se monta encima.
-
-### 2) Se reemplaza conceptualmente
-
-La capa comercial legacy existente deja de ser el modelo de referencia para el nuevo diseño:
-
-- `producto_oferta`
-- `producto_oferta_packaging`
-- `producto_oferta_costo_snapshot`
-- `producto_oferta_costo_snapshot_packaging`
-- `producto_oferta_extra`
-- `packaging_item`
-
-Regla:
-- estas piezas pueden seguir existiendo transitoriamente en código/base mientras no haya reemplazo completo;
-- pero no deben gobernar el diseño de `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`.
-
-### 3) Se crea nuevo (mínimo inevitable)
-
-Para soportar `Items Comerciales` nacidos desde `PROVEEDOR`, `MANUAL` o `FORMULADO`, el corte mínimo nuevo deberá cubrir cuatro bloques:
-
-#### A. Catálogos operativos separados
-- `Items Envases`
+- `Items Envase`
 - `Items Etiqueta`
 - `Items Paquetería`
 
-#### B. Capa comercial unificada
-- `Items Comerciales` con origen técnico único
-- cantidad + unidad
-- nombre obligatorio
-- descripción opcional
-- campos editables
+#### `Items Envase`
 
-#### C. Asociaciones bloqueantes de ofertabilidad
-- asociaciones opcionales a `Items Envases`
-- asociaciones opcionales a `Items Etiqueta`
-- si una asociación se marca como obligatoria para una variante, su faltante bloquea la oferta
+Lista operativa separada. Su contenido concreto puede cargarse manualmente o venir desde proveedor. No se predefine rígidamente.
 
-#### D. Consumo operativo no bloqueante
-- `Items Paquetería` queda fuera de la lógica de bloqueo
-- su consumo se informa manualmente al preparar la venta, solo para control de stock
+#### `Items Etiqueta`
 
-### 4) Regla de implementación mínima
+Lista operativa separada. `Item Etiqueta` se define como componente consumible que puede exigirse para vender la variante.
 
-Antes de eliminar físicamente cualquier parte de la capa legacy, debe existir reemplazo explícito de:
+Dato adicional aceptado por ahora:
 
-- rutas API que hoy referencian `producto_oferta*`
-- borrados/limpieza asociados al flujo de `FORMULADO`
-- catálogo de packaging hoy unificado
+- `medidas` con formato `ancho x largo` en milímetros
 
-### 5) Principio rector
+Ese dato servirá más adelante para asociar la variante al modelo correcto de BarTender.
 
-El nuevo diseño comercial debe introducir la menor cantidad posible de entidades nuevas, pero no debe forzar la reutilización de una semántica legacy que hoy solo sirve a formulados y que nunca estuvo en uso operativo real para comercialización.
+#### `Items Paquetería`
+
+Lista operativa separada. La paquetería **no bloquea** la posibilidad de ofertar.
+
+- Se selecciona manualmente al preparar la venta.
+- Se informa cantidad usada de cada item de paquetería.
+- Se descuenta del stock real solo para control operativo.
+- Si falta stock, debe advertirse, pero no debe apagar la oferta comercial automáticamente.
+
+### Bloqueantes de ofertabilidad
+
+Un `Item Comercial` es ofertable si tiene stock suficiente de:
+
+- su contenido base (origen técnico)
+- sus `Items Envase` obligatorios
+- sus `Items Etiqueta` obligatorios
+
+`Items Paquetería` queda explícitamente fuera del bloqueo de ofertabilidad.
+
+### Movimientos no comerciales
+
+Las salidas no comerciales deben operar solo sobre los orígenes técnicos, no sobre `Items Comerciales`.
+
+Motivos típicos esperables:
+
+- consumo interno
+- regalo / muestra
+- merma / pérdida
+- ajuste
+
+Cuando aplique, también podrán descontarse componentes operativos usados (envase, etiqueta, paquetería), pero el evento nace desde el stock del origen técnico.
+
+### BarTender (línea futura)
+
+La línea futura aceptada es:
+
+- `mgq-admin` como fuente de verdad
+- BarTender como consumidor de lectura para impresión estandarizada
+
+No se documenta ninguna integración implementada por ahora.
+
+### Propuesta de esquema mínimo v1 (todavía no implementada)
+
+El corte mínimo futuro aceptado por diseño requiere una capa nueva separada de la legacy comercial actual:
+
+- entidad de `Item Comercial` con origen técnico único
+- lista de `Item Envase`
+- lista de `Item Etiqueta`
+- lista de `Item Paquetería`
+- asociaciones opcionales de `Item Comercial` a `Item Envase` e `Item Etiqueta`
+
+La tabla agregada de `/items` deberá incorporar después estos nuevos tipos con criterio propio de `OK | FAIL | PEND`, pero esa lógica todavía no se considera implementada.
