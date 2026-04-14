@@ -13,12 +13,14 @@ Rutas principales enlazadas (v2):
 - `/items-manuales` (Items Manuales — catálogo y edición)
 - `/productos` (Items Formulados — UI de Producto / fórmula v2; ver nota de naming)
 - `/items-proveedores` (Items Proveedores — alta por URLs + Jobs diario)
+- `/dolar-historico` (Dólar Histórico)
 - `/jobs` (Jobs manual)
 
 Notas:
 
-- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. Es **clickeable** y abre `/api/db-health` (JSON) en una pestaña nueva.
-- No se expone una hoja dedicada de DB health en el menú para evitar ruido en la zona de trabajo.
+- Salud DB: se muestra un **indicador DB** (verde/rojo) en el header. **No es clickeable**.
+- Existe una hoja técnica `/db-health`, pero **no** se enlaza en el menú principal.
+- `/api/db-health` sigue disponible como endpoint técnico para diagnóstico.
 
 - Se eliminó el botón **"Cargar items"** desde `/items`. Las altas se hacen por tipo:
   - Proveedor: `/items-proveedores`

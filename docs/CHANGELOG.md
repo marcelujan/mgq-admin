@@ -1,17 +1,20 @@
 ## Unreleased
+- Docs: `05_FRONTEND.md` alineado con el código actual del header (incluye `Dólar Histórico`, indicador DB no clickeable y hoja `/db-health` no enlazada).
+- Docs: registrada línea futura para `Items Comerciales`, `Items Envases`, `Items Paquetería` e integración futura con la tabla general `Items`.
+- Docs: registrada línea futura de etiquetado con BarTender Designer 2022 R8 como consumidor de lectura desde `mgq-admin`.
 - Fix formulados nuevos: al agregar una línea v2, el backend autocrea `producto_formula_v2` si faltaba.
 - Fix cron formulados: `/api/cron/formulado-costs-daily` detecta productos por header o por líneas.
 - Fix BULK reutilizable: `ensureItemFormuladoBulk()` prioriza BULK activo y reactiva uno inactivo antes de crear otro.
 - Fix histórico formulados: `/api/items/[item_id]/price-history` prioriza el BULK activo con más snapshots/continuidad.
 
-- 2026-02-22: DB health: se elimina entrada de menú/hoja; el indicador 'DB' en header es clickeable y abre `/api/db-health`.
+- 2026-02-22: DB health: se mantiene como indicador visual en header; `/db-health` sigue disponible como hoja técnica no enlazada y `/api/db-health` como endpoint de diagnóstico.
 
 ## UI v2 — Reordenamiento de navegación y hojas por tipo de Item
-- Header: orden fijo: Items → Items Manuales → Items Formulados → Items Proveedores → Jobs manual → DB health.
+- Header: orden fijo: Items → Items Manuales → Items Formulados → Items Proveedores → Dólar Histórico → Jobs manual.
 - `/items`: se elimina acción de alta; queda como vista agregada.
 - `/items-manuales`: alta + edición de manuales (cost_option MANUAL_PRESENTACION).
 - `/items-proveedores`: alta por URLs + panel embebido de Jobs diario.
-- DB health: indicador (verde/rojo) en header + página `/db-health`.
+- DB health: indicador (verde/rojo) en header; página técnica `/db-health` no enlazada en el menú.
 
 - Fix: costo-bulk ahora resuelve BULK_PRODUCTO preferiendo snapshot diario (evita error "fórmula sin líneas" cuando el componente ya tiene snapshot válido).
 
