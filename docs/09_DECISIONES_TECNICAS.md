@@ -103,3 +103,47 @@ Se adopta como corte mínimo propuesto el siguiente esquema nuevo, sin reemplaza
 - No se tocan todavía cron ni snapshots existentes.
 - No se reutiliza `producto_oferta` como molde obligatorio del nuevo diseño comercial.
 - La capa comercial legacy puede mantenerse transitoriamente en código/base mientras se la reemplaza, pero queda descartada como modelo conceptual para la v2.
+
+
+## 2026-04-14 — Endpoints y pantallas mínimas para la línea comercial v2 (no implementados aún)
+
+Se acepta como dirección futura el siguiente corte mínimo de implementación:
+
+### Endpoints
+
+- `/api/items-comerciales`
+- `/api/items-comerciales/[item_comercial_id]`
+- `/api/items-comerciales/[item_comercial_id]/envases`
+- `/api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]`
+- `/api/items-comerciales/[item_comercial_id]/etiquetas`
+- `/api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]`
+- `/api/items-comerciales/[item_comercial_id]/duplicate`
+- `/api/items-envases`
+- `/api/items-envases/[item_envase_id]`
+- `/api/items-etiqueta`
+- `/api/items-etiqueta/[item_etiqueta_id]`
+- `/api/items-paqueteria`
+- `/api/items-paqueteria/[item_paqueteria_id]`
+
+### Hojas UI
+
+- `/items-comerciales`
+- `/items-comerciales/new`
+- `/items-comerciales/[item_comercial_id]`
+- `/items-envases`
+- `/items-envases/new`
+- `/items-envases/[item_envase_id]`
+- `/items-etiqueta`
+- `/items-etiqueta/new`
+- `/items-etiqueta/[item_etiqueta_id]`
+- `/items-paqueteria`
+- `/items-paqueteria/new`
+- `/items-paqueteria/[item_paqueteria_id]`
+
+### Criterios de implementación aceptados
+
+- Se reutiliza el patrón actual de Next.js App Router ya usado en la app: `page.tsx` liviana + `*-client.tsx` + handlers REST por colección y por id.
+- No se introduce wizard para alta/edición en v1.
+- La duplicación rápida se acepta solo para `Items Comerciales`.
+- `Items Paquetería` sigue sin asociación fija obligatoria al comercial en v1.
+- Antes de integrar estas nuevas hojas a la tabla general `Items`, debe definirse su política propia de `OK | FAIL | PEND`.

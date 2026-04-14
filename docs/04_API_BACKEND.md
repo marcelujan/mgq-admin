@@ -519,3 +519,91 @@ Notas:
 - `app.fx` se considera por fecha de aplicación local `America/Argentina/Cordoba`, no por `current_date` UTC puro.
 - Los flujos USD (`motor 2 / EUMA` y `jobs/run-next`) resuelven FX con fallback a la última cotización disponible con `fecha <= fecha local de aplicación`.
 - El proveedor `EUMA` se asegura por código, pero no escribe `proveedor.motor_id_default=2` mientras la FK a `app.motor` no garantice la existencia del motor 2. El flujo bulk/preview infiere `motor_id=2` por URL.
+
+
+---
+
+## Propuesta mínima — Endpoints comerciales v2 (no implementados aún)
+
+Esta sección no describe rutas activas del snapshot. Describe el corte mínimo propuesto para montar la nueva línea comercial v2 reutilizando el patrón actual de Next.js App Router (`page.tsx` liviana + `*-client.tsx` + handlers REST por colección / por id).
+
+### Colecciones nuevas propuestas
+
+#### `/api/items-comerciales`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y crear `Items Comerciales`.
+- **Query params mínimos propuestos:** `search`, `activo`, `origen_tipo`, `limit`, `offset`
+- **Payload POST mínimo propuesto:**
+  - `nombre` (obligatorio)
+  - `descripcion` (opcional)
+  - `cantidad` (obligatorio)
+  - `unidad` (`GR | ML | UN`)
+  - exactamente un origen técnico: `proveedor_item_id` o `manual_cost_option_id` o `formulado_item_formulado_id`
+- **Respuesta esperada:** fila normalizada + metadatos mínimos para tabla compacta.
+
+#### `/api/items-comerciales/[item_comercial_id]`
+- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
+- **Objetivo:** ver, editar y desactivar/eliminar `Item Comercial`.
+- **PATCH:** todos los campos operativos y comerciales quedan editables.
+- **DELETE:** preferible soft delete (`activo=false`) en v1 para no perder trazabilidad de asociaciones.
+
+#### `/api/items-comerciales/[item_comercial_id]/envases`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y asociar envases al comercial.
+- **Payload POST mínimo propuesto:** `item_envase_id`, `cantidad`, `obligatorio`
+
+#### `/api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]`
+- **Métodos propuestos:** `PATCH`, `DELETE`
+- **Objetivo:** editar o quitar asociación comercial ↔ envase.
+
+#### `/api/items-comerciales/[item_comercial_id]/etiquetas`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y asociar etiquetas al comercial.
+- **Payload POST mínimo propuesto:** `item_etiqueta_id`, `cantidad`, `obligatorio`
+
+#### `/api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]`
+- **Métodos propuestos:** `PATCH`, `DELETE`
+- **Objetivo:** editar o quitar asociación comercial ↔ etiqueta.
+
+#### `/api/items-comerciales/[item_comercial_id]/duplicate`
+- **Métodos propuestos:** `POST`
+- **Objetivo:** duplicar rápido una variante comercial para crear otra presentación.
+- **Debe copiar:** origen técnico, nombre base, cantidad/unidad, asociaciones de envase/etiqueta.
+- **No debe copiar automáticamente:** publicaciones, código de barras, estados transaccionales.
+
+### Catálogos operativos nuevos propuestos
+
+#### `/api/items-envases`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y crear `Items Envase`.
+- **Payload POST mínimo propuesto:** `nombre`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
+
+#### `/api/items-envases/[item_envase_id]`
+- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
+- **Objetivo:** ver, editar y desactivar/eliminar `Item Envase`.
+
+#### `/api/items-etiqueta`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y crear `Items Etiqueta`.
+- **Payload POST mínimo propuesto:** `nombre`, `material`, `medidas`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
+
+#### `/api/items-etiqueta/[item_etiqueta_id]`
+- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
+- **Objetivo:** ver, editar y desactivar/eliminar `Item Etiqueta`.
+
+#### `/api/items-paqueteria`
+- **Métodos propuestos:** `GET`, `POST`
+- **Objetivo:** listar y crear `Items Paquetería`.
+- **Payload POST mínimo propuesto:** `nombre`, `descripcion`, exactamente un origen técnico (`proveedor_item_id` o `manual_cost_option_id`).
+
+#### `/api/items-paqueteria/[item_paqueteria_id]`
+- **Métodos propuestos:** `GET`, `PATCH`, `DELETE`
+- **Objetivo:** ver, editar y desactivar/eliminar `Item Paquetería`.
+
+### Principios de backend aceptados para esta línea futura
+
+- La nueva capa comercial no modifica los cron ni snapshots existentes.
+- `Items Comerciales` no guardan stock propio.
+- La ofertabilidad mira origen técnico + asociaciones obligatorias de envase / etiqueta.
+- `Items Paquetería` no bloquea oferta y no requiere asociación fija al comercial en v1.
+- La futura integración con la hoja general `Items` debe resolver una política `OK | FAIL | PEND` específica antes de activarse.

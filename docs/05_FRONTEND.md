@@ -83,3 +83,110 @@ Reglas funcionales ya cerradas:
 - `Items Envases` e `Items Etiqueta` pueden bloquear ofertabilidad **solo si esa variante los marca como obligatorios**.
 - `Items Paquetería` no bloquea la oferta; se informa manualmente al preparar la venta y solo afecta control de stock.
 - La UI de estas nuevas hojas debe seguir el patrón compacto actual: tablas densas, una línea por fila, acciones inline e inputs pequeños.
+
+
+## Línea futura aceptada — pantallas mínimas v2
+
+Patrón a respetar, alineado con el snapshot actual:
+
+- `page.tsx` liviana
+- `*-client.tsx` para la grilla principal
+- tablas compactas de una sola línea por fila
+- acciones inline (`Ver`, `Editar`, `Duplicar`, `Eliminar`)
+- formularios simples, sin wizard
+
+### `Items Comerciales`
+
+Rutas propuestas:
+- `/items-comerciales`
+- `/items-comerciales/new`
+- `/items-comerciales/[item_comercial_id]`
+
+Tabla principal propuesta:
+- `Item #`
+- `Nombre`
+- `Origen`
+- `Cantidad`
+- `Unidad`
+- `Requisitos`
+- `Estado`
+- `Acciones`
+
+Editor propuesto:
+- bloque principal con `nombre`, `descripción`, `origen técnico`, `cantidad`, `unidad`
+- densidad visible/editable solo cuando la conversión `GR ↔ ML` la necesite
+- tablas auxiliares compactas para asociaciones a `Items Envase` y `Items Etiqueta`
+
+### `Items Envases`
+
+Rutas propuestas:
+- `/items-envases`
+- `/items-envases/new`
+- `/items-envases/[item_envase_id]`
+
+Tabla principal propuesta:
+- `Item #`
+- `Nombre`
+- `Origen`
+- `Estado`
+- `Actualizado`
+- `Acciones`
+
+Editor propuesto:
+- `nombre`
+- `descripción`
+- `origen`
+- `activo`
+
+### `Items Etiqueta`
+
+Rutas propuestas:
+- `/items-etiqueta`
+- `/items-etiqueta/new`
+- `/items-etiqueta/[item_etiqueta_id]`
+
+Tabla principal propuesta:
+- `Item #`
+- `Nombre`
+- `Material`
+- `Medidas`
+- `Origen`
+- `Estado`
+- `Acciones`
+
+Editor propuesto:
+- `nombre`
+- `material`
+- `medidas` (`ancho x largo`)
+- `descripción`
+- `origen`
+- `activo`
+
+### `Items Paquetería`
+
+Rutas propuestas:
+- `/items-paqueteria`
+- `/items-paqueteria/new`
+- `/items-paqueteria/[item_paqueteria_id]`
+
+Tabla principal propuesta:
+- `Item #`
+- `Nombre`
+- `Origen`
+- `Estado`
+- `Actualizado`
+- `Acciones`
+
+Editor propuesto:
+- `nombre`
+- `descripción`
+- `origen`
+- `activo`
+
+### Criterios visuales obligatorios para estas hojas
+
+- tipografía compacta, alineada con `Items`, `Items Manuales` e `Items Proveedores`
+- sin dobles renglones por fila
+- truncado con tooltip para textos largos
+- botones y acciones chicas
+- evitar cards grandes o layouts tipo dashboard
