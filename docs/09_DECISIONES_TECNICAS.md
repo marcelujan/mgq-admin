@@ -104,3 +104,27 @@ Reglas:
 
 - Las salidas no comerciales (`consumo interno`, `regalo/muestra`, `merma/pérdida`, `ajuste`) deben operar sobre el stock de los **orígenes técnicos**, no sobre `Items Comerciales`.
 - Esto evita duplicar lógica de stock en la capa comercial y preserva una única fuente real de inventario.
+
+## 2026-04-14 — Corte limpio para la nueva capa comercial (dirección aceptada, no implementada aún)
+
+Se adopta **Opción 2** para la futura capa comercial:
+
+- `Items Comerciales` deberán poder nacer desde **los tres orígenes técnicos** ya existentes: `PROVEEDOR`, `MANUAL` y `FORMULADO`.
+- No se hará una migración masiva de los ítems existentes a una capa comercial.
+- Solo se crearán manualmente `Items Comerciales` para los casos que efectivamente se quieran vender.
+
+### Consecuencia sobre la capa comercial actual
+
+La estructura comercial hoy presente en código y schema (`producto_oferta`, `producto_oferta_packaging`, `producto_oferta_costo_snapshot`, `packaging_item`, etc.) se considera **draft legacy / no activa operacionalmente** para el nuevo diseño comercial.
+
+Regla aceptada:
+
+- esa estructura existente **no condiciona** el rediseño de `Items Comerciales`;
+- puede descartarse conceptualmente como base de la nueva capa comercial;
+- pero no debe eliminarse físicamente del código o de la base **antes** de contar con reemplazo explícito, porque sigue siendo referenciada por rutas y borrados actuales de `FORMULADO`.
+
+### Principio de implementación
+
+- La base viva y operativa actual sigue siendo: `MANUAL`, `PROVEEDOR`, `FORMULADO` y sus snapshots existentes.
+- La nueva capa comercial debe montarse **encima** de esos tres dominios, sin reutilizar por obligación la semántica actual de `producto_oferta`.
+- Si algo de la capa comercial previa resulta reutilizable, será por conveniencia técnica puntual y no por dependencia de dominio.
