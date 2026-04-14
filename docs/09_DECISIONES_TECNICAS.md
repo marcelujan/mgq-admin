@@ -147,3 +147,51 @@ Se acepta como dirección futura el siguiente corte mínimo de implementación:
 - La duplicación rápida se acepta solo para `Items Comerciales`.
 - `Items Paquetería` sigue sin asociación fija obligatoria al comercial en v1.
 - Antes de integrar estas nuevas hojas a la tabla general `Items`, debe definirse su política propia de `OK | FAIL | PEND`.
+
+
+## 2026-04-14 — Payloads mínimos y orden de implementación corto para la línea comercial v2
+
+Se adopta el siguiente criterio de implementación mínima:
+
+### Contratos API
+
+- Los payloads se mantendrán en `snake_case`, siguiendo el estilo actual de la app.
+- Las respuestas conservarán el contrato `{ ok: boolean, ... }`.
+- `PATCH` será parcial por campos presentes.
+- La creación de `Item Comercial` requiere: `nombre`, `cantidad`, `unidad` y exactamente una FK de origen técnico.
+- La densidad no crea un segundo registro: se expone en el flujo comercial, pero sigue siendo un valor único del origen técnico.
+
+### Payloads mínimos aceptados
+
+- `POST /api/items-comerciales`: nombre, descripción opcional, cantidad, unidad, una FK de origen técnico y densidad solo si la conversión la necesita.
+- `PATCH /api/items-comerciales/[id]`: edición parcial de nombre, descripción, cantidad, unidad, densidad visible/editable y activo.
+- `POST /api/items-comerciales/[id]/duplicate`: nombre opcional para crear una variante rápida.
+- `POST /api/items-comerciales/[id]/envases`: `item_envase_id`, `cantidad`, `obligatorio`.
+- `POST /api/items-comerciales/[id]/etiquetas`: `item_etiqueta_id`, `cantidad`, `obligatorio`.
+- `POST /api/items-envases`: nombre, descripción opcional, una FK de origen técnico (`PROVEEDOR` o `MANUAL`), activo.
+- `POST /api/items-etiqueta`: nombre, material, medidas, descripción opcional, una FK de origen técnico (`PROVEEDOR` o `MANUAL`), activo.
+- `POST /api/items-paqueteria`: nombre, descripción opcional, una FK de origen técnico (`PROVEEDOR` o `MANUAL`), activo.
+
+### Orden corto de implementación aceptado
+
+1. **Base de datos**
+   - crear `item_comercial`, `item_envase`, `item_etiqueta`, `item_paqueteria`, `item_comercial_envase`, `item_comercial_etiqueta`
+   - no tocar cron ni snapshots existentes
+
+2. **Catálogos operativos**
+   - implementar primero `Items Envases`, `Items Etiqueta` y `Items Paquetería`
+   - esto habilita selección real en la edición del `Item Comercial`
+
+3. **Items Comerciales**
+   - alta, edición, listado y duplicación
+   - asociaciones a envases y etiquetas
+
+4. **Integración con Items**
+   - definir recién después la política `OK | FAIL | PEND` de `COMERCIAL`, `ENVASE`, `ETIQUETA` y `PAQUETERÍA`
+   - no mezclar esta etapa con la creación inicial de la capa comercial
+
+### Criterio de descarte sobre la capa legacy
+
+- `producto_oferta*` y `packaging_item` quedan conceptualmente fuera del diseño nuevo.
+- No se eliminan todavía del código/base hasta que exista reemplazo funcional.
+- No se migra data porque, según el estado operativo informado, la capa comercial previa nunca se usó realmente.

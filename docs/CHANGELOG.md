@@ -101,3 +101,9 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 - Fix proveedor EUMA: ya no se escribe `proveedor.motor_id_default = 2` en `app.proveedor`; la asociación al motor 2 queda inferida por URL en el flujo bulk/preview.
 
 - Fix UI: el icono eliminar en **Items formulados** dejó de estar deshabilitado y ahora ejecuta el mismo DELETE de formulados que la hoja `Items`.
+
+## 2026-04-14
+
+- Docs: agregados payloads mínimos propuestos para la línea comercial v2 en `04_API_BACKEND.md`.
+- Docs: fijado orden corto de implementación (`BD -> catálogos -> items comerciales -> integración con Items`) en `09_DECISIONES_TECNICAS.md`.
+- Docs: consolidado criterio de contratos API en `snake_case` y respuestas `{ ok: ... }` para la nueva capa comercial.

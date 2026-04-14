@@ -607,3 +607,196 @@ Esta sección no describe rutas activas del snapshot. Describe el corte mínimo 
 - La ofertabilidad mira origen técnico + asociaciones obligatorias de envase / etiqueta.
 - `Items Paquetería` no bloquea oferta y no requiere asociación fija al comercial en v1.
 - La futura integración con la hoja general `Items` debe resolver una política `OK | FAIL | PEND` específica antes de activarse.
+
+
+---
+
+## Línea comercial v2 — Payloads mínimos propuestos (no implementados aún)
+
+Principios de contrato alineados con el estilo actual de la app:
+- payloads en `snake_case`
+- respuestas con forma `{ ok: boolean, ... }`
+- ids numéricos
+- validaciones tempranas con `400` para campos requeridos inválidos y `422` para combinaciones semánticamente inválidas
+- `PATCH` parcial por campos presentes
+
+### `/api/items-comerciales` — POST
+
+Body mínimo:
+
+```json
+{
+  "nombre": "Lavandina x 1000 mL",
+  "descripcion": "",
+  "cantidad": 1000,
+  "unidad": "ML",
+  "proveedor_item_id": 123,
+  "manual_cost_option_id": null,
+  "formulado_item_formulado_id": null,
+  "densidad_g_ml": 1.08
+}
+```
+
+Reglas:
+- exactamente una FK de origen técnico debe estar informada
+- `cantidad > 0`
+- `unidad in ('GR','ML','UN')`
+- `densidad_g_ml` solo se exige si la conversión `GR ↔ ML` la necesita
+
+Response esperada:
+
+```json
+{ "ok": true, "item_comercial_id": 10 }
+```
+
+### `/api/items-comerciales/[item_comercial_id]` — PATCH
+
+Body parcial típico:
+
+```json
+{
+  "nombre": "Lavandina x 1 L",
+  "descripcion": "Bidón blanco",
+  "cantidad": 1000,
+  "unidad": "ML",
+  "densidad_g_ml": 1.08,
+  "activo": true
+}
+```
+
+Notas:
+- no cambia el origen técnico en v1; si hiciera falta cambiarlo, conviene crear otro `Item Comercial`
+- todos los campos del `Item Comercial` quedan editables después del alta
+
+### `/api/items-comerciales/[item_comercial_id]/duplicate` — POST
+
+Body opcional:
+
+```json
+{ "nombre": "Lavandina x 5 L" }
+```
+
+Comportamiento esperado:
+- duplica nombre/cantidad/unidad/descripción y asociaciones a envases/etiquetas
+- no duplica publicaciones ni estados transaccionales
+
+### `/api/items-comerciales/[item_comercial_id]/envases` — POST
+
+Body mínimo:
+
+```json
+{
+  "item_envase_id": 7,
+  "cantidad": 1,
+  "obligatorio": true
+}
+```
+
+Response esperada:
+
+```json
+{ "ok": true, "item_comercial_envase_id": 41 }
+```
+
+### `/api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]` — PATCH
+
+Body parcial típico:
+
+```json
+{
+  "cantidad": 2,
+  "obligatorio": true
+}
+```
+
+### `/api/items-comerciales/[item_comercial_id]/etiquetas` — POST
+
+Body mínimo:
+
+```json
+{
+  "item_etiqueta_id": 12,
+  "cantidad": 1,
+  "obligatorio": true
+}
+```
+
+### `/api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]` — PATCH
+
+Body parcial típico:
+
+```json
+{
+  "cantidad": 1,
+  "obligatorio": true
+}
+```
+
+### `/api/items-envases` — POST
+
+Body mínimo:
+
+```json
+{
+  "nombre": "Botella PET 1 L",
+  "descripcion": "",
+  "proveedor_item_id": 321,
+  "manual_cost_option_id": null,
+  "activo": true
+}
+```
+
+Regla:
+- exactamente una FK de origen técnico (`PROVEEDOR` o `MANUAL`)
+
+### `/api/items-etiqueta` — POST
+
+Body mínimo:
+
+```json
+{
+  "nombre": "Etiqueta lavandina 100 x 50",
+  "material": "Papel adhesivo",
+  "medidas": "100 x 50",
+  "descripcion": "",
+  "proveedor_item_id": null,
+  "manual_cost_option_id": 55,
+  "activo": true
+}
+```
+
+Regla:
+- `medidas` obligatoria en formato visible `ancho x largo`
+- `material` y `medidas` son los únicos campos propios agregados a `Item Etiqueta` en v1
+
+### `/api/items-paqueteria` — POST
+
+Body mínimo:
+
+```json
+{
+  "nombre": "Caja cartón mediana",
+  "descripcion": "",
+  "proveedor_item_id": 500,
+  "manual_cost_option_id": null,
+  "activo": true
+}
+```
+
+Notas:
+- paquetería no bloquea ofertabilidad
+- no se asocia fijo al `Item Comercial` en v1
+
+### GETs mínimos esperados
+
+Todas las colecciones deben soportar, al menos:
+- `search`
+- `include_inactivos=true|false`
+- `limit`
+- `offset`
+
+Y responder con forma compacta, por ejemplo:
+
+```json
+{ "ok": true, "items": [], "count": 0 }
+```
