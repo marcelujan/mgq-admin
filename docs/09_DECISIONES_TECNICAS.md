@@ -128,3 +128,72 @@ Regla aceptada:
 - La base viva y operativa actual sigue siendo: `MANUAL`, `PROVEEDOR`, `FORMULADO` y sus snapshots existentes.
 - La nueva capa comercial debe montarse **encima** de esos tres dominios, sin reutilizar por obligación la semántica actual de `producto_oferta`.
 - Si algo de la capa comercial previa resulta reutilizable, será por conveniencia técnica puntual y no por dependencia de dominio.
+
+
+## 2026-04-14 — Matriz de transición mínima para la nueva capa comercial (diagnóstico, no implementado aún)
+
+Tomando el snapshot actual del código y del schema, se fija el siguiente criterio de transición para implementar la nueva capa comercial sin romper la base viva actual.
+
+### 1) Se conserva como base operativa vigente
+
+Se mantiene sin rediseño inmediato:
+
+- `item_seguimiento` + `offers` + `pricing_daily_run_items` para `PROVEEDOR`
+- `cost_option` + `cost_option_snapshot` para `MANUAL`
+- `producto` + `producto_formula_v2` + `producto_formula_linea_v2` + `item_formulado` + `item_formulado_snapshot` para `FORMULADO`
+- `/api/items` como tabla agregada principal de estado operacional diario
+
+Principio:
+- la nueva capa comercial no reemplaza estos dominios; se monta encima.
+
+### 2) Se reemplaza conceptualmente
+
+La capa comercial legacy existente deja de ser el modelo de referencia para el nuevo diseño:
+
+- `producto_oferta`
+- `producto_oferta_packaging`
+- `producto_oferta_costo_snapshot`
+- `producto_oferta_costo_snapshot_packaging`
+- `producto_oferta_extra`
+- `packaging_item`
+
+Regla:
+- estas piezas pueden seguir existiendo transitoriamente en código/base mientras no haya reemplazo completo;
+- pero no deben gobernar el diseño de `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería`.
+
+### 3) Se crea nuevo (mínimo inevitable)
+
+Para soportar `Items Comerciales` nacidos desde `PROVEEDOR`, `MANUAL` o `FORMULADO`, el corte mínimo nuevo deberá cubrir cuatro bloques:
+
+#### A. Catálogos operativos separados
+- `Items Envases`
+- `Items Etiqueta`
+- `Items Paquetería`
+
+#### B. Capa comercial unificada
+- `Items Comerciales` con origen técnico único
+- cantidad + unidad
+- nombre obligatorio
+- descripción opcional
+- campos editables
+
+#### C. Asociaciones bloqueantes de ofertabilidad
+- asociaciones opcionales a `Items Envases`
+- asociaciones opcionales a `Items Etiqueta`
+- si una asociación se marca como obligatoria para una variante, su faltante bloquea la oferta
+
+#### D. Consumo operativo no bloqueante
+- `Items Paquetería` queda fuera de la lógica de bloqueo
+- su consumo se informa manualmente al preparar la venta, solo para control de stock
+
+### 4) Regla de implementación mínima
+
+Antes de eliminar físicamente cualquier parte de la capa legacy, debe existir reemplazo explícito de:
+
+- rutas API que hoy referencian `producto_oferta*`
+- borrados/limpieza asociados al flujo de `FORMULADO`
+- catálogo de packaging hoy unificado
+
+### 5) Principio rector
+
+El nuevo diseño comercial debe introducir la menor cantidad posible de entidades nuevas, pero no debe forzar la reutilización de una semántica legacy que hoy solo sirve a formulados y que nunca estuvo en uso operativo real para comercialización.

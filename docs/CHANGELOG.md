@@ -102,6 +102,7 @@ Los gráficos mantienen exclusivamente el detalle histórico.
 
 ## 2026-04-14
 
+- Docs: añadida en `09_DECISIONES_TECNICAS.md` la matriz de transición mínima para la nueva capa comercial: qué se conserva como base viva, qué pasa a legacy conceptual y qué bloques nuevos son inevitables para `Items Comerciales`.
 - Docs: corregido `05_FRONTEND.md` para reflejar el estado real actual del header: incluye `Dólar Histórico`, el indicador DB no es clickeable y `/db-health` existe como hoja técnica no enlazada en el menú principal.
 - Docs: registrada en `09_DECISIONES_TECNICAS.md` la dirección futura aceptada para `Items Comerciales`, `Items Envases`, `Items Etiqueta` e `Items Paquetería` (sin declararla como implementada).
 - Docs: fijadas reglas de stock y ofertabilidad para `Items Comerciales`: origen técnico único, unidades internas `GR | ML | UN`, densidad única por origen técnico y salidas no comerciales operando sobre orígenes técnicos.
