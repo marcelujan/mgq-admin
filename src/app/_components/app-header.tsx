@@ -9,7 +9,6 @@ import HomeUtcClock from "./home-utc-clock";
 type Crumb = { href: string; label: string };
 
 function labelForSegment(seg: string): string {
-  // map only known top-level routes. Everything else is left as-is.
   switch (seg) {
     case "items":
       return "Items";
@@ -45,28 +44,18 @@ function labelForSegment(seg: string): string {
 function buildCrumbs(pathname: string): Crumb[] {
   const parts = pathname.split("/").filter(Boolean);
   const crumbs: Crumb[] = [{ href: "/", label: "Inicio" }];
-
-  // include at most: /{section}/{id-or-subpage}
-  if (parts.length >= 1) {
-    crumbs.push({ href: `/${parts[0]}`, label: labelForSegment(parts[0]) });
-  }
-  if (parts.length >= 2) {
-    // do not treat ids as clickable crumbs (keeps behavior simple)
-    crumbs.push({ href: pathname, label: labelForSegment(parts[1]) });
-  }
+  if (parts.length >= 1) crumbs.push({ href: `/${parts[0]}`, label: labelForSegment(parts[0]) });
+  if (parts.length >= 2) crumbs.push({ href: pathname, label: labelForSegment(parts[1]) });
   return crumbs;
 }
 
 export default function AppHeader() {
   const router = useRouter();
   const pathname = usePathname() || "/";
-
   const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
   const showHomeClock = pathname === "/";
 
   function back() {
-    // Avoid leaving the app when user landed directly on a deep link.
-    // If there is no prior history inside the session, go home.
     if (typeof window !== "undefined" && window.history.length <= 1) {
       router.push("/");
       return;
@@ -99,21 +88,13 @@ export default function AppHeader() {
     >
       <div
         style={{
-          display: "flex",
+          display: "grid",
+          gridTemplateColumns: "minmax(0,1fr) auto",
           alignItems: "center",
-          justifyContent: "space-between",
           gap: 12,
-          flexWrap: "wrap",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <button
             onClick={back}
             style={{
@@ -122,6 +103,7 @@ export default function AppHeader() {
               padding: "6px 10px",
               background: "rgba(255,255,255,0.03)",
               cursor: "pointer",
+              flex: "0 0 auto",
             }}
             aria-label="Volver"
             title="Volver"
@@ -134,7 +116,11 @@ export default function AppHeader() {
               display: "flex",
               alignItems: "center",
               gap: 10,
-              flexWrap: "wrap",
+              minWidth: 0,
+              overflowX: "auto",
+              flexWrap: "nowrap",
+              scrollbarWidth: "thin",
+              paddingBottom: 2,
             }}
           >
             {nav.map((n) => (
@@ -145,13 +131,12 @@ export default function AppHeader() {
                   padding: "6px 10px",
                   borderRadius: 10,
                   border: "1px solid rgba(255,255,255,0.10)",
-                  background:
-                    pathname === n.href
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(255,255,255,0.02)",
+                  background: pathname === n.href ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
                   textDecoration: "none",
                   color: "inherit",
                   fontSize: 13,
+                  whiteSpace: "nowrap",
+                  flex: "0 0 auto",
                 }}
               >
                 {n.label}
@@ -160,7 +145,7 @@ export default function AppHeader() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifySelf: "end", flex: "0 0 auto", whiteSpace: "nowrap" }}>
           <DbHealthIndicator />
           <div style={{ fontSize: 12, opacity: 0.75 }}>mgq-admin</div>
         </div>
@@ -177,28 +162,14 @@ export default function AppHeader() {
           minHeight: 18,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            flexWrap: "wrap",
-            minWidth: 0,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
           {crumbs.map((c, idx) => (
-            <span
-              key={c.href}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
+            <span key={c.href} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               {idx > 0 ? <span style={{ opacity: 0.6 }}>/</span> : null}
               {idx === crumbs.length - 1 ? (
                 <span style={{ fontWeight: 600 }}>{c.label}</span>
               ) : (
-                <Link
-                  href={c.href}
-                  style={{ textDecoration: "none", color: "inherit" }}
-                >
+                <Link href={c.href} style={{ textDecoration: "none", color: "inherit" }}>
                   {c.label}
                 </Link>
               )}

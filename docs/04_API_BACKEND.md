@@ -743,3 +743,29 @@ Motivo: mantener el primer corte corto, validable y sin abrir demasiados frentes
 - **Query params:** (ninguno detectado)
 - **Tablas (referencias):** `item_paqueteria`
 - **Response keys (heurístico):** `error`, `item`, `ok`
+
+
+## vNext — Selector de orígenes técnicos
+
+Endpoint nuevo de apoyo a formularios:
+
+- `GET /api/origenes-tecnicos?kind=MANUAL|PROVEEDOR|FORMULADO&q=<texto>&selected_id=<id>`
+
+Respuesta esperada:
+
+```json
+{
+  "ok": true,
+  "items": [
+    { "id": 123, "label": "..." }
+  ]
+}
+```
+
+Uso:
+
+- `MANUAL`: devuelve `cost_option` activos tipo `MANUAL_PRESENTACION`.
+- `PROVEEDOR`: devuelve `item_seguimiento` existentes.
+- `FORMULADO`: devuelve `item_formulado` activos tipo `BULK`.
+
+Objetivo: evitar el ingreso manual de FK en formularios vNext y reducir errores por constraints.

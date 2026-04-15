@@ -7,7 +7,7 @@ type OriginType = "PROVEEDOR" | "MANUAL" | "FORMULADO";
 type Uom = "GR" | "ML" | "UN";
 
 type Comercial = {
-  item_comercial_id: number;
+  item_comercial_id?: number;
   nombre: string | null;
   descripcion?: string | null;
   cantidad: number | null;
@@ -18,8 +18,13 @@ type Comercial = {
   activo: boolean;
 };
 
-function numOrEmpty(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "";
+type OriginOption = {
+  id: number;
+  label: string;
+};
+
+function numOrEmpty(v: any): string {
+  if (v === null || v === undefined || v === "") return "";
   const n = Number(v);
   return Number.isFinite(n) ? String(n) : "";
 }
@@ -39,6 +44,9 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const [unidad, setUnidad] = useState<Uom>("UN");
   const [originType, setOriginType] = useState<OriginType>("MANUAL");
   const [originId, setOriginId] = useState("");
+  const [originSearch, setOriginSearch] = useState("");
+  const [originOptions, setOriginOptions] = useState<OriginOption[]>([]);
+  const [loadingOrigins, setLoadingOrigins] = useState(false);
   const [activo, setActivo] = useState(true);
 
   useEffect(() => {
@@ -80,6 +88,31 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     };
   }, [editing, itemId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadOrigins() {
+      setLoadingOrigins(true);
+      try {
+        const qp = new URLSearchParams();
+        qp.set("kind", originType);
+        if (originSearch.trim()) qp.set("q", originSearch.trim());
+        if (originId) qp.set("selected_id", originId);
+        const r = await fetch(`/api/origenes-tecnicos?${qp.toString()}`, { cache: "no-store" });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        if (!cancelled) setOriginOptions((j.items ?? []) as OriginOption[]);
+      } catch {
+        if (!cancelled) setOriginOptions([]);
+      } finally {
+        if (!cancelled) setLoadingOrigins(false);
+      }
+    }
+    void loadOrigins();
+    return () => {
+      cancelled = true;
+    };
+  }, [originType, originSearch, originId]);
+
   const title = useMemo(() => (editing ? "Editar Item Comercial" : "Nuevo Item Comercial"), [editing]);
 
   function buildBody() {
@@ -95,7 +128,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     };
 
     const oid = Number(originId);
-    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Origen inválido.");
+    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Seleccioná un origen técnico válido.");
     if (originType === "PROVEEDOR") body.proveedor_item_id = oid;
     else if (originType === "MANUAL") body.manual_cost_option_id = oid;
     else body.formulado_item_formulado_id = oid;
@@ -108,6 +141,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
   async function save() {
     setErr(null);
+    setSaving(true);
     try {
       if (!nombre.trim()) throw new Error("Nombre requerido.");
       const body = buildBody();
@@ -161,7 +195,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
               {deleting ? "Eliminando..." : "Eliminar"}
             </button>
           ) : null}
-          <button onClick={() => { setSaving(true); void save(); }} disabled={saving || deleting || loading} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", cursor: saving || deleting || loading ? "default" : "pointer", opacity: saving || deleting || loading ? 0.7 : 1 }}>
+          <button onClick={() => void save()} disabled={saving || deleting || loading} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", cursor: saving || deleting || loading ? "default" : "pointer", opacity: saving || deleting || loading ? 0.7 : 1 }}>
             {saving ? "Guardando..." : "Guardar"}
           </button>
         </div>
@@ -174,7 +208,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         </div>
       ) : null}
 
-      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", maxWidth: 720 }}>
+      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", maxWidth: 780 }}>
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gap: 6 }}>
             <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre</label>
@@ -204,25 +238,44 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
           <div style={{ display: "grid", gridTemplateColumns: "140px minmax(0, 1fr)", gap: 10 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Origen</label>
-              <select value={originType} onChange={(e) => setOriginType(e.target.value as OriginType)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
+              <select
+                value={originType}
+                onChange={(e) => {
+                  setOriginType(e.target.value as OriginType);
+                  setOriginId("");
+                  setOriginSearch("");
+                }}
+                style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}
+              >
                 <option value="MANUAL">MANUAL</option>
                 <option value="PROVEEDOR">PROVEEDOR</option>
                 <option value="FORMULADO">FORMULADO</option>
               </select>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>{originType === "MANUAL" ? "manual_cost_option_id" : originType === "PROVEEDOR" ? "proveedor_item_id" : "formulado_item_formulado_id"}</label>
-              <input value={originId} onChange={(e) => setOriginId(e.target.value)} inputMode="numeric" placeholder="ID del origen técnico" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar origen técnico</label>
+              <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Buscar por nombre o ID" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <label style={{ fontSize: 12, opacity: 0.7 }}>
+              Seleccionar {originType === "MANUAL" ? "manual_cost_option_id" : originType === "PROVEEDOR" ? "proveedor_item_id" : "formulado_item_formulado_id"}
+            </label>
+            <select value={originId} onChange={(e) => setOriginId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
+              <option value="">{loadingOrigins ? "Cargando..." : "Seleccionar..."}</option>
+              {originOptions.map((opt) => (
+                <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Seleccioná un origen existente. Ya no hace falta recordar IDs manualmente.
             </div>
           </div>
 
           <div style={{ fontSize: 12, opacity: 0.7 }}>
             En este lote 1 no se editan todavía asociaciones de envases/etiquetas ni densidad desde la hoja comercial.
           </div>
-
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.85 }}>
-            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Activo
-          </label>
         </div>
       </div>
     </div>
