@@ -8,16 +8,6 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
-function numOrNull(v: any): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function originCount(proveedor_item_id: number | null, manual_cost_option_id: number | null): number {
-  return Number(proveedor_item_id !== null) + Number(manual_cost_option_id !== null);
-}
-
 type Ctx = { params: Promise<{ item_paqueteria_id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
@@ -28,7 +18,11 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
     const sql = db();
     const r: any = await sql.query(
-      `SELECT item_paqueteria_id, nombre, descripcion, proveedor_item_id, manual_cost_option_id, activo, created_at, updated_at FROM app.item_paqueteria WHERE item_paqueteria_id = $1`,
+      `
+      SELECT item_paqueteria_id, nombre, descripcion, activo, created_at, updated_at
+      FROM app.item_paqueteria
+      WHERE item_paqueteria_id = $1
+      `,
       [item_paqueteria_id]
     );
     const rows = normalizeQueryResult(r);
@@ -47,6 +41,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     const body = await req.json().catch(() => ({} as any));
     const sql = db();
+
     const currentRes: any = await sql.query(`SELECT * FROM app.item_paqueteria WHERE item_paqueteria_id = $1`, [item_paqueteria_id]);
     const current = normalizeQueryResult(currentRes)?.[0];
     if (!current) return NextResponse.json({ ok: false, error: "no encontrado" }, { status: 404 });
@@ -58,14 +53,6 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const hasDescripcion = Object.prototype.hasOwnProperty.call(body, "descripcion");
     const descripcion = hasDescripcion ? (typeof body?.descripcion === "string" ? body.descripcion.trim() : "") : String(current.descripcion ?? "");
 
-    const hasProveedor = Object.prototype.hasOwnProperty.call(body, "proveedor_item_id");
-    const hasManual = Object.prototype.hasOwnProperty.call(body, "manual_cost_option_id");
-    const proveedor_item_id = hasProveedor ? numOrNull(body?.proveedor_item_id) : numOrNull(current.proveedor_item_id);
-    const manual_cost_option_id = hasManual ? numOrNull(body?.manual_cost_option_id) : numOrNull(current.manual_cost_option_id);
-    if (originCount(proveedor_item_id, manual_cost_option_id) !== 1) {
-      return NextResponse.json({ ok: false, error: "origen técnico inválido" }, { status: 422 });
-    }
-
     const hasActivo = Object.prototype.hasOwnProperty.call(body, "activo");
     const activo = hasActivo ? Boolean(body?.activo) : Boolean(current.activo);
 
@@ -74,13 +61,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
       UPDATE app.item_paqueteria
       SET nombre = $1,
           descripcion = $2,
-          proveedor_item_id = $3,
-          manual_cost_option_id = $4,
-          activo = $5,
+          activo = $3,
           updated_at = now()
-      WHERE item_paqueteria_id = $6
+      WHERE item_paqueteria_id = $4
       `,
-      [nombre, descripcion || null, proveedor_item_id, manual_cost_option_id, activo, item_paqueteria_id]
+      [nombre, descripcion || null, activo, item_paqueteria_id]
     );
 
     return NextResponse.json({ ok: true });

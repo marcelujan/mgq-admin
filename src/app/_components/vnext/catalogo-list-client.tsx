@@ -13,13 +13,10 @@ type Row = {
   descripcion?: string | null;
   material?: string | null;
   medidas?: string | null;
-  activo: boolean;
-  origen_tipo: string | null;
-  origen_id: number | null;
-  origen_label: string | null;
+  activo?: boolean;
 };
 
-type SortKey = "id" | "nombre" | "origen_label" | "material" | "medidas";
+type SortKey = "id" | "nombre" | "descripcion" | "material" | "medidas";
 type SortDir = "asc" | "desc";
 
 const API_BASE: Record<CatalogoKind, string> = {
@@ -52,7 +49,6 @@ function compareNumber(a: number, b: number, dir: SortDir): number {
 
 export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
   const [search, setSearch] = useState("");
-  const [includeInactivos, setIncludeInactivos] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -67,7 +63,6 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
       setErr(null);
       try {
         const qp = new URLSearchParams();
-        qp.set("include_inactivos", includeInactivos ? "true" : "false");
         if (search.trim()) qp.set("search", search.trim());
 
         const r = await fetch(`${API_BASE[kind]}?${qp.toString()}`, { cache: "no-store" });
@@ -87,13 +82,13 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
     return () => {
       cancelled = true;
     };
-  }, [kind, search, includeInactivos]);
+  }, [kind, search]);
 
   const sortedRows = useMemo(() => {
     return [...rows].sort((a, b) => {
       if (sortKey === "id") return compareNumber(getId(kind, a), getId(kind, b), sortDir);
       if (sortKey === "nombre") return compareText(a.nombre ?? "", b.nombre ?? "", sortDir);
-      if (sortKey === "origen_label") return compareText(a.origen_label ?? "", b.origen_label ?? "", sortDir);
+      if (sortKey === "descripcion") return compareText(a.descripcion ?? "", b.descripcion ?? "", sortDir);
       if (sortKey === "material") return compareText(a.material ?? "", b.material ?? "", sortDir);
       return compareText(a.medidas ?? "", b.medidas ?? "", sortDir);
     });
@@ -167,11 +162,6 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
           }}
         />
 
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.85 }}>
-          <input type="checkbox" checked={includeInactivos} onChange={(e) => setIncludeInactivos(e.target.checked)} />
-          Incluir inactivos
-        </label>
-
         <div style={{ fontSize: 12, opacity: 0.7 }}>{loading ? "Cargando..." : `${count} registro(s)`}</div>
       </div>
 
@@ -190,8 +180,7 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
               <th style={thBase}><button type="button" onClick={() => toggleSort("nombre")} style={thButton}>Nombre{sortLabel("nombre")}</button></th>
               {showEtiquetaCols ? <th style={{ ...thBase, width: 120 }}><button type="button" onClick={() => toggleSort("material")} style={thButton}>Material{sortLabel("material")}</button></th> : null}
               {showEtiquetaCols ? <th style={{ ...thBase, width: 110 }}><button type="button" onClick={() => toggleSort("medidas")} style={thButton}>Medidas{sortLabel("medidas")}</button></th> : null}
-              <th style={{ ...thBase, width: 240 }}><button type="button" onClick={() => toggleSort("origen_label")} style={thButton}>Origen{sortLabel("origen_label")}</button></th>
-              <th style={{ ...thBase, width: 90 }}>Estado</th>
+              <th style={thBase}><button type="button" onClick={() => toggleSort("descripcion")} style={thButton}>Descripción{sortLabel("descripcion")}</button></th>
               <th style={{ ...thBase, width: 120 }}>Acciones</th>
             </tr>
           </thead>
@@ -204,8 +193,7 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
                   <td style={{ padding: "5px 10px", fontWeight: 400, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.nombre ?? ""}>{r.nombre ?? ""}</td>
                   {showEtiquetaCols ? <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.material ?? ""}>{r.material ?? ""}</td> : null}
                   {showEtiquetaCols ? <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.medidas ?? ""}</td> : null}
-                  <td style={{ padding: "5px 10px", opacity: 0.85, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.origen_label ?? ""}>{r.origen_label ?? ""}</td>
-                  <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.activo ? "Activo" : "Inactivo"}</td>
+                  <td style={{ padding: "5px 10px", opacity: 0.85, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.descripcion ?? ""}>{r.descripcion ?? ""}</td>
                   <td style={{ padding: "5px 10px", lineHeight: 1.15, whiteSpace: "nowrap" }}>
                     <div style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
                       <Link href={`${DETAIL_BASE[kind]}/${id}`} style={{ textDecoration: "none", opacity: 0.9 }}>Editar</Link>
@@ -225,7 +213,7 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
             })}
             {!loading && sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={showEtiquetaCols ? 7 : 5} style={{ padding: "8px 10px", opacity: 0.7, lineHeight: 1.15 }}>
+                <td colSpan={showEtiquetaCols ? 6 : 4} style={{ padding: "8px 10px", opacity: 0.7, lineHeight: 1.15 }}>
                   Sin resultados.
                 </td>
               </tr>

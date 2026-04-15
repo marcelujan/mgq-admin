@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type CatalogoKind = "envases" | "etiqueta" | "paqueteria";
-type OriginType = "PROVEEDOR" | "MANUAL";
 
 type CatalogoRecord = {
   item_envase_id?: number;
@@ -14,14 +13,7 @@ type CatalogoRecord = {
   descripcion?: string | null;
   material?: string | null;
   medidas?: string | null;
-  proveedor_item_id?: number | null;
-  manual_cost_option_id?: number | null;
-  activo: boolean;
-};
-
-type OriginOption = {
-  id: number;
-  label: string;
+  activo?: boolean;
 };
 
 const API_BASE: Record<CatalogoKind, string> = {
@@ -49,11 +41,6 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
   const [descripcion, setDescripcion] = useState("");
   const [material, setMaterial] = useState("");
   const [medidas, setMedidas] = useState("");
-  const [originType, setOriginType] = useState<OriginType>("MANUAL");
-  const [originId, setOriginId] = useState("");
-  const [originSearch, setOriginSearch] = useState("");
-  const [originOptions, setOriginOptions] = useState<OriginOption[]>([]);
-  const [loadingOrigins, setLoadingOrigins] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,13 +58,6 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
         setDescripcion(row.descripcion ?? "");
         setMaterial(row.material ?? "");
         setMedidas(row.medidas ?? "");
-        if (row.proveedor_item_id != null) {
-          setOriginType("PROVEEDOR");
-          setOriginId(String(row.proveedor_item_id));
-        } else {
-          setOriginType("MANUAL");
-          setOriginId(row.manual_cost_option_id != null ? String(row.manual_cost_option_id) : "");
-        }
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
       } finally {
@@ -90,62 +70,27 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
     };
   }, [editing, itemId, kind]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadOrigins() {
-      setLoadingOrigins(true);
-      try {
-        const qp = new URLSearchParams();
-        qp.set("kind", originType);
-        if (originSearch.trim()) qp.set("q", originSearch.trim());
-        if (originId) qp.set("selected_id", originId);
-        const r = await fetch(`/api/origenes-tecnicos?${qp.toString()}`, { cache: "no-store" });
-        const j = await r.json().catch(() => null);
-        if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-        if (!cancelled) setOriginOptions((j.items ?? []) as OriginOption[]);
-      } catch (e: any) {
-        if (!cancelled) setOriginOptions([]);
-      } finally {
-        if (!cancelled) setLoadingOrigins(false);
-      }
-    }
-    void loadOrigins();
-    return () => {
-      cancelled = true;
-    };
-  }, [originType, originSearch, originId]);
-
   const titleByKind = useMemo(() => {
     if (kind === "envases") return editing ? "Editar Item Envase" : "Nuevo Item Envase";
     if (kind === "etiqueta") return editing ? "Editar Item Etiqueta" : "Nuevo Item Etiqueta";
     return editing ? "Editar Item Paquetería" : "Nuevo Item Paquetería";
-  }, [kind, editing]);
-
-  function buildBody() {
-    const body: any = {
-      nombre: nombre.trim(),
-      descripcion: descripcion.trim() || null,
-      proveedor_item_id: null,
-      manual_cost_option_id: null,
-    };
-    if (kind === "etiqueta") {
-      body.material = material.trim() || null;
-      body.medidas = medidas.trim();
-    }
-    const oid = Number(originId);
-    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Seleccioná un origen técnico válido.");
-    if (originType === "PROVEEDOR") body.proveedor_item_id = oid;
-    else body.manual_cost_option_id = oid;
-    return body;
-  }
+  }, [editing, kind]);
 
   async function save() {
     setErr(null);
     setSaving(true);
     try {
-      if (!nombre.trim()) throw new Error("Nombre requerido.");
-      if (kind === "etiqueta" && !medidas.trim()) throw new Error("Medidas requeridas.");
-      const body = buildBody();
+      const body: any = {
+        nombre: nombre.trim(),
+        descripcion: descripcion.trim() || null,
+      };
+      if (!body.nombre) throw new Error("Nombre requerido.");
+      if (kind === "etiqueta") {
+        body.material = material.trim() || null;
+        body.medidas = medidas.trim();
+        if (!body.medidas) throw new Error("Medidas requeridas.");
+      }
+
       const r = await fetch(editing ? `${API_BASE[kind]}/${itemId}` : API_BASE[kind], {
         method: editing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
@@ -185,7 +130,7 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
         <div style={{ display: "grid", gap: 4 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{titleByKind}</h1>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {editing ? <>ID: <code>{itemId}</code></> : <>Alta simple con origen técnico seleccionado desde lista.</>}
+            {editing ? <>ID: <code>{itemId}</code></> : <>Alta directa del catálogo operativo.</>}
           </div>
         </div>
 
@@ -222,56 +167,17 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
           </div>
 
           {kind === "etiqueta" ? (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: 12, opacity: 0.7 }}>Material</label>
-                  <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Material" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-                </div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: 12, opacity: 0.7 }}>Medidas</label>
-                  <input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="100 x 50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-                </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Material</label>
+                <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Material" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
               </div>
-            </>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Medidas</label>
+                <input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="100 x 50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              </div>
+            </div>
           ) : null}
-
-          <div style={{ display: "grid", gridTemplateColumns: "140px minmax(0, 1fr)", gap: 10 }}>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Origen</label>
-              <select
-                value={originType}
-                onChange={(e) => {
-                  setOriginType(e.target.value as OriginType);
-                  setOriginId("");
-                  setOriginSearch("");
-                }}
-                style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}
-              >
-                <option value="MANUAL">MANUAL</option>
-                <option value="PROVEEDOR">PROVEEDOR</option>
-              </select>
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar origen técnico</label>
-              <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Buscar por nombre o ID" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: 12, opacity: 0.7 }}>
-              Seleccionar {originType === "MANUAL" ? "manual_cost_option_id" : "proveedor_item_id"}
-            </label>
-            <select value={originId} onChange={(e) => setOriginId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
-              <option value="">{loadingOrigins ? "Cargando..." : "Seleccionar..."}</option>
-              {originOptions.map((opt) => (
-                <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
-              ))}
-            </select>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              No ingreses IDs al azar. Seleccioná un origen técnico existente de la lista.
-            </div>
-          </div>
         </div>
       </div>
     </div>

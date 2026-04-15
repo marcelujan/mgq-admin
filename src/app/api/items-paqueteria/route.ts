@@ -8,20 +8,9 @@ function normalizeQueryResult(res: any): any[] {
   return [];
 }
 
-function numOrNull(v: any): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function originCount(proveedor_item_id: number | null, manual_cost_option_id: number | null): number {
-  return Number(proveedor_item_id !== null) + Number(manual_cost_option_id !== null);
-}
-
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const includeInactivos = (searchParams.get("include_inactivos") ?? "false") === "true";
     const search = (searchParams.get("search") ?? "").trim();
     const sql = db();
 
@@ -31,40 +20,18 @@ export async function GET(req: NextRequest) {
         p.item_paqueteria_id,
         p.nombre,
         p.descripcion,
-        p.proveedor_item_id,
-        p.manual_cost_option_id,
         p.activo,
         p.created_at,
-        p.updated_at,
-        CASE
-          WHEN p.proveedor_item_id IS NOT NULL THEN 'PROVEEDOR'
-          ELSE 'MANUAL'
-        END AS origen_tipo,
-        CASE
-          WHEN p.proveedor_item_id IS NOT NULL THEN p.proveedor_item_id
-          ELSE p.manual_cost_option_id
-        END AS origen_id,
-        CASE
-          WHEN p.proveedor_item_id IS NOT NULL THEN
-            trim(both ' ' from concat_ws(' · ', coalesce(pr.nombre,''), nullif(i.descripcion_fuente,''), 'Item #' || i.item_id::text))
-          ELSE
-            trim(both ' ' from concat_ws(' · ', 'Manual', coalesce(co.manual_nombre,''), 'ID ' || co.cost_option_id::text))
-        END AS origen_label
+        p.updated_at
       FROM app.item_paqueteria p
-      LEFT JOIN app.item_seguimiento i ON i.item_id = p.proveedor_item_id
-      LEFT JOIN app.proveedor pr ON pr.proveedor_id = i.proveedor_id
-      LEFT JOIN app.cost_option co ON co.cost_option_id = p.manual_cost_option_id
-      WHERE (($1::boolean = true) OR (p.activo = true))
-        AND (
-          $2::text = '' OR
-          coalesce(p.nombre,'') ILIKE '%' || $2::text || '%' OR
-          coalesce(p.descripcion,'') ILIKE '%' || $2::text || '%' OR
-          coalesce(i.descripcion_fuente,'') ILIKE '%' || $2::text || '%' OR
-          coalesce(co.manual_nombre,'') ILIKE '%' || $2::text || '%'
-        )
-      ORDER BY p.activo DESC, p.nombre ASC, p.item_paqueteria_id ASC
+      WHERE (
+        $1::text = '' OR
+        coalesce(p.nombre,'') ILIKE '%' || $1::text || '%' OR
+        coalesce(p.descripcion,'') ILIKE '%' || $1::text || '%'
+      )
+      ORDER BY p.nombre ASC, p.item_paqueteria_id ASC
       `,
-      [includeInactivos, search]
+      [search]
     );
 
     return NextResponse.json({ ok: true, items: normalizeQueryResult(r) });
@@ -78,23 +45,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({} as any));
     const nombre = typeof body?.nombre === "string" ? body.nombre.trim() : "";
     const descripcion = typeof body?.descripcion === "string" ? body.descripcion.trim() : "";
-    const proveedor_item_id = numOrNull(body?.proveedor_item_id);
-    const manual_cost_option_id = numOrNull(body?.manual_cost_option_id);
-    const activo = body?.activo === false ? false : true;
 
     if (!nombre) return NextResponse.json({ ok: false, error: "nombre requerido" }, { status: 400 });
-    if (originCount(proveedor_item_id, manual_cost_option_id) !== 1) {
-      return NextResponse.json({ ok: false, error: "origen técnico inválido" }, { status: 422 });
-    }
 
     const sql = db();
     const r: any = await sql.query(
       `
-      INSERT INTO app.item_paqueteria (nombre, descripcion, proveedor_item_id, manual_cost_option_id, activo)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO app.item_paqueteria (nombre, descripcion)
+      VALUES ($1, $2)
       RETURNING item_paqueteria_id
       `,
-      [nombre, descripcion || null, proveedor_item_id, manual_cost_option_id, activo]
+      [nombre, descripcion || null]
     );
 
     const item_paqueteria_id = normalizeQueryResult(r)?.[0]?.item_paqueteria_id;

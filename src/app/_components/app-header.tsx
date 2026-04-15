@@ -90,62 +90,66 @@ export default function AppHeader() {
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(0,1fr) auto",
-          alignItems: "center",
+          alignItems: "start",
           gap: 12,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <button
-            onClick={back}
-            style={{
-              border: "1px solid rgba(255,255,255,0.14)",
-              borderRadius: 10,
-              padding: "6px 10px",
-              background: "rgba(255,255,255,0.03)",
-              cursor: "pointer",
-              flex: "0 0 auto",
-            }}
-            aria-label="Volver"
-            title="Volver"
-          >
-            ← Volver
-          </button>
+        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "wrap" }}>
+            <button
+              onClick={back}
+              style={{
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                color: "inherit",
+                cursor: "pointer",
+                fontSize: 13,
+                whiteSpace: "nowrap",
+                opacity: 0.95,
+              }}
+              aria-label="Volver"
+              title="Volver"
+            >
+              ← Volver
+            </button>
+          </div>
 
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 10,
+              gap: 14,
               minWidth: 0,
-              overflowX: "auto",
-              flexWrap: "nowrap",
-              scrollbarWidth: "thin",
-              paddingBottom: 2,
+              flexWrap: "wrap",
+              lineHeight: 1.15,
             }}
           >
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: pathname === n.href ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.02)",
-                  textDecoration: "none",
-                  color: "inherit",
-                  fontSize: 13,
-                  whiteSpace: "nowrap",
-                  flex: "0 0 auto",
-                }}
-              >
-                {n.label}
-              </Link>
-            ))}
+            {nav.map((n) => {
+              const active = pathname === n.href;
+              return (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  style={{
+                    textDecoration: "none",
+                    color: "inherit",
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    opacity: active ? 1 : 0.88,
+                    fontWeight: active ? 700 : 400,
+                    textDecorationLine: active ? "underline" : "none",
+                    textUnderlineOffset: 3,
+                  }}
+                >
+                  {n.label}
+                </Link>
+              );
+            })}
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifySelf: "end", flex: "0 0 auto", whiteSpace: "nowrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifySelf: "end", whiteSpace: "nowrap", paddingTop: 2 }}>
           <DbHealthIndicator />
           <div style={{ fontSize: 12, opacity: 0.75 }}>mgq-admin</div>
         </div>
