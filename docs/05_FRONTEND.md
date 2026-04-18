@@ -2,9 +2,7 @@
 
 ## Navegación
 
-La banda superior debe mantener el mismo orden que `Inicio` y que las hojas operativas.
-
-Orden vigente:
+La banda superior y la hoja `Inicio` deben mostrar el mismo orden de hojas operativas:
 
 1. Items
 2. Items Manuales
@@ -19,15 +17,49 @@ Orden vigente:
 
 Reglas visuales:
 
-- no usar scroll horizontal para esta banda;
-- si no entra en una fila, envolver a dos filas;
-- priorizar links compactos en texto por sobre botones anchos;
+- no usar scroll horizontal en el header;
+- priorizar enlaces de texto compactos por sobre botones anchos;
+- permitir envoltura en dos filas si hace falta;
 - mantener `DB health` a la derecha.
 
-## Hojas autónomas de catálogo
+## Hojas `Items Envases`, `Items Etiqueta` e `Items Paquetería`
 
-`Items Envases`, `Items Etiqueta` e `Items Paquetería` son hojas de creación y edición de sus propios ítems.
+Estas hojas no son catálogos livianos sin costo.
 
-No piden seleccionar un origen técnico previo.
+Son hojas de alta y edición de ítems propios con formato operativo similar a `Items Manuales`.
 
-Se usan después desde `Items Comerciales`.
+### Campos visibles correctos
+
+#### Items Envases
+- `nombre`
+- `uom`
+- `cantidad_referencia`
+- `costo_ars`
+
+#### Items Etiqueta
+- `nombre`
+- `uom`
+- `cantidad_referencia`
+- `costo_ars`
+- `medidas`
+
+#### Items Paquetería
+- `nombre`
+- `uom`
+- `cantidad_referencia`
+- `costo_ars`
+
+### Campos que no deben verse
+
+- `descripcion`
+- `material`
+- FKs crudas de origen
+
+## Items Comerciales
+
+`Items Comerciales` mantiene su rol como capa comercial que luego selecciona:
+
+- `Items Envases`
+- `Items Etiqueta`
+
+`Items Paquetería` sigue quedando fuera de la lógica de bloqueo de oferta y se informa manualmente al preparar el pedido.

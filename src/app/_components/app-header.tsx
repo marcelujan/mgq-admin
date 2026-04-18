@@ -20,14 +20,6 @@ function labelForSegment(seg: string): string {
       return "Items Proveedores";
     case "items-manuales":
       return "Items Manuales";
-    case "jobs-diario":
-      return "Corrida diaria";
-    case "new":
-      return "Nuevo";
-    case "insumos":
-      return "Insumos";
-    case "dolar-historico":
-      return "Dólar Histórico";
     case "items-comerciales":
       return "Items Comerciales";
     case "items-envases":
@@ -36,6 +28,14 @@ function labelForSegment(seg: string): string {
       return "Items Etiqueta";
     case "items-paqueteria":
       return "Items Paquetería";
+    case "jobs-diario":
+      return "Corrida diaria";
+    case "new":
+      return "Nuevo";
+    case "insumos":
+      return "Insumos";
+    case "dolar-historico":
+      return "Dólar Histórico";
     default:
       return seg.replace(/-/g, " ");
   }
@@ -77,71 +77,20 @@ export default function AppHeader() {
   ];
 
   return (
-    <div
-      style={{
-        padding: "10px 16px",
-        borderBottom: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(0,0,0,0.22)",
-        display: "grid",
-        gap: 8,
-      }}
-    >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0,1fr) auto",
-          alignItems: "start",
-          gap: 12,
-        }}
-      >
-        <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+    <div style={{ padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.10)", background: "rgba(0,0,0,0.22)", display: "grid", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "start", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flexWrap: "wrap" }}>
-            <button
-              onClick={back}
-              style={{
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                color: "inherit",
-                cursor: "pointer",
-                fontSize: 13,
-                whiteSpace: "nowrap",
-                opacity: 0.95,
-              }}
-              aria-label="Volver"
-              title="Volver"
-            >
+            <button onClick={back} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", fontSize: 13, whiteSpace: "nowrap", opacity: 0.95 }} aria-label="Volver" title="Volver">
               ← Volver
             </button>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              minWidth: 0,
-              flexWrap: "wrap",
-              lineHeight: 1.15,
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flexWrap: "wrap", lineHeight: 1.1 }}>
             {nav.map((n) => {
               const active = pathname === n.href;
               return (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  style={{
-                    textDecoration: "none",
-                    color: "inherit",
-                    fontSize: 13,
-                    whiteSpace: "nowrap",
-                    opacity: active ? 1 : 0.88,
-                    fontWeight: active ? 700 : 400,
-                    textDecorationLine: active ? "underline" : "none",
-                    textUnderlineOffset: 3,
-                  }}
-                >
+                <Link key={n.href} href={n.href} style={{ textDecoration: active ? "underline" : "none", textUnderlineOffset: 3, color: "inherit", fontSize: 12.5, whiteSpace: "nowrap", opacity: active ? 1 : 0.88, fontWeight: active ? 700 : 400 }}>
                   {n.label}
                 </Link>
               );
@@ -155,28 +104,12 @@ export default function AppHeader() {
         </div>
       </div>
 
-      <div
-        style={{
-          fontSize: 12,
-          opacity: 0.7,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          minHeight: 18,
-        }}
-      >
+      <div style={{ fontSize: 12, opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
           {crumbs.map((c, idx) => (
             <span key={c.href} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
               {idx > 0 ? <span style={{ opacity: 0.6 }}>/</span> : null}
-              {idx === crumbs.length - 1 ? (
-                <span style={{ fontWeight: 600 }}>{c.label}</span>
-              ) : (
-                <Link href={c.href} style={{ textDecoration: "none", color: "inherit" }}>
-                  {c.label}
-                </Link>
-              )}
+              {idx === crumbs.length - 1 ? <span style={{ fontWeight: 600 }}>{c.label}</span> : <Link href={c.href} style={{ textDecoration: "none", color: "inherit" }}>{c.label}</Link>}
             </span>
           ))}
         </div>

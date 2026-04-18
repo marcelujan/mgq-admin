@@ -10,10 +10,10 @@ type CatalogoRecord = {
   item_etiqueta_id?: number;
   item_paqueteria_id?: number;
   nombre: string | null;
-  descripcion?: string | null;
-  material?: string | null;
+  uom: string | null;
+  cantidad_referencia: number | null;
+  costo_ars: number | null;
   medidas?: string | null;
-  activo?: boolean;
 };
 
 const API_BASE: Record<CatalogoKind, string> = {
@@ -28,6 +28,18 @@ const BACK_BASE: Record<CatalogoKind, string> = {
   paqueteria: "/items-paqueteria",
 };
 
+const LABEL_SINGULAR: Record<CatalogoKind, string> = {
+  envases: "Item Envase",
+  etiqueta: "Item Etiqueta",
+  paqueteria: "Item Paquetería",
+};
+
+function numOrEmpty(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "";
+  const n = Number(v);
+  return Number.isFinite(n) ? String(n) : "";
+}
+
 export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; itemId?: number }) {
   const router = useRouter();
   const editing = Number.isFinite(itemId as number) && Number(itemId) > 0;
@@ -38,8 +50,9 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
   const [err, setErr] = useState<string | null>(null);
 
   const [nombre, setNombre] = useState("");
-  const [descripcion, setDescripcion] = useState("");
-  const [material, setMaterial] = useState("");
+  const [uom, setUom] = useState<"GR" | "ML" | "UN">("UN");
+  const [cantidadReferencia, setCantidadReferencia] = useState("1");
+  const [costoArs, setCostoArs] = useState("");
   const [medidas, setMedidas] = useState("");
 
   useEffect(() => {
@@ -55,8 +68,9 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
         const row = (j.item ?? {}) as CatalogoRecord;
         if (cancelled) return;
         setNombre(row.nombre ?? "");
-        setDescripcion(row.descripcion ?? "");
-        setMaterial(row.material ?? "");
+        setUom(((row.uom ?? "UN").toUpperCase() as "GR" | "ML" | "UN") || "UN");
+        setCantidadReferencia(numOrEmpty(row.cantidad_referencia) || "1");
+        setCostoArs(numOrEmpty(row.costo_ars) || "");
         setMedidas(row.medidas ?? "");
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -70,27 +84,27 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
     };
   }, [editing, itemId, kind]);
 
-  const titleByKind = useMemo(() => {
-    if (kind === "envases") return editing ? "Editar Item Envase" : "Nuevo Item Envase";
-    if (kind === "etiqueta") return editing ? "Editar Item Etiqueta" : "Nuevo Item Etiqueta";
-    return editing ? "Editar Item Paquetería" : "Nuevo Item Paquetería";
-  }, [editing, kind]);
+  const title = useMemo(() => `${editing ? "Editar" : "Nuevo"} ${LABEL_SINGULAR[kind]}`, [editing, kind]);
 
   async function save() {
     setErr(null);
-    setSaving(true);
     try {
       const body: any = {
         nombre: nombre.trim(),
-        descripcion: descripcion.trim() || null,
+        uom,
+        cantidad_referencia: Number(cantidadReferencia),
+        costo_ars: Number(costoArs),
       };
       if (!body.nombre) throw new Error("Nombre requerido.");
+      if (!Number.isFinite(body.cantidad_referencia) || body.cantidad_referencia <= 0) throw new Error("Cantidad inválida.");
+      if (uom === "UN" && body.cantidad_referencia !== Math.trunc(body.cantidad_referencia)) throw new Error("La cantidad debe ser entera para UN.");
+      if (!Number.isFinite(body.costo_ars) || body.costo_ars < 0) throw new Error("Costo inválido.");
       if (kind === "etiqueta") {
-        body.material = material.trim() || null;
         body.medidas = medidas.trim();
         if (!body.medidas) throw new Error("Medidas requeridas.");
       }
 
+      setSaving(true);
       const r = await fetch(editing ? `${API_BASE[kind]}/${itemId}` : API_BASE[kind], {
         method: editing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
@@ -108,7 +122,7 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
 
   async function remove() {
     if (!editing) return;
-    const ok = confirm(`Eliminar definitivamente este registro?\n\nAcción irreversible.`);
+    const ok = confirm(`Eliminar definitivamente este ${LABEL_SINGULAR[kind].toLowerCase()}?\n\nAcción irreversible.`);
     if (!ok) return;
     setErr(null);
     setDeleting(true);
@@ -128,9 +142,9 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "grid", gap: 4 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{titleByKind}</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{title}</h1>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {editing ? <>ID: <code>{itemId}</code></> : <>Alta directa del catálogo operativo.</>}
+            {editing ? <>ID: <code>{itemId}</code></> : <>Alta manual con costo y lote de referencia.</>}
           </div>
         </div>
 
@@ -161,23 +175,33 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
             <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
           </div>
 
-          <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: 12, opacity: 0.7 }}>Descripción (opcional)</label>
-            <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", resize: "vertical" }} />
-          </div>
+          <div style={{ display: "grid", gridTemplateColumns: kind === "etiqueta" ? "repeat(4, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, opacity: 0.7 }}>UOM</label>
+              <select value={uom} onChange={(e) => setUom(e.target.value as "GR" | "ML" | "UN")} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
+                <option value="GR">GR</option>
+                <option value="ML">ML</option>
+                <option value="UN">UN</option>
+              </select>
+            </div>
 
-          {kind === "etiqueta" ? (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Material</label>
-                <input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Material" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-              </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad referencia</label>
+              <input value={cantidadReferencia} onChange={(e) => setCantidadReferencia(e.target.value)} inputMode="decimal" placeholder="1" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, opacity: 0.7 }}>Costo (ARS)</label>
+              <input value={costoArs} onChange={(e) => setCostoArs(e.target.value)} inputMode="decimal" placeholder="0" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+            </div>
+
+            {kind === "etiqueta" ? (
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={{ fontSize: 12, opacity: 0.7 }}>Medidas</label>
                 <input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="100 x 50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
