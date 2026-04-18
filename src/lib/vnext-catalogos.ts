@@ -119,13 +119,14 @@ export async function createCatalog(kind: CatalogKind, body: any) {
   const { table, idCol, hasMedidas } = CONFIG[kind];
   const { nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm } = parsed.value;
   const sql = db();
+  const medidasLegacy = hasMedidas ? `${ancho_mm} x ${largo_mm}` : null;
   const r: any = await sql.query(
     `
-    INSERT INTO ${table} (nombre, uom, cantidad_referencia, costo_ars${hasMedidas ? ", ancho_mm, largo_mm" : ""})
-    VALUES ($1, $2, $3, $4${hasMedidas ? ", $5, $6" : ""})
+    INSERT INTO ${table} (nombre, uom, cantidad_referencia, costo_ars${hasMedidas ? ", ancho_mm, largo_mm, medidas" : ""})
+    VALUES ($1, $2, $3, $4${hasMedidas ? ", $5, $6, $7" : ""})
     RETURNING ${idCol}
     `,
-    hasMedidas ? [nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm] : [nombre, uom, cantidad_referencia, costo_ars]
+    hasMedidas ? [nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm, medidasLegacy] : [nombre, uom, cantidad_referencia, costo_ars]
   );
   return { ok: true as const, id: Number(rowsOf(r)[0]?.[idCol]) };
 }
@@ -176,6 +177,10 @@ export async function patchCatalog(kind: CatalogKind, id: number, body: any) {
   if (costo_ars !== undefined) { sets.push(`costo_ars=$${p++}`); values.push(costo_ars); }
   if (hasMedidas && ancho_mm !== undefined) { sets.push(`ancho_mm=$${p++}`); values.push(ancho_mm); }
   if (hasMedidas && largo_mm !== undefined) { sets.push(`largo_mm=$${p++}`); values.push(largo_mm); }
+  if (hasMedidas && ancho_mm !== undefined && largo_mm !== undefined) {
+    sets.push(`medidas=$${p++}`);
+    values.push(`${ancho_mm} x ${largo_mm}`);
+  }
   if (activo !== undefined) { sets.push(`activo=$${p++}`); values.push(activo); }
 
   if (!sets.length) return { ok: true as const };

@@ -1,5 +1,3 @@
 # CHANGELOG
 
-## 2026-04-18
-- UI vNext: se corrigió el layout del formulario de `Items Etiqueta` para evitar superposición de inputs.
-- Los campos del bloque compacto ahora envuelven en varias filas cuando no entran en una sola línea.
+- Fix: `Items Etiqueta` vuelve a persistir el campo legacy `medidas` junto con `ancho_mm` y `largo_mm` para no violar el `NOT NULL` todavía presente en la base.
