@@ -17,7 +17,10 @@ Cada registro debe guardar directamente:
 
 Y además, solo en `Items Etiqueta`:
 
-- `medidas`
+- `ancho_mm`
+- `largo_mm`
+
+Se descarta el campo libre `medidas` porque no garantiza un formato estable para integración futura con BarTender.
 
 ### Campos descartados para estas tres hojas
 
@@ -52,7 +55,7 @@ Y además, solo en `Items Etiqueta`:
 - `cantidad_referencia > 0`
 - `costo_ars >= 0`
 - si `uom = 'UN'`, entonces `cantidad_referencia` debe ser entera
-- en `Items Etiqueta`, `medidas` es obligatoria
+- en `Items Etiqueta`, `ancho_mm` y `largo_mm` son obligatorios y enteros positivos
 
 ### Nota sobre proveedor motor
 

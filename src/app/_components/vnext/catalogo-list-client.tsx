@@ -13,7 +13,8 @@ type Row = {
   uom: string | null;
   cantidad_referencia: number | null;
   costo_ars: number | null;
-  medidas?: string | null;
+  ancho_mm?: number | null;
+  largo_mm?: number | null;
   activo: boolean;
 };
 
@@ -96,7 +97,9 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
       if (sortKey === "uom") return compareText(a.uom ?? "", b.uom ?? "", sortDir);
       if (sortKey === "cantidad_referencia") return compareNumber(Number(a.cantidad_referencia ?? Number.NEGATIVE_INFINITY), Number(b.cantidad_referencia ?? Number.NEGATIVE_INFINITY), sortDir);
       if (sortKey === "costo_ars") return compareNumber(Number(a.costo_ars ?? Number.NEGATIVE_INFINITY), Number(b.costo_ars ?? Number.NEGATIVE_INFINITY), sortDir);
-      return compareText(a.medidas ?? "", b.medidas ?? "", sortDir);
+      const ad = `${a.ancho_mm ?? ""} x ${a.largo_mm ?? ""}`;
+      const bd = `${b.ancho_mm ?? ""} x ${b.largo_mm ?? ""}`;
+      return compareText(ad, bd, sortDir);
     });
   }, [rows, sortKey, sortDir, kind]);
 
@@ -187,7 +190,7 @@ export default function CatalogoListClient({ kind }: { kind: CatalogoKind }) {
                   <td style={{ padding: "5px 10px", opacity: 0.85, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.uom ?? ""}</td>
                   <td style={{ padding: "5px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{fmtNum(r.cantidad_referencia, 3)}</td>
                   <td style={{ padding: "5px 10px", textAlign: "right", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{fmtNum(r.costo_ars, 2)}</td>
-                  {showMedidas ? <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.medidas ?? ""}</td> : null}
+                  {showMedidas ? <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{Number.isFinite(Number(r.ancho_mm)) && Number.isFinite(Number(r.largo_mm)) ? `${Number(r.ancho_mm)} x ${Number(r.largo_mm)}` : ""}</td> : null}
                   <td style={{ padding: "5px 10px", opacity: 0.9, lineHeight: 1.15, whiteSpace: "nowrap" }}>{r.activo ? "Activo" : "Inactivo"}</td>
                   <td style={{ padding: "5px 10px", lineHeight: 1.15, whiteSpace: "nowrap" }}>
                     <div style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>

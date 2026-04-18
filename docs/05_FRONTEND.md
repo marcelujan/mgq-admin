@@ -41,7 +41,8 @@ Son hojas de alta y edición de ítems propios con formato operativo similar a `
 - `uom`
 - `cantidad_referencia`
 - `costo_ars`
-- `medidas`
+- `ancho_mm`
+- `largo_mm`
 
 #### Items Paquetería
 - `nombre`
@@ -63,3 +64,15 @@ Son hojas de alta y edición de ítems propios con formato operativo similar a `
 - `Items Etiqueta`
 
 `Items Paquetería` sigue quedando fuera de la lógica de bloqueo de oferta y se informa manualmente al preparar el pedido.
+
+
+## Regla para `Items Etiqueta`
+
+Las medidas de etiqueta no deben cargarse como texto libre.
+
+El formulario debe pedir dos campos numéricos separados:
+
+- `Ancho (mm)`
+- `Largo (mm)`
+
+La grilla puede mostrarlo compactado como `ancho x largo`, pero el dato persistido debe quedar separado para evitar ambigüedad al asociar luego el tamaño correcto de BarTender.

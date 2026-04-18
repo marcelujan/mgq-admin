@@ -19,7 +19,8 @@ Cada uno debe guardar directamente:
 
 Y solo `Items Etiqueta` agrega:
 
-- `medidas`
+- `ancho_mm`
+- `largo_mm`
 
 ### Qué se conserva
 
@@ -44,3 +45,21 @@ El nuevo corte correcto agrega costo y lote/cantidad de referencia directamente 
 - `app.item_envase`
 - `app.item_etiqueta`
 - `app.item_paqueteria`
+
+
+## Decisión adicional sobre medidas de `Items Etiqueta`
+
+Se abandona el campo textual único `medidas` como entrada principal.
+
+La UI y la API de `Items Etiqueta` deben trabajar con dos campos numéricos separados:
+
+- `ancho_mm`
+- `largo_mm`
+
+Motivo:
+
+- evita formatos ambiguos con o sin espacios;
+- evita depender de validaciones de texto frágiles;
+- deja el tamaño listo para mapearlo luego a un formato/modelo de BarTender.
+
+La presentación en tabla puede seguir viéndose como `ancho x largo`, pero el almacenamiento debe quedar separado.

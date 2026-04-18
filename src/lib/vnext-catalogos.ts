@@ -37,7 +37,8 @@ export function parseCatalogBody(kind: CatalogKind, body: any) {
   const uom = String(body?.uom ?? "").trim().toUpperCase();
   const cantidad_referencia = numOrNull(body?.cantidad_referencia);
   const costo_ars = numOrNull(body?.costo_ars);
-  const medidas = kind === "etiqueta" ? textOrNull(body?.medidas) : null;
+  const ancho_mm = kind === "etiqueta" ? numOrNull(body?.ancho_mm) : null;
+  const largo_mm = kind === "etiqueta" ? numOrNull(body?.largo_mm) : null;
 
   if (!nombre) return { ok: false as const, error: "nombre requerido" };
   if (!["GR", "ML", "UN"].includes(uom)) return { ok: false as const, error: "uom inválida" };
@@ -50,11 +51,14 @@ export function parseCatalogBody(kind: CatalogKind, body: any) {
   if (costo_ars === null || !Number.isFinite(costo_ars) || costo_ars < 0) {
     return { ok: false as const, error: "costo_ars inválido" };
   }
-  if (kind === "etiqueta" && !medidas) return { ok: false as const, error: "medidas requeridas" };
+  if (kind === "etiqueta") {
+    if (ancho_mm === null || !Number.isFinite(ancho_mm) || ancho_mm <= 0 || ancho_mm !== Math.trunc(ancho_mm)) return { ok: false as const, error: "ancho_mm inválido" };
+    if (largo_mm === null || !Number.isFinite(largo_mm) || largo_mm <= 0 || largo_mm !== Math.trunc(largo_mm)) return { ok: false as const, error: "largo_mm inválido" };
+  }
 
   return {
     ok: true as const,
-    value: { nombre, uom, cantidad_referencia, costo_ars, medidas },
+    value: { nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm },
   };
 }
 
@@ -69,14 +73,14 @@ export async function listCatalog(kind: CatalogKind, search: string) {
       c.uom,
       c.cantidad_referencia::float8 as cantidad_referencia,
       c.costo_ars::float8 as costo_ars,
-      ${hasMedidas ? "c.medidas" : "null::text as medidas"},
+      ${hasMedidas ? "c.ancho_mm, c.largo_mm" : "null::integer as ancho_mm, null::integer as largo_mm"},
       c.activo,
       c.updated_at
     FROM ${table} c
     WHERE (
       $1::text = '' OR
       coalesce(c.nombre,'') ILIKE '%' || $1::text || '%' OR
-      ${hasMedidas ? "coalesce(c.medidas,'') ILIKE '%' || $1::text || '%' OR" : ""}
+      ${hasMedidas ? "concat_ws(' x ', c.ancho_mm::text, c.largo_mm::text) ILIKE '%' || $1::text || '%' OR" : ""}
       coalesce(c.uom,'') ILIKE '%' || $1::text || '%'
     )
     ORDER BY c.nombre ASC, c.${idCol} ASC
@@ -97,7 +101,7 @@ export async function getCatalog(kind: CatalogKind, id: number) {
       c.uom,
       c.cantidad_referencia::float8 as cantidad_referencia,
       c.costo_ars::float8 as costo_ars,
-      ${hasMedidas ? "c.medidas" : "null::text as medidas"},
+      ${hasMedidas ? "c.ancho_mm, c.largo_mm" : "null::integer as ancho_mm, null::integer as largo_mm"},
       c.activo,
       c.updated_at
     FROM ${table} c
@@ -113,15 +117,15 @@ export async function createCatalog(kind: CatalogKind, body: any) {
   const parsed = parseCatalogBody(kind, body);
   if (!parsed.ok) return parsed;
   const { table, idCol, hasMedidas } = CONFIG[kind];
-  const { nombre, uom, cantidad_referencia, costo_ars, medidas } = parsed.value;
+  const { nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm } = parsed.value;
   const sql = db();
   const r: any = await sql.query(
     `
-    INSERT INTO ${table} (nombre, uom, cantidad_referencia, costo_ars${hasMedidas ? ", medidas" : ""})
-    VALUES ($1, $2, $3, $4${hasMedidas ? ", $5" : ""})
+    INSERT INTO ${table} (nombre, uom, cantidad_referencia, costo_ars${hasMedidas ? ", ancho_mm, largo_mm" : ""})
+    VALUES ($1, $2, $3, $4${hasMedidas ? ", $5, $6" : ""})
     RETURNING ${idCol}
     `,
-    hasMedidas ? [nombre, uom, cantidad_referencia, costo_ars, medidas] : [nombre, uom, cantidad_referencia, costo_ars]
+    hasMedidas ? [nombre, uom, cantidad_referencia, costo_ars, ancho_mm, largo_mm] : [nombre, uom, cantidad_referencia, costo_ars]
   );
   return { ok: true as const, id: Number(rowsOf(r)[0]?.[idCol]) };
 }
@@ -132,7 +136,8 @@ export async function patchCatalog(kind: CatalogKind, id: number, body: any) {
   const uom = body?.uom === undefined ? undefined : String(body?.uom ?? "").trim().toUpperCase();
   const cantidad_referencia = body?.cantidad_referencia === undefined ? undefined : numOrNull(body?.cantidad_referencia);
   const costo_ars = body?.costo_ars === undefined ? undefined : numOrNull(body?.costo_ars);
-  const medidas = hasMedidas && body?.medidas !== undefined ? textOrNull(body?.medidas) : undefined;
+  const ancho_mm = hasMedidas && body?.ancho_mm !== undefined ? numOrNull(body?.ancho_mm) : undefined;
+  const largo_mm = hasMedidas && body?.largo_mm !== undefined ? numOrNull(body?.largo_mm) : undefined;
   const activo = body?.activo === undefined ? undefined : Boolean(body?.activo);
 
   if (nombre !== undefined && !nombre) return { ok: false as const, error: "nombre requerido" };
@@ -149,7 +154,17 @@ export async function patchCatalog(kind: CatalogKind, id: number, body: any) {
   if (costo_ars !== undefined && (costo_ars === null || !Number.isFinite(costo_ars) || costo_ars < 0)) {
     return { ok: false as const, error: "costo_ars inválido" };
   }
-  if (hasMedidas && medidas !== undefined && !medidas) return { ok: false as const, error: "medidas requeridas" };
+  if (hasMedidas && ancho_mm !== undefined) {
+    if (ancho_mm === null || !Number.isFinite(ancho_mm) || ancho_mm <= 0 || ancho_mm !== Math.trunc(ancho_mm)) return { ok: false as const, error: "ancho_mm inválido" };
+  }
+  if (hasMedidas && largo_mm !== undefined) {
+    if (largo_mm === null || !Number.isFinite(largo_mm) || largo_mm <= 0 || largo_mm !== Math.trunc(largo_mm)) return { ok: false as const, error: "largo_mm inválido" };
+  }
+  if (hasMedidas) {
+    const widthProvided = ancho_mm !== undefined;
+    const lengthProvided = largo_mm !== undefined;
+    if (widthProvided !== lengthProvided) return { ok: false as const, error: "ancho_mm y largo_mm deben informarse juntos" };
+  }
 
   const sets: string[] = [];
   const values: any[] = [];
@@ -159,7 +174,8 @@ export async function patchCatalog(kind: CatalogKind, id: number, body: any) {
   if (uom !== undefined) { sets.push(`uom=$${p++}`); values.push(uom); }
   if (cantidad_referencia !== undefined) { sets.push(`cantidad_referencia=$${p++}`); values.push(cantidad_referencia); }
   if (costo_ars !== undefined) { sets.push(`costo_ars=$${p++}`); values.push(costo_ars); }
-  if (hasMedidas && medidas !== undefined) { sets.push(`medidas=$${p++}`); values.push(medidas); }
+  if (hasMedidas && ancho_mm !== undefined) { sets.push(`ancho_mm=$${p++}`); values.push(ancho_mm); }
+  if (hasMedidas && largo_mm !== undefined) { sets.push(`largo_mm=$${p++}`); values.push(largo_mm); }
   if (activo !== undefined) { sets.push(`activo=$${p++}`); values.push(activo); }
 
   if (!sets.length) return { ok: true as const };

@@ -13,7 +13,8 @@ type CatalogoRecord = {
   uom: string | null;
   cantidad_referencia: number | null;
   costo_ars: number | null;
-  medidas?: string | null;
+  ancho_mm?: number | null;
+  largo_mm?: number | null;
 };
 
 const API_BASE: Record<CatalogoKind, string> = {
@@ -53,7 +54,8 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
   const [uom, setUom] = useState<"GR" | "ML" | "UN">("UN");
   const [cantidadReferencia, setCantidadReferencia] = useState("1");
   const [costoArs, setCostoArs] = useState("");
-  const [medidas, setMedidas] = useState("");
+  const [anchoMm, setAnchoMm] = useState("");
+  const [largoMm, setLargoMm] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +73,8 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
         setUom(((row.uom ?? "UN").toUpperCase() as "GR" | "ML" | "UN") || "UN");
         setCantidadReferencia(numOrEmpty(row.cantidad_referencia) || "1");
         setCostoArs(numOrEmpty(row.costo_ars) || "");
-        setMedidas(row.medidas ?? "");
+        setAnchoMm(numOrEmpty(row.ancho_mm) || "");
+        setLargoMm(numOrEmpty(row.largo_mm) || "");
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
       } finally {
@@ -100,8 +103,10 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
       if (uom === "UN" && body.cantidad_referencia !== Math.trunc(body.cantidad_referencia)) throw new Error("La cantidad debe ser entera para UN.");
       if (!Number.isFinite(body.costo_ars) || body.costo_ars < 0) throw new Error("Costo inválido.");
       if (kind === "etiqueta") {
-        body.medidas = medidas.trim();
-        if (!body.medidas) throw new Error("Medidas requeridas.");
+        body.ancho_mm = Number(anchoMm);
+        body.largo_mm = Number(largoMm);
+        if (!Number.isFinite(body.ancho_mm) || body.ancho_mm <= 0 || body.ancho_mm !== Math.trunc(body.ancho_mm)) throw new Error("Ancho (mm) inválido.");
+        if (!Number.isFinite(body.largo_mm) || body.largo_mm <= 0 || body.largo_mm !== Math.trunc(body.largo_mm)) throw new Error("Largo (mm) inválido.");
       }
 
       setSaving(true);
@@ -175,7 +180,7 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
             <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: kind === "etiqueta" ? "repeat(4, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: kind === "etiqueta" ? "repeat(5, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>UOM</label>
               <select value={uom} onChange={(e) => setUom(e.target.value as "GR" | "ML" | "UN")} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
@@ -196,10 +201,16 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
             </div>
 
             {kind === "etiqueta" ? (
+              <>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Medidas</label>
-                <input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="100 x 50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Ancho (mm)</label>
+                <input value={anchoMm} onChange={(e) => setAnchoMm(e.target.value)} inputMode="numeric" placeholder="100" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
               </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Largo (mm)</label>
+                <input value={largoMm} onChange={(e) => setLargoMm(e.target.value)} inputMode="numeric" placeholder="50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              </div>
+              </>
             ) : null}
           </div>
         </div>
