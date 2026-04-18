@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 
 type CatalogoKind = "envases" | "etiqueta" | "paqueteria";
@@ -33,6 +33,24 @@ const LABEL_SINGULAR: Record<CatalogoKind, string> = {
   envases: "Item Envase",
   etiqueta: "Item Etiqueta",
   paqueteria: "Item Paquetería",
+};
+
+const inputBaseStyle: CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.14)",
+  borderRadius: 10,
+  padding: "8px 10px",
+  background: "rgba(255,255,255,0.03)",
+  color: "rgba(255,255,255,0.92)",
+  outline: "none",
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+};
+
+const fieldWrapStyle: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  minWidth: 0,
 };
 
 function numOrEmpty(v: number | null | undefined): string {
@@ -175,41 +193,48 @@ export default function CatalogoForm({ kind, itemId }: { kind: CatalogoKind; ite
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", maxWidth: 780 }}>
         <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ display: "grid", gap: 6 }}>
+          <div style={fieldWrapStyle}>
             <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre</label>
-            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre" style={inputBaseStyle} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: kind === "etiqueta" ? "repeat(5, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-            <div style={{ display: "grid", gap: 6 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: kind === "etiqueta" ? "repeat(auto-fit, minmax(120px, 1fr))" : "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: 10,
+              alignItems: "start",
+            }}
+          >
+            <div style={fieldWrapStyle}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>UOM</label>
-              <select value={uom} onChange={(e) => setUom(e.target.value as "GR" | "ML" | "UN")} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
+              <select value={uom} onChange={(e) => setUom(e.target.value as "GR" | "ML" | "UN")} style={inputBaseStyle}>
                 <option value="GR">GR</option>
                 <option value="ML">ML</option>
                 <option value="UN">UN</option>
               </select>
             </div>
 
-            <div style={{ display: "grid", gap: 6 }}>
+            <div style={fieldWrapStyle}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad referencia</label>
-              <input value={cantidadReferencia} onChange={(e) => setCantidadReferencia(e.target.value)} inputMode="decimal" placeholder="1" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              <input value={cantidadReferencia} onChange={(e) => setCantidadReferencia(e.target.value)} inputMode="decimal" placeholder="1" style={inputBaseStyle} />
             </div>
 
-            <div style={{ display: "grid", gap: 6 }}>
+            <div style={fieldWrapStyle}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Costo (ARS)</label>
-              <input value={costoArs} onChange={(e) => setCostoArs(e.target.value)} inputMode="decimal" placeholder="0" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              <input value={costoArs} onChange={(e) => setCostoArs(e.target.value)} inputMode="decimal" placeholder="0" style={inputBaseStyle} />
             </div>
 
             {kind === "etiqueta" ? (
               <>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Ancho (mm)</label>
-                <input value={anchoMm} onChange={(e) => setAnchoMm(e.target.value)} inputMode="numeric" placeholder="100" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Largo (mm)</label>
-                <input value={largoMm} onChange={(e) => setLargoMm(e.target.value)} inputMode="numeric" placeholder="50" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
-              </div>
+                <div style={fieldWrapStyle}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Ancho (mm)</label>
+                  <input value={anchoMm} onChange={(e) => setAnchoMm(e.target.value)} inputMode="numeric" placeholder="100" style={inputBaseStyle} />
+                </div>
+                <div style={fieldWrapStyle}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Largo (mm)</label>
+                  <input value={largoMm} onChange={(e) => setLargoMm(e.target.value)} inputMode="numeric" placeholder="50" style={inputBaseStyle} />
+                </div>
               </>
             ) : null}
           </div>
