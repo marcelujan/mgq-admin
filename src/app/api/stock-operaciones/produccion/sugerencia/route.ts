@@ -8,6 +8,12 @@ function rowsOf(res: any): any[] {
   return [];
 }
 
+function numOrNull(v: string | null) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -30,6 +36,10 @@ export async function GET(req: NextRequest) {
     );
     const out = rowsOf(outRes)[0] ?? null;
     if (!out) return NextResponse.json({ ok: false, error: "formulado no encontrado" }, { status: 404 });
+
+    const loteRef = Number(out.lote_ref_g ?? 1000);
+    const loteObjetivo = numOrNull(searchParams.get("lote_objetivo"));
+    const loteTrabajo = loteObjetivo && loteObjetivo > 0 ? loteObjetivo : loteRef;
 
     const linesRes: any = await sql.query(
       `
@@ -72,18 +82,21 @@ export async function GET(req: NextRequest) {
       [Number(out.producto_id)]
     );
 
-    const loteRef = Number(out.lote_ref_g ?? 1000);
     const consumos = rowsOf(linesRes).flatMap((r: any) => {
       const pct = Number(r.pct_peso ?? 0);
-      const masaTeoricaG = loteRef > 0 ? (loteRef * pct) / 100 : 0;
+      const masaTeoricaG = loteTrabajo > 0 ? (loteTrabajo * pct) / 100 : 0;
       if (String(r.tipo) === 'ITEM_PRESENTACION' && r.item_id) {
+        const dens = r.proveedor_densidad_g_ml != null ? Number(r.proveedor_densidad_g_ml) : null;
         return [{
           item_tipo: 'PROVEEDOR',
           item_ref_id: Number(r.item_id),
           nombre: r.proveedor_label || `Item #${r.item_id}`,
           label: r.proveedor_label || `Item #${r.item_id}`,
           uom: 'GR',
-          densidad_g_ml: r.proveedor_densidad_g_ml ?? null,
+          densidad_g_ml: dens,
+          pct_peso: pct,
+          cantidad_necesaria: masaTeoricaG,
+          volumen_eq_ml: dens && dens > 0 ? masaTeoricaG / dens : null,
           cantidad: masaTeoricaG,
         }];
       }
@@ -93,6 +106,7 @@ export async function GET(req: NextRequest) {
         let cantidad = masaTeoricaG;
         if (manualUom === 'ML' && dens && dens > 0) cantidad = masaTeoricaG / dens;
         else if (manualUom === 'UN') cantidad = 1;
+        const volumenEq = manualUom === 'ML' ? cantidad : (dens && dens > 0 ? cantidad / dens : null);
         return [{
           item_tipo: 'MANUAL',
           item_ref_id: Number(r.cost_option_id),
@@ -100,24 +114,31 @@ export async function GET(req: NextRequest) {
           label: r.manual_label || `Manual #${r.cost_option_id}`,
           uom: r.manual_uom || null,
           densidad_g_ml: dens,
+          pct_peso: pct,
+          cantidad_necesaria: cantidad,
+          volumen_eq_ml: volumenEq,
           cantidad,
         }];
       }
       if (String(r.tipo) === 'BULK_PRODUCTO' && r.bulk_item_formulado_id) {
+        const dens = r.bulk_densidad_g_ml != null ? Number(r.bulk_densidad_g_ml) : null;
         return [{
           item_tipo: 'FORMULADO',
           item_ref_id: Number(r.bulk_item_formulado_id),
           nombre: r.bulk_label || `Formulado #${r.bulk_item_formulado_id}`,
           label: r.bulk_label || `Formulado #${r.bulk_item_formulado_id}`,
           uom: 'GR',
-          densidad_g_ml: r.bulk_densidad_g_ml ?? null,
+          densidad_g_ml: dens,
+          pct_peso: pct,
+          cantidad_necesaria: masaTeoricaG,
+          volumen_eq_ml: dens && dens > 0 ? masaTeoricaG / dens : null,
           cantidad: masaTeoricaG,
         }];
       }
       return [];
     });
 
-    return NextResponse.json({ ok: true, lote_ref_g: loteRef, consumos });
+    return NextResponse.json({ ok: true, lote_ref_g: loteRef, lote_objetivo_g: loteTrabajo, consumos });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? 'error' }, { status: 500 });
   }

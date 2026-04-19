@@ -178,3 +178,6 @@ Ajustes posteriores en `Stock`:
 - `Saldos` y `Operaciones recientes` muestran 6 filas visibles y luego scroll vertical.
 - En `Ingreso`, `Ajuste` y `Producción`, la fecha se carga sin hora (`date`) y se sugiere el día actual por defecto.
 - En `Producción`, el selector de formulado y de componentes se muestra sin rótulos redundantes, y las cantidades reales se editan en filas con la UOM pegada al input.
+
+- `Stock · Producción`: la fila superior concentra `Fecha` y `Tamaño del lote`; debajo se selecciona el formulado y al final quedan las tablas de `Producto obtenido` y `Componentes utilizados` con cantidades reales editables.
+- `Stock · Ingreso` y `Stock · Ajuste`: la fila superior concentra `Fecha` y cantidad; el selector del ítem queda debajo.

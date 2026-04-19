@@ -45,7 +45,7 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
           const nextTarget: StockTargetItem = {
             item_tipo: mov.item_tipo,
             item_ref_id: Number(mov.item_ref_id),
-            label: mov.label,
+            label: mov.label ?? mov.nombre,
             nombre: mov.nombre,
             uom: mov.uom,
             saldo: mov.saldo,
@@ -66,12 +66,9 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
     return () => {
       cancelled = true;
     };
-  }, [operationId]);
+  }, [mode, operationId]);
 
-  const quantityLabel = useMemo(() => {
-    if (!target?.uom) return "";
-    return target.uom;
-  }, [target]);
+  const quantityLabel = useMemo(() => target?.uom ?? "", [target]);
 
   async function submit() {
     if (!target) {
@@ -111,30 +108,30 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px) minmax(0,220px)", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Fecha</div>
+          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="date" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>{mode === "ingreso" ? "Cantidad ingresada" : "Ajuste"}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "center" }}>
+            <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder={mode === "ingreso" ? "Cantidad positiva" : "Positivo o negativo"} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", textAlign: "right" }} />
+            <div style={{ fontSize: 12, opacity: 0.8, minWidth: 28, textAlign: "right" }}>{quantityLabel}</div>
+          </div>
+        </div>
+      </div>
+
       <StockTargetPicker
         allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO", "ENVASE", "ETIQUETA", "PAQUETERIA"]}
         value={target}
         onChange={(item) => {
-          const next: StockTargetItem | null = item ? { ...item, label: item.label ?? item.nombre } : null;
+          const next = item ? { ...item, label: item.label ?? item.nombre } : null;
           setTarget(next);
         }}
         label="Ítem"
         placeholder="Buscar ítem..."
       />
-
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px) minmax(0,220px)", gap: 12 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>{mode === "ingreso" ? "Cantidad ingresada" : "Ajuste"}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "center" }}>
-            <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder={mode === "ingreso" ? "Cantidad positiva" : "Positivo o negativo"} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
-            <div style={{ fontSize: 12, opacity: 0.8, minWidth: 28, textAlign: "right" }}>{quantityLabel}</div>
-          </div>
-        </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Fecha</div>
-          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="date" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
-        </div>
-      </div>
 
       {err ? <div style={{ fontSize: 12, color: "#ffb4b4" }}>{err}</div> : null}
       {msg ? <div style={{ fontSize: 12, color: "#b8f2c8" }}>{msg}</div> : null}
