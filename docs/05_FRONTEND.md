@@ -111,7 +111,9 @@ No se deben exponer campos de ID libre para estas selecciones.
 - El botón principal de alta/edición debe mostrarse como `Guardar`.
 - Si el comercial cambia de familia de unidad respecto del origen (`GR ↔ ML`), se debe mostrar el ingreso de densidad en la misma hoja.
 - El costeo consolidado del comercial debe mostrarse al final de la hoja:
-  - base
+  - bulk
   - envases
   - etiquetas
   - total parcial
+- El selector de bulk/origen técnico debe seguir el mismo lenguaje visual que las secciones de `Envases asociados` y `Etiquetas asociadas`: lista compacta, hasta 6 filas visibles, y una fila separada para el `Bulk seleccionado` con sus características principales.
+- No debe repetirse una tarjeta o bloque aparte de `Costo base estimado` en la cabecera; el costo del bulk debe verse solo en el bloque final de `Costeo`.

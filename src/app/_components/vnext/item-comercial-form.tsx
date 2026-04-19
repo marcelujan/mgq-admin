@@ -66,7 +66,7 @@ function normalizeToRefUnit(cantidad: number, unidad: Uom, refUom?: string | nul
   return null;
 }
 
-function estimateBaseCost(cantidad: string, unidad: Uom, origin: OriginOption | null, densidadOverride: number | null): number | null {
+function estimateBulkCost(cantidad: string, unidad: Uom, origin: OriginOption | null, densidadOverride: number | null): number | null {
   if (!origin) return null;
   const qty = Number(cantidad);
   const refQty = Number(origin.ref_cantidad ?? NaN);
@@ -234,7 +234,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [densidadInput]);
 
-  const baseCost = useMemo(() => estimateBaseCost(cantidad, unidad, selectedOrigin, densityValue), [cantidad, unidad, selectedOrigin, densityValue]);
+  const baseCost = useMemo(() => estimateBulkCost(cantidad, unidad, selectedOrigin, densityValue), [cantidad, unidad, selectedOrigin, densityValue]);
   const totalCost = useMemo(() => {
     const base = Number.isFinite(baseCost as number) ? Number(baseCost) : 0;
     return base + envasesSubtotal + etiquetasSubtotal;
@@ -255,7 +255,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     };
 
     const oid = Number(originId);
-    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Seleccioná un origen técnico válido.");
+    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Seleccioná un bulk/origen técnico válido.");
     if (originType === "PROVEEDOR") body.proveedor_item_id = oid;
     else if (originType === "MANUAL") body.manual_cost_option_id = oid;
     else body.formulado_item_formulado_id = oid;
@@ -322,9 +322,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     }
   }
 
-  const summaryCard: CSSProperties = { border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 10, background: "rgba(255,255,255,0.02)" };
-
-  return (
+    return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "grid", gap: 4 }}>
@@ -395,7 +393,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Origen</label>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Tipo bulk</label>
                 <select value={originType} onChange={(e) => setOriginType(e.target.value as OriginType)} style={inputStyle}>
                   <option value="MANUAL">MANUAL</option>
                   <option value="PROVEEDOR">PROVEEDOR</option>
@@ -403,25 +401,27 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
                 </select>
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar origen técnico</label>
-                <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Buscar por nombre o ID..." style={inputStyle} />
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar bulk</label>
+                <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Filtrar por palabra o ID..." style={inputStyle} />
               </div>
             </div>
 
             <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 140px 110px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.03)" }}>
-                <div>Resultado</div>
+              <div style={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr) 130px 140px 100px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.03)" }}>
+                <div>Item #</div>
+                <div>Nombre</div>
                 <div>Ref.</div>
                 <div>Costo ref.</div>
                 <div></div>
               </div>
-              <div style={{ display: "grid", maxHeight: 240, overflowY: "auto" }}>
+              <div style={{ display: "grid", maxHeight: 228, overflowY: "auto" }}>
                 {originLoading ? (
                   <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>Buscando...</div>
                 ) : originOptions.length ? originOptions.map((o) => {
                   const isSelected = String(o.id) === originId;
                   return (
-                    <div key={`${originType}-${o.id}`} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 140px 110px", gap: 0, alignItems: "center", padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", background: isSelected ? "rgba(255,255,255,0.05)" : "transparent", fontSize: 13 }}>
+                    <div key={`${originType}-${o.id}`} style={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr) 130px 140px 100px", gap: 0, alignItems: "center", padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", background: isSelected ? "rgba(255,255,255,0.05)" : "transparent", fontSize: 13 }}>
+                      <div>{o.id}</div>
                       <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={o.label}>{o.label}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{o.ref_uom ? `${fmtNum(o.ref_cantidad, 3)} ${o.ref_uom}` : "—"}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{Number.isFinite(Number(o.costo_ref_ars)) ? `ARS ${fmtMoney(o.costo_ref_ars)}` : "—"}</div>
@@ -436,19 +436,29 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-              <div style={summaryCard}>
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Origen seleccionado</div>
-                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={selectedOrigin?.label ?? ""}>{selectedOrigin?.label ?? "—"}</div>
-                <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
-                  Ref: {selectedOrigin?.ref_uom ? `${fmtNum(selectedOrigin.ref_cantidad, 3)} ${selectedOrigin.ref_uom}` : "—"}
-                </div>
+            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "8px 10px", fontSize: 12, background: "rgba(255,255,255,0.03)" }}>
+                <div style={{ fontWeight: 700, opacity: 0.9 }}>Bulk seleccionado</div>
+                {selectedOrigin ? (
+                  <div style={{ opacity: 0.68 }}>
+                    {needsDensity ? "Completá densidad si necesitás convertir GR ↔ ML." : ""}
+                  </div>
+                ) : null}
               </div>
-              <div style={summaryCard}>
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Costo base estimado</div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>{Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"}</div>
-                <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
-                  {Number.isFinite(Number(baseCost)) ? "Calculado desde origen técnico." : needsDensity ? "Falta densidad válida para calcular." : "Sin cálculo automático con la referencia actual."}
+              <div style={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr) 130px 140px 110px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.02)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                <div>Item #</div>
+                <div>Nombre</div>
+                <div>Ref.</div>
+                <div>Costo ref.</div>
+                <div>Densidad</div>
+              </div>
+              <div style={{ display: "grid" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr) 130px 140px 110px", gap: 0, alignItems: "center", padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 13 }}>
+                  <div>{selectedOrigin?.id ?? "—"}</div>
+                  <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={selectedOrigin?.label ?? ""}>{selectedOrigin?.label ?? "—"}</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>{selectedOrigin?.ref_uom ? `${fmtNum(selectedOrigin.ref_cantidad, 3)} ${selectedOrigin.ref_uom}` : "—"}</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>{selectedOrigin && Number.isFinite(Number(selectedOrigin.costo_ref_ars)) ? `ARS ${fmtMoney(selectedOrigin.costo_ref_ars)}` : "—"}</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>{selectedOrigin && Number.isFinite(Number(densityValue ?? selectedOrigin.densidad_g_ml)) ? fmtNum(densityValue ?? selectedOrigin.densidad_g_ml, 4) : "—"}</div>
                 </div>
               </div>
             </div>
@@ -469,23 +479,22 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Costeo</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          <div style={summaryCard}>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Base</div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"}</div>
+        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 180px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.03)" }}>
+            <div>Concepto</div>
+            <div style={{ textAlign: "right" }}>Costo (ARS)</div>
           </div>
-          <div style={summaryCard}>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Envases</div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>ARS {fmtMoney(envasesSubtotal)}</div>
-          </div>
-          <div style={summaryCard}>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Etiquetas</div>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>ARS {fmtMoney(etiquetasSubtotal)}</div>
-          </div>
-          <div style={summaryCard}>
-            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Total parcial</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>ARS {fmtMoney(totalCost)}</div>
-          </div>
+          {[
+            ["Bulk", Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"],
+            ["Envases", `ARS ${fmtMoney(envasesSubtotal)}`],
+            ["Etiquetas", `ARS ${fmtMoney(etiquetasSubtotal)}`],
+            ["Total parcial", `ARS ${fmtMoney(totalCost)}`],
+          ].map(([label, value], idx) => (
+            <div key={String(label)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 180px", gap: 0, padding: "8px 10px", borderTop: idx === 0 ? "none" : "1px solid rgba(255,255,255,0.06)", fontSize: label === "Total parcial" ? 14 : 13, fontWeight: label === "Total parcial" ? 700 : 500 }}>
+              <div>{label}</div>
+              <div style={{ textAlign: "right" }}>{value}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
