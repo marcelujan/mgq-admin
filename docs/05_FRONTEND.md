@@ -119,19 +119,44 @@ No se deben exponer campos de ID libre para estas selecciones.
 - No debe repetirse una tarjeta o bloque aparte de `Costo base estimado` en la cabecera; el costo del bulk debe verse solo en el bloque final de `Costeo`.
 
 
----
+## Hoja `Stock`
 
-## Próximo ajuste de `Items Comerciales`
+Se agrega una hoja operativa `Stock` con el mismo lenguaje visual compacto del resto de la app.
 
-La hoja `Items Comerciales` deberá incorporar, una vez exista stock real:
+Rutas nuevas:
 
-- filtro por estado (`Todos`, `Borrador`, `Ofertable`, `Bloqueado`)
-- indicador simple por color
-- ícono para abrir detalle del estado
-- bloque o hoja auxiliar de **faltantes para disponibilidad**
+- `/stock`
+- `/stock/ingreso`
+- `/stock/ajuste`
+- `/stock/produccion`
 
-Durante esta etapa inicial:
+### `/stock`
 
-- el bloqueo duro se calcula solo con estructura mínima + bulk
-- `Envases` y `Etiquetas` faltantes aparecen como advertencia
-- `Paquetería` no participa del bloqueo de oferta
+Muestra:
+
+- filtros simples por tipo y búsqueda
+- tabla de saldos actuales
+- tabla compacta de operaciones recientes
+- accesos a `Ingreso`, `Ajuste` y `Producción`
+
+### `/stock/ingreso`
+
+Formulario compacto para registrar ingreso de stock sobre un ítem stockeable.
+
+### `/stock/ajuste`
+
+Formulario compacto para registrar ajuste positivo o negativo sobre un ítem stockeable.
+
+### `/stock/produccion`
+
+Formulario compacto para registrar una operación de producción con:
+
+- un formulado obtenido
+- varios consumos reales
+
+La UI usa el mismo patrón visual que el resto de la app:
+
+- tipografía chica
+- tablas compactas
+- una sola línea por fila
+- selectores buscables con 6 filas visibles y scroll

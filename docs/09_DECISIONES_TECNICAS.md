@@ -65,37 +65,23 @@ Motivo:
 La presentación en tabla puede seguir viéndose como `ancho x largo`, pero el almacenamiento debe quedar separado.
 
 
----
+## Stock real v2 — decisiones cerradas
 
-## Decisión sobre estado automático y stock real (2026-04-19)
-
-Se acuerda que `Items Comerciales` no tendrán habilitación manual. Su estado será automático.
-
-### Estados acordados
-
-- `Borrador`
-- `Ofertable`
-- `Bloqueado`
-
-### Regla acordada para la primera implementación
-
-- El bloqueo fuerte se calcula con la **estructura mínima** del `Item Comercial` y con el **stock del bulk/origen técnico**.
-- `Envases` y `Etiquetas` faltantes se mostrarán como advertencia, no como bloqueo duro.
-- `Paquetería` no bloquea oferta.
-
-### Consecuencia técnica
-
-Antes de implementar ese estado automático en código, se necesita una capa de stock real única.
-
-Se propone una tabla mínima de movimientos (`app.stock_movimiento`) en lugar de varias tablas de saldo, para mantener el modelo chico, reversible y trazable.
-
-### Salidas no comerciales
-
-Las salidas no comerciales se cargan siempre sobre el ítem con stock real:
-
-- `MANUAL`, `PROVEEDOR`, `FORMULADO`
-- `Item Envase`
-- `Item Etiqueta`
-- `Item Paquetería`
-
-Nunca sobre `Item Comercial`.
+- el stock arranca en `0`
+- no existe caso especial de “stock inicial”
+- todo stock nace de movimientos
+- tipos mínimos de operación:
+  - `INGRESO`
+  - `VENTA`
+  - `PRODUCCION`
+  - `AJUSTE`
+- `AJUSTE` puede ser positivo o negativo
+- `PRODUCCION` no se bloquea por pequeñas diferencias entre fórmula teórica y producción real
+- el stock real pertenece a:
+  - `MANUAL`
+  - `PROVEEDOR`
+  - `FORMULADO`
+  - `ITEM_ENVASE`
+  - `ITEM_ETIQUETA`
+  - `ITEM_PAQUETERIA`
+- `ITEM_COMERCIAL` no porta stock real

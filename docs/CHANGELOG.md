@@ -6,9 +6,7 @@
 - Relaciones de Envases y Etiquetas: el botón `Agregar` se reemplazó por `+`.
 
 
-## 2026-04-19 — stock real mínimo antes de ofertabilidad automática
-
-- Se documenta que la ofertabilidad automática y la lista de faltantes requieren una capa explícita de stock real; el esquema actual solo contiene costos de referencia, no saldos reales.
-- Se propone `app.stock_movimiento` como tabla mínima única de movimientos para `PROVEEDOR`, `MANUAL`, `FORMULADO`, `ENVASE`, `ETIQUETA` y `PAQUETERIA`.
-- Se deja SQL de revisión en `docs/db/2026_04_19_stock_real_minimo.sql`.
-- Se fija que el bloqueo inicial de `Items Comerciales` dependerá de estructura mínima + bulk; `Envases` y `Etiquetas` faltantes entran primero como advertencia y lista de compras.
+## 2026-04-20
+- Stock real v2: se agrega primer lote de API y UI para saldos, ingreso, ajuste y producción.
+- Nueva hoja `Stock` con tabla de saldos y operaciones recientes.
+- Nuevos endpoints: `stock-objetivos`, `stock-saldos`, `stock-operaciones`, `stock-operaciones/ingreso`, `stock-operaciones/ajuste`, `stock-operaciones/produccion`.

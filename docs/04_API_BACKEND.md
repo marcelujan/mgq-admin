@@ -122,27 +122,94 @@ Campos extra según origen:
 - `PROVEEDOR`: `ref_presentacion`
 
 
----
+## Stock real v2
 
-## Próximo corte backend — stock real y ofertabilidad
+Primer lote de endpoints propuestos/implementados sobre `stock_operacion` y `stock_movimiento`:
 
-Antes de exponer filtros por estado real, lista de faltantes y compras sugeridas, el backend necesita una fuente única de stock real.
+- `GET /api/stock-objetivos?tipo=&search=&limit=`
+- `GET /api/stock-saldos?tipo=&search=&limit=`
+- `GET /api/stock-operaciones?limit=`
+- `POST /api/stock-operaciones/ingreso`
+- `POST /api/stock-operaciones/ajuste`
+- `POST /api/stock-operaciones/produccion`
 
-### Tabla mínima propuesta
+### `GET /api/stock-objetivos`
 
-- `app.stock_movimiento`
+Devuelve ítems stockeables buscables para formularios de ingreso, ajuste y producción.
 
-### Endpoints mínimos sugeridos
+Tipos admitidos:
 
-- `GET /api/stock-movimientos`
-- `POST /api/stock-movimientos`
-- `GET /api/stock-saldos`
-- `GET /api/items-comerciales/disponibilidad`
-- `GET /api/items-comerciales/faltantes`
+- `MANUAL`
+- `PROVEEDOR`
+- `FORMULADO`
+- `ENVASE`
+- `ETIQUETA`
+- `PAQUETERIA`
 
-### Regla operativa
+Respuesta mínima por fila:
 
-- `Borrador`: falta estructura mínima del `Item Comercial`.
-- `Ofertable`: estructura mínima completa y saldo suficiente del bulk para al menos 1 unidad.
-- `Bloqueado`: estructura mínima completa pero saldo insuficiente del bulk.
-- Faltantes de `Envases` y `Etiquetas`: se exponen como advertencia y lista de compras, no como bloqueo duro en esta primera etapa.
+- `item_tipo`
+- `item_ref_id`
+- `nombre`
+- `label`
+- `uom`
+- `saldo`
+- `cantidad_referencia`
+- `costo_ref_ars`
+
+### `GET /api/stock-saldos`
+
+Devuelve saldos actuales por ítem stockeable y, además, una lista corta de operaciones recientes.
+
+Filtros:
+
+- `tipo` opcional
+- `search` opcional
+- `limit` opcional
+
+### `POST /api/stock-operaciones/ingreso`
+
+Payload mínimo:
+
+```json
+{
+  "item_tipo": "MANUAL",
+  "item_ref_id": 123,
+  "cantidad": 10,
+  "nota": "Compra manual"
+}
+```
+
+### `POST /api/stock-operaciones/ajuste`
+
+Payload mínimo:
+
+```json
+{
+  "item_tipo": "ENVASE",
+  "item_ref_id": 45,
+  "delta_cantidad": -2,
+  "nota": "Rotura"
+}
+```
+
+### `POST /api/stock-operaciones/produccion`
+
+Payload mínimo:
+
+```json
+{
+  "formulado_item_formulado_id": 9,
+  "cantidad_obtenida": 5000,
+  "nota": "Producción real",
+  "consumos": [
+    { "item_tipo": "PROVEEDOR", "item_ref_id": 101, "cantidad": 1200 },
+    { "item_tipo": "MANUAL", "item_ref_id": 33, "cantidad": 50 }
+  ]
+}
+```
+
+Regla importante:
+
+- la producción registra valores reales consumidos y obtenidos;
+- no se bloquea por diferencias menores respecto de la fórmula teórica.

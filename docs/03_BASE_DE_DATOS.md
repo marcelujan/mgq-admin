@@ -80,22 +80,33 @@ Un movimiento puede apuntar a exactamente uno de estos seis tipos de ítem con s
 - `ETIQUETA` → `app.item_etiqueta.item_etiqueta_id`
 - `PAQUETERIA` → `app.item_paqueteria.item_paqueteria_id`
 
-### Tipos mínimos de movimiento
+### Estructura mínima acordada
+
+Se evoluciona la propuesta anterior a dos piezas:
+
+- `app.stock_operacion`
+- `app.stock_movimiento`
+
+`stock_operacion` agrupa el evento de negocio. `stock_movimiento` contiene las líneas con `delta_cantidad` positivo o negativo.
+
+### Tipos mínimos de operación
 
 - `INGRESO`
 - `VENTA`
-- `CONSUMO_INTERNO`
-- `REGALO_MUESTRA`
-- `MERMA_PERDIDA`
+- `PRODUCCION`
 - `AJUSTE`
+
+`AJUSTE` absorbe consumos internos, regalos, mermas y correcciones manuales.
 
 ### Invariantes nuevas
 
 - El stock real **nunca** vive en `app.item_comercial`.
-- Las salidas no comerciales se cargan siempre sobre el ítem que tiene stock real.
+- No existe “stock inicial” como caso especial; todo parte de `0` y nace de movimientos.
+- `PRODUCCION` es una operación agrupada con egresos de componentes e ingreso del formulado obtenido.
+- La producción acepta cantidades reales utilizadas/obtenidas aunque difieran de la fórmula.
 - `Items Paquetería` no bloquea oferta, pero sí participa del stock real.
 - `Envases` y `Etiquetas` participarán inicialmente como advertencia de faltantes, no como bloqueo duro.
 
 ### Script listo para revisión
 
-Ver: `docs/db/2026_04_19_stock_real_minimo.sql`
+Ver: `docs/db/2026_04_20_stock_operaciones_v2.sql`
