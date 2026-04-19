@@ -28,3 +28,7 @@
 - `Producción`: se reordena la pantalla para dejar fecha antes de las tablas de cantidades reales.
 - `Stock`: tablas de saldos y operaciones recientes limitadas visualmente a 6 filas con scroll vertical.
 - `StockTargetPicker`: el label pasa a ser opcional para permitir pickers más compactos en Producción.
+
+## 2026-04-21 — Fix de tipos en StockTargetPicker
+
+- Stock: se alinean los tipos locales de `Item` con `StockTargetPicker` para evitar error de TypeScript por `label` opcional en `stock-movimiento-form` y `stock-produccion-form`.

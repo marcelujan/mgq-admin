@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import StockTargetPicker from "./stock-target-picker";
 
-type Item = { item_tipo: any; item_ref_id: number; label: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
+type Item = { item_tipo: any; item_ref_id: number; label?: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
 type Line = { key: string; item: Item; cantidad: string; sugerido?: boolean };
 
 function formatDateInput(v?: string | null) {
@@ -172,9 +172,9 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={setOutput} label="" placeholder="Buscar formulado..." />
+      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={(item) => setOutput(item ? { ...item, label: item.label ?? item.nombre } : null)} label="" placeholder="Buscar formulado..." />
 
-      <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={setPicker} label="" placeholder="Buscar componente..." />
+      <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={(item) => setPicker(item ? { ...item, label: item.label ?? item.nombre } : null)} label="" placeholder="Buscar componente..." />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px)", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>

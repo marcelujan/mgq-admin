@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import StockTargetPicker from "./stock-target-picker";
 
-type Item = { item_tipo: any; item_ref_id: number; label: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
+type Item = { item_tipo: any; item_ref_id: number; label?: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
 
 type Mode = "ingreso" | "ajuste";
 
@@ -115,7 +115,7 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
       <StockTargetPicker
         allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO", "ENVASE", "ETIQUETA", "PAQUETERIA"]}
         value={target}
-        onChange={setTarget}
+        onChange={(item) => setTarget(item ? { ...item, label: item.label ?? item.nombre } : null)}
         label="Ítem"
         placeholder="Buscar ítem..."
       />
