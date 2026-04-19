@@ -21,6 +21,7 @@ export default function StockSaldosClient() {
   const [ops, setOps] = useState<Op[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<RowSortBy>("nombre");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [opSortBy, setOpSortBy] = useState<OpSortBy>("fecha");
@@ -95,6 +96,24 @@ export default function StockSaldosClient() {
     return copy;
   }, [ops, opSortBy, opSortDir]);
 
+
+  async function deleteOperacion(stock_operacion_id: number) {
+    const ok = window.confirm(`Eliminar operación #${stock_operacion_id}?`);
+    if (!ok) return;
+    setDeletingId(stock_operacion_id);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/stock-operaciones/${stock_operacion_id}`, { method: "DELETE" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      setOps((prev) => prev.filter((x) => x.stock_operacion_id !== stock_operacion_id));
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setDeletingId((curr) => (curr === stock_operacion_id ? null : curr));
+    }
+  }
+
   const actionLink: React.CSSProperties = { textDecoration: "none", color: "inherit", fontSize: 12, opacity: 0.92, whiteSpace: "nowrap" };
   const thButton = (active: boolean): React.CSSProperties => ({ cursor: "pointer", userSelect: "none", textDecoration: active ? "underline" : "none", textUnderlineOffset: 3 });
 
@@ -150,8 +169,9 @@ export default function StockSaldosClient() {
       </div>
 
       <div style={{ display: "grid", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
           <div style={{ fontWeight: 700 }}>Operaciones recientes</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Esta tabla muestra solo un tramo reciente ordenado por fecha. El historial completo conviene llevarlo luego a una hoja aparte.</div>
         </div>
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "hidden" }}>
           <div style={{ maxHeight: 34 + 6 * 29, overflowY: "auto", overflowX: "auto" }}>
@@ -164,7 +184,7 @@ export default function StockSaldosClient() {
                 <th onClick={() => toggleOpSort("movimientos_count")} style={{ textAlign: "right", padding: "5px 8px", width: 90, ...thButton(opSortBy === "movimientos_count") }}>Mov.{sortArrow(opSortBy === "movimientos_count", opSortDir)}</th>
                 <th onClick={() => toggleOpSort("total_entradas")} style={{ textAlign: "right", padding: "5px 8px", width: 110, ...thButton(opSortBy === "total_entradas") }}>Entradas{sortArrow(opSortBy === "total_entradas", opSortDir)}</th>
                 <th onClick={() => toggleOpSort("total_salidas")} style={{ textAlign: "right", padding: "5px 8px", width: 110, ...thButton(opSortBy === "total_salidas") }}>Salidas{sortArrow(opSortBy === "total_salidas", opSortDir)}</th>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 52 }}></th>
+                <th style={{ textAlign: "left", padding: "5px 8px", width: 72 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -176,7 +196,20 @@ export default function StockSaldosClient() {
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{op.movimientos_count}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_entradas ?? 0))}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_salidas ?? 0))}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><Link href={`/stock/operaciones/${op.stock_operacion_id}`} style={{ textDecoration: "none", color: "inherit", fontSize: 12.5 }}>✏️</Link></td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Link href={`/stock/operaciones/${op.stock_operacion_id}`} title="Editar" style={{ textDecoration: "none", color: "inherit", fontSize: 12.5 }}>✏️</Link>
+                      <button
+                        type="button"
+                        title="Eliminar"
+                        onClick={() => void deleteOperacion(op.stock_operacion_id)}
+                        disabled={deletingId === op.stock_operacion_id}
+                        style={{ border: "none", background: "transparent", color: "inherit", padding: 0, cursor: deletingId === op.stock_operacion_id ? "default" : "pointer", fontSize: 12.5, opacity: deletingId === op.stock_operacion_id ? 0.5 : 0.9 }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {!loading && opsFmt.length === 0 ? <tr><td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin operaciones.</td></tr> : null}

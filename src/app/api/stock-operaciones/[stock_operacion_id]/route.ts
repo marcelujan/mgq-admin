@@ -102,3 +102,26 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
 }
+
+
+export async function DELETE(_: NextRequest, ctx: Ctx) {
+  try {
+    const { stock_operacion_id: stockOperacionIdStr } = await ctx.params;
+    const stock_operacion_id = Number(stockOperacionIdStr);
+    if (!Number.isFinite(stock_operacion_id) || stock_operacion_id <= 0) {
+      return NextResponse.json({ ok: false, error: "stock_operacion_id inválido" }, { status: 400 });
+    }
+
+    const current = await getStockOperacionDetail(stock_operacion_id);
+    if (!current) return NextResponse.json({ ok: false, error: "operación no encontrada" }, { status: 404 });
+
+    await clearStockMovimientos(stock_operacion_id);
+    const { db } = await import("@/lib/db");
+    const sql = db();
+    await sql.query(`DELETE FROM app.stock_operacion WHERE stock_operacion_id = $1`, [stock_operacion_id]);
+
+    return NextResponse.json({ ok: true, stock_operacion_id });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+  }
+}
