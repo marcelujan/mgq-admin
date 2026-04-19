@@ -93,11 +93,12 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
 
   useEffect(() => {
     if (!output || operationId) return;
+    const formuladoItemFormuladoId = output.item_ref_id;
     let cancelled = false;
     async function loadSuggestion() {
       setLoadingSuggestion(true);
       try {
-        const qp = new URLSearchParams({ formulado_item_formulado_id: String(output.item_ref_id) });
+        const qp = new URLSearchParams({ formulado_item_formulado_id: String(formuladoItemFormuladoId) });
         const r = await fetch(`/api/stock-operaciones/produccion/sugerencia?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);

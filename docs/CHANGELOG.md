@@ -1,1 +1,1 @@
-- Fix TypeScript type unification for StockTargetPicker and stock forms.
+- Fix TS narrowing in stock-produccion-form when loading suggested formula components.
