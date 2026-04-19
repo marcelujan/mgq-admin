@@ -14,7 +14,7 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-type Ctx = { params: Promise<{ item_comercial_id: string; item_comercial_envase_id: string }> };
+type Ctx = { params: Promise<{ item_comercial_id: string }> };
 
 export async function GET(_: NextRequest, { params }: Ctx) {
   try {

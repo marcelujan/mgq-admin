@@ -18,9 +18,9 @@ type Ctx = { params: Promise<{ item_comercial_id: string; item_comercial_etiquet
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
-    const { item_comercial_id: itemComercialIdStr } = await params;
+    const { item_comercial_id: itemComercialIdStr, item_comercial_etiqueta_id: itemComercialEtiquetaIdStr } = await params;
     const item_comercial_id = Number(itemComercialIdStr);
-    const item_comercial_etiqueta_id = Number(ctx.params.item_comercial_etiqueta_id);
+    const item_comercial_etiqueta_id = Number(itemComercialEtiquetaIdStr);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0 || !Number.isFinite(item_comercial_etiqueta_id) || item_comercial_etiqueta_id <= 0) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }
@@ -69,9 +69,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
 export async function DELETE(_: NextRequest, { params }: Ctx) {
   try {
-    const { item_comercial_id: itemComercialIdStr } = await params;
+    const { item_comercial_id: itemComercialIdStr, item_comercial_etiqueta_id: itemComercialEtiquetaIdStr } = await params;
     const item_comercial_id = Number(itemComercialIdStr);
-    const item_comercial_etiqueta_id = Number(ctx.params.item_comercial_etiqueta_id);
+    const item_comercial_etiqueta_id = Number(itemComercialEtiquetaIdStr);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0 || !Number.isFinite(item_comercial_etiqueta_id) || item_comercial_etiqueta_id <= 0) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
     }

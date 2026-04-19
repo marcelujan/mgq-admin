@@ -1,3 +1,1 @@
-# CHANGELOG
-
-- Fix de compatibilidad Next.js/TypeScript en handlers de relaciones de `Items Comerciales` para usar `params` asíncronos (`Promise`) en rutas dinámicas de `envases` y `etiquetas`.
+- v40: corregidas firmas de handlers dinámicos y uso de params en asociaciones de envases/etiquetas para compatibilidad con Next TypeScript.
