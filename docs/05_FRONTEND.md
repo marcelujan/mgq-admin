@@ -103,3 +103,15 @@ La selección del origen técnico del comercial debe hacerse desde una lista bus
 - `FORMULADO`
 
 No se deben exponer campos de ID libre para estas selecciones.
+
+
+## Ajustes de UX en `Items Comerciales`
+
+- El bloque base del comercial debe ocupar el mismo ancho visual que las secciones inferiores.
+- El buscador de origen técnico debe ser más guiado: búsqueda + lista de resultados seleccionables + resumen del origen elegido.
+- Debe mostrarse costo parcial de armado en la propia hoja:
+  - costo base estimado
+  - subtotal de envases
+  - subtotal de etiquetas
+  - total parcial
+- Las tablas de `Envases asociados` y `Etiquetas asociadas` deben mostrar costo de referencia y costo de línea para cada componente.

@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
           trim(both ' ' from concat_ws(' · ', 'Manual', coalesce(co.manual_nombre,''), 'ID ' || co.cost_option_id::text)) as label,
           co.manual_nombre,
           co.manual_uom as unidad,
-          co.manual_cantidad::float8 as cantidad
+          co.manual_cantidad::float8 as cantidad,
+          co.manual_uom as ref_uom,
+          co.manual_cantidad::float8 as ref_cantidad,
+          co.manual_costo_ars::float8 as costo_ref_ars,
+          co.densidad_g_ml::float8 as densidad_g_ml
         FROM app.cost_option co
         WHERE co.activo = true
           AND co.tipo = 'MANUAL_PRESENTACION'
@@ -55,14 +59,36 @@ export async function GET(req: NextRequest) {
     if (tipo === "PROVEEDOR") {
       const r: any = await sql.query(
         `
+        WITH last_rows AS (
+          SELECT item_id, presentacion, max(as_of_date) as max_date
+          FROM app.item_price_daily_pres
+          GROUP BY item_id, presentacion
+        ), current_price AS (
+          SELECT DISTINCT ON (lr.item_id)
+            lr.item_id,
+            lr.presentacion::float8 as presentacion,
+            ip.price_ars::float8 as price_ars,
+            lr.max_date
+          FROM last_rows lr
+          JOIN app.item_price_daily_pres ip
+            ON ip.item_id = lr.item_id
+           AND ip.presentacion = lr.presentacion
+           AND ip.as_of_date = lr.max_date
+          ORDER BY lr.item_id, lr.max_date DESC, lr.presentacion ASC
+        )
         SELECT
           i.item_id::bigint as id,
           trim(both ' ' from concat_ws(' · ', coalesce(pr.nombre,''), nullif(i.descripcion_fuente,''), 'Item #' || i.item_id::text)) as label,
           coalesce(pr.nombre,'') as proveedor_nombre,
           coalesce(nullif(i.descripcion_fuente,''), '') as item_nombre,
-          i.item_id::bigint as item_id
+          i.item_id::bigint as item_id,
+          'GR'::text as ref_uom,
+          case when cp.presentacion is not null then greatest(1::float8, cp.presentacion * 1000.0) else null::float8 end as ref_cantidad,
+          cp.price_ars::float8 as costo_ref_ars,
+          null::float8 as densidad_g_ml
         FROM app.item_seguimiento i
         LEFT JOIN app.proveedor pr ON pr.proveedor_id = i.proveedor_id
+        LEFT JOIN current_price cp ON cp.item_id = i.item_id
         WHERE i.estado = 'OK'
           AND (
             $1::text = '' OR
@@ -84,9 +110,20 @@ export async function GET(req: NextRequest) {
         f.item_formulado_id::bigint as id,
         trim(both ' ' from concat_ws(' · ', 'Formulado', coalesce(p.nombre,''), 'ID ' || f.item_formulado_id::text)) as label,
         p.nombre,
-        f.item_formulado_id::bigint as item_formulado_id
+        f.item_formulado_id::bigint as item_formulado_id,
+        'GR'::text as ref_uom,
+        1000::float8 as ref_cantidad,
+        snap.precio_unitario_ars::float8 as costo_ref_ars,
+        p.densidad_producto_g_ml::float8 as densidad_g_ml
       FROM app.item_formulado f
       JOIN app.producto p ON p.producto_id = f.producto_id
+      LEFT JOIN LATERAL (
+        SELECT s.precio_unitario_ars
+        FROM app.item_formulado_snapshot s
+        WHERE s.item_formulado_id = f.item_formulado_id
+        ORDER BY s.as_of_date DESC, s.created_at DESC NULLS LAST, s.snapshot_id DESC
+        LIMIT 1
+      ) snap ON true
       WHERE f.activo = true
         AND f.tipo = 'BULK'
         AND (

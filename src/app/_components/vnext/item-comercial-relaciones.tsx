@@ -48,9 +48,14 @@ const CFG = {
   },
 };
 
-function fmtNum(n: number | null | undefined, digits = 2): string {
-  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "";
-  return new Intl.NumberFormat("es-AR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(Number(n));
+function fmtMoney(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n));
+}
+
+function fmtNum(n: number | null | undefined, digits = 3): string {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: digits }).format(Number(n));
 }
 
 function numOrEmpty(v: number | null | undefined): string {
@@ -59,7 +64,17 @@ function numOrEmpty(v: number | null | undefined): string {
   return Number.isFinite(n) ? String(n) : "";
 }
 
-export default function ItemComercialRelaciones({ itemComercialId, kind }: { itemComercialId: number; kind: Kind }) {
+function calcLineCost(cantidad: number | null | undefined, refCantidad: number | null | undefined, costoRef: number | null | undefined): number {
+  const qty = Number(cantidad ?? NaN);
+  const refQty = Number(refCantidad ?? NaN);
+  const refCost = Number(costoRef ?? NaN);
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  if (!Number.isFinite(refQty) || refQty <= 0) return 0;
+  if (!Number.isFinite(refCost) || refCost < 0) return 0;
+  return (qty / refQty) * refCost;
+}
+
+export default function ItemComercialRelaciones({ itemComercialId, kind, onSubtotalChange }: { itemComercialId: number; kind: Kind; onSubtotalChange?: (subtotal: number) => void }) {
   const cfg = CFG[kind];
   const [rows, setRows] = useState<AssocRow[]>([]);
   const [options, setOptions] = useState<Option[]>([]);
@@ -111,6 +126,17 @@ export default function ItemComercialRelaciones({ itemComercialId, kind }: { ite
     const id = Number(selectedId);
     return options.find((o) => Number(o.id) === id) ?? null;
   }, [options, selectedId]);
+
+  const selectedLineCost = useMemo(() => {
+    if (!selectedOption) return 0;
+    return calcLineCost(Number(cantidad), selectedOption.cantidad_referencia, selectedOption.costo_ars);
+  }, [cantidad, selectedOption]);
+
+  const subtotal = useMemo(() => rows.reduce((acc, r) => acc + calcLineCost(r.cantidad, r.cantidad_referencia, r.costo_ars), 0), [rows]);
+
+  useEffect(() => {
+    onSubtotalChange?.(subtotal);
+  }, [onSubtotalChange, subtotal]);
 
   function rowAssocId(r: AssocRow): number {
     return Number(r[cfg.assocIdKey] as number);
@@ -209,14 +235,14 @@ export default function ItemComercialRelaciones({ itemComercialId, kind }: { ite
     <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>{cfg.title}</div>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>{loading ? "Cargando..." : `${rows.length} asociado(s)`}</div>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>{loading ? "Cargando..." : `${rows.length} asociado(s) · subtotal ARS ${fmtMoney(subtotal)}`}</div>
       </div>
 
       {err ? (
         <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, background: "rgba(255,90,90,0.08)", fontSize: 12, whiteSpace: "pre-wrap" }}>{err}</div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: kind === "etiquetas" ? "minmax(0,1fr) 96px 86px auto" : "minmax(0,1fr) 96px 86px auto", gap: 10, alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 86px auto", gap: 10, alignItems: "end" }}>
         <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>{kind === "envases" ? "Item Envase" : "Item Etiqueta"}</label>
           <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: "100%", minWidth: 0 }}>
@@ -238,63 +264,61 @@ export default function ItemComercialRelaciones({ itemComercialId, kind }: { ite
       </div>
 
       {selectedOption ? (
-        <div style={{ fontSize: 12, opacity: 0.72 }}>
-          Ref: {selectedOption.uom ?? ""} {fmtNum(selectedOption.cantidad_referencia, 3)} · ARS {fmtNum(selectedOption.costo_ars, 2)}
-          {kind === "etiquetas" && Number.isFinite(Number(selectedOption.ancho_mm)) && Number.isFinite(Number(selectedOption.largo_mm)) ? ` · ${Number(selectedOption.ancho_mm)} x ${Number(selectedOption.largo_mm)} mm` : ""}
+        <div style={{ fontSize: 12, opacity: 0.72, display: "flex", gap: 18, flexWrap: "wrap" }}>
+          <div>Ref: {selectedOption.uom ?? ""} {fmtNum(selectedOption.cantidad_referencia, 3)}</div>
+          <div>Costo ref.: ARS {fmtMoney(selectedOption.costo_ars)}</div>
+          <div>Costo línea: ARS {fmtMoney(selectedLineCost)}</div>
+          {kind === "etiquetas" && Number.isFinite(Number(selectedOption.ancho_mm)) && Number.isFinite(Number(selectedOption.largo_mm)) ? (
+            <div>Medidas: {Number(selectedOption.ancho_mm)} x {Number(selectedOption.largo_mm)}</div>
+          ) : null}
         </div>
       ) : null}
 
-      <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 90 }}>Item #</th>
-              <th style={{ textAlign: "left", padding: "5px 10px" }}>Nombre</th>
-              {kind === "etiquetas" ? <th style={{ textAlign: "left", padding: "5px 10px", width: 110 }}>Medidas</th> : null}
-              <th style={{ textAlign: "right", padding: "5px 10px", width: 96 }}>Cantidad</th>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 90 }}>Oblig.</th>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 100 }}>Acciones</th>
+            <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+              <th style={{ padding: "4px 8px" }}>Item #</th>
+              <th style={{ padding: "4px 8px" }}>Nombre</th>
+              {kind === "etiquetas" ? <th style={{ padding: "4px 8px" }}>Medidas</th> : null}
+              <th style={{ padding: "4px 8px" }}>Costo ref.</th>
+              <th style={{ padding: "4px 8px" }}>Cantidad</th>
+              <th style={{ padding: "4px 8px" }}>Costo línea</th>
+              <th style={{ padding: "4px 8px" }}>Oblig.</th>
+              <th style={{ padding: "4px 8px" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {!rows.length ? (
+              <tr>
+                <td colSpan={kind === "etiquetas" ? 8 : 7} style={{ padding: "8px 10px", opacity: 0.65 }}>Sin asociaciones.</td>
+              </tr>
+            ) : rows.map((r) => {
               const assocId = rowAssocId(r);
-              const patch = dirty[assocId];
-              const qty = patch?.cantidad ?? (numOrEmpty(r.cantidad) || "1");
-              const req = patch?.obligatorio ?? Boolean(r.obligatorio);
-              const changed = patch !== undefined;
-              const itemId = Number((r[cfg.itemIdKey] as number) ?? 0);
+              const current = dirty[assocId] ?? { cantidad: numOrEmpty(r.cantidad) || "1", obligatorio: Boolean(r.obligatorio) };
+              const lineCost = calcLineCost(Number(current.cantidad), r.cantidad_referencia, r.costo_ars);
               return (
                 <tr key={assocId} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <td style={{ padding: "5px 10px", opacity: 0.85, whiteSpace: "nowrap" }}>{itemId}</td>
-                  <td style={{ padding: "5px 10px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={r.nombre ?? ""}>{r.nombre ?? ""}</td>
-                  {kind === "etiquetas" ? <td style={{ padding: "5px 10px", whiteSpace: "nowrap" }}>{Number.isFinite(Number(r.ancho_mm)) && Number.isFinite(Number(r.largo_mm)) ? `${Number(r.ancho_mm)} x ${Number(r.largo_mm)}` : ""}</td> : null}
-                  <td style={{ padding: "5px 10px", textAlign: "right" }}>
-                    <input value={qty} onChange={(e) => touchRow(r, { cantidad: e.target.value })} inputMode="decimal" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "4px 8px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: 82, textAlign: "right" }} />
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{kind === "envases" ? r.item_envase_id : r.item_etiqueta_id}</td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 380 }} title={r.nombre ?? undefined}>{r.nombre ?? ""}</td>
+                  {kind === "etiquetas" ? <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{Number.isFinite(Number(r.ancho_mm)) && Number.isFinite(Number(r.largo_mm)) ? `${Number(r.ancho_mm)} x ${Number(r.largo_mm)}` : "—"}</td> : null}
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", fontSize: 12, opacity: 0.8 }}>{`ARS ${fmtMoney(r.costo_ars)} · ${fmtNum(r.cantidad_referencia, 3)} ${r.uom ?? ""}`}</td>
+                  <td style={{ padding: "5px 8px", width: 96 }}>
+                    <input value={current.cantidad} onChange={(e) => touchRow(r, { cantidad: e.target.value })} inputMode="decimal" style={{ width: "100%", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "5px 8px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
                   </td>
-                  <td style={{ padding: "5px 10px" }}>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                      <input type="checkbox" checked={req} onChange={(e) => touchRow(r, { obligatorio: e.target.checked })} /> {req ? "Sí" : "No"}
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{`ARS ${fmtMoney(lineCost)}`}</td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <input type="checkbox" checked={current.obligatorio} onChange={(e) => touchRow(r, { obligatorio: e.target.checked })} /> {current.obligatorio ? "Sí" : "No"}
                     </label>
                   </td>
-                  <td style={{ padding: "5px 10px", whiteSpace: "nowrap" }}>
-                    <div style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
-                      <button type="button" onClick={() => void saveRow(r)} disabled={!changed || busyId === assocId} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: !changed || busyId === assocId ? "default" : "pointer", opacity: !changed || busyId === assocId ? 0.5 : 0.9 }}>
-                        {busyId === assocId ? "…" : "Guardar"}
-                      </button>
-                      <button type="button" onClick={() => void removeRow(r)} disabled={busyId === assocId} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: busyId === assocId ? "default" : "pointer", opacity: busyId === assocId ? 0.5 : 0.9 }}>
-                        🗑️
-                      </button>
-                    </div>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
+                    <button type="button" onClick={() => void saveRow(r)} disabled={busyId === assocId} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", marginRight: 8, opacity: busyId === assocId ? 0.7 : 0.9 }}>Guardar</button>
+                    <button type="button" onClick={() => void removeRow(r)} disabled={busyId === assocId} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", opacity: busyId === assocId ? 0.7 : 0.9 }}>🗑️</button>
                   </td>
                 </tr>
               );
             })}
-            {!loading && rows.length === 0 ? (
-              <tr>
-                <td colSpan={kind === "etiquetas" ? 6 : 5} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin asociaciones.</td>
-              </tr>
-            ) : null}
           </tbody>
         </table>
       </div>

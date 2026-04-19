@@ -94,3 +94,18 @@ Para editar una asociación:
 - `Items Comerciales` se crean primero y luego se editan para asociar envases y etiquetas.
 - `Items Paquetería` sigue fuera de la lógica de bloqueo y no entra todavía en estas relaciones.
 - La selección de origen técnico del comercial no debe pedir IDs crudos; debe resolverse mediante lista buscable desde `/api/origenes-tecnicos`.
+
+
+## vNext — UX de `Items Comerciales`
+
+- El bloque superior de edición de `Items Comerciales` debe usar el mismo ancho útil que las secciones de asociaciones.
+- El buscador de origen técnico no debe depender de un `select` largo como paso principal; debe ofrecer una lista de resultados compacta, con botón de selección y costo/ref. visible.
+- La edición debe mostrar un resumen económico parcial:
+  - costo base estimado desde el origen técnico, cuando la referencia permita calcularlo
+  - subtotal de envases
+  - subtotal de etiquetas
+  - total parcial
+- En las asociaciones de envases y etiquetas se debe mostrar:
+  - costo de referencia del componente
+  - cantidad asociada
+  - costo de línea calculado
