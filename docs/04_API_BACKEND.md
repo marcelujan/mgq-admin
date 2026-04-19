@@ -230,9 +230,24 @@ Reemplaza los movimientos de la operación y actualiza fecha / objetivo(s) / can
 Dado un `formulado_item_formulado_id`, devuelve una sugerencia inicial de componentes a consumir basada en `producto_formula_linea_v2` y `producto_formula_v2.lote_ref_g`. La sugerencia es editable y no bloquea la carga de valores reales.
 
 
-### Stock · Movimientos
+## Stock · Faltantes / Compras
 
-- `GET /api/stock-operaciones`
-  - filtros admitidos: `tipo`, `search`, `from`, `to`, `limit`
-- `DELETE /api/stock-operaciones/[stock_operacion_id]`
-  - elimina la operación completa y, por cascada, sus movimientos asociados
+### `GET /api/stock-faltantes`
+
+Devuelve dos bloques:
+
+- `comerciales`: diagnóstico por `Item Comercial`
+- `compras`: faltantes agregados por componente (bulk, envase, etiqueta)
+
+Parámetros:
+
+- `search` opcional
+- `estado` opcional: `BORRADOR`, `OFERTABLE`, `BLOQUEADO`, `CON_ADVERTENCIAS`
+- `limit` opcional
+
+Criterio actual:
+
+- `Borrador`: falta estructura mínima o densidad cuando aplica
+- `Ofertable`: estructura mínima completa y stock suficiente de bulk
+- `Bloqueado`: estructura mínima completa y stock insuficiente de bulk
+- `Envases` y `Etiquetas` faltantes se muestran como advertencia / compra sugerida, no como bloqueo

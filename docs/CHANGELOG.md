@@ -1,3 +1,11 @@
+## 2026-04-19
+
+- Stock: nueva hoja `/stock/faltantes` con:
+  - faltantes agregados / compras sugeridas
+  - detalle de `Items Comerciales` con estado calculado (`BORRADOR`, `OFERTABLE`, `BLOQUEADO`)
+  - advertencias por `Envases` y `Etiquetas` faltantes sin bloquear oferta
+- Stock: la hoja `/stock` suma accesos rápidos a `Faltantes` y `Movimientos`.
+
 ## 2026-04-21 — Ajustes de Stock (producción e ingresos)
 - Producción: fecha obligatoria y tamaño de lote pasan a la primera fila, justo debajo del título.
 - Producción: el selector redundante de componentes se elimina de la cabecera y se integra dentro de `Componentes utilizados`.
@@ -35,8 +43,3 @@
 - `Producción`: se reordena la pantalla para dejar fecha antes de las tablas de cantidades reales.
 - `Stock`: tablas de saldos y operaciones recientes limitadas visualmente a 6 filas con scroll vertical.
 - `StockTargetPicker`: el label pasa a ser opcional para permitir pickers más compactos en Producción.
-
-
-## 2026-04-19 / v65
-- Stock: nueva hoja `/stock/movimientos` con historial completo, filtros, orden por columnas y edición/eliminación por fila.
-- Stock: la hoja `/stock` mantiene solo operaciones recientes y agrega acceso directo a `Ver historial`.

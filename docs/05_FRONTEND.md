@@ -183,8 +183,7 @@ Ajustes posteriores en `Stock`:
 - `Stock · Ingreso` y `Stock · Ajuste`: la fila superior concentra `Fecha` y cantidad; el selector del ítem queda debajo.
 
 
-### Hoja `Stock · Movimientos`
-
-- Nueva hoja dedicada para historial completo de operaciones de stock.
-- La hoja `Stock` conserva solo un bloque de **Operaciones recientes** y enlaza a **Ver historial**.
-- La tabla de movimientos admite filtros por tipo, búsqueda textual y rango de fechas, además de orden por columnas.
+- `/stock/faltantes` (Faltantes / Compras)
+  - lista agregada de faltantes para volver disponibles los comerciales
+  - detalle por `Item Comercial` con estado por color y advertencias
+  - no bloquea por envase / etiqueta: primero informa y sugiere compra

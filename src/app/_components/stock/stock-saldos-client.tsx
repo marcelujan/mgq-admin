@@ -71,20 +71,6 @@ export default function StockSaldosClient() {
     return () => { cancelled = true; };
   }, [tipo, search]);
 
-
-
-  async function removeOp(id: number) {
-    if (!window.confirm(`¿Eliminar operación #${id}?`)) return;
-    try {
-      const r = await fetch(`/api/stock-operaciones/${id}`, { method: "DELETE" });
-      const j = await r.json().catch(() => null);
-      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      setOps((prev) => prev.filter((x) => x.stock_operacion_id !== id));
-    } catch (e: any) {
-      window.alert(String(e?.message || e));
-    }
-  }
-
   const rowsFmt = useMemo(() => {
     const copy = rows.map((r) => ({ ...r, saldo_fmt: new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(r.saldo ?? 0)) }));
     copy.sort((a, b) => {
@@ -130,6 +116,8 @@ export default function StockSaldosClient() {
           <Link href="/stock/ingreso" style={actionLink}>Ingreso</Link>
           <Link href="/stock/ajuste" style={actionLink}>Ajuste</Link>
           <Link href="/stock/produccion" style={actionLink}>Producción</Link>
+          <Link href="/stock/faltantes" style={actionLink}>Faltantes</Link>
+          <Link href="/stock/movimientos" style={actionLink}>Movimientos</Link>
         </div>
       </div>
 
@@ -166,9 +154,7 @@ export default function StockSaldosClient() {
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ fontWeight: 700 }}>Operaciones recientes</div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link href="/stock/movimientos" style={actionLink}>Ver historial</Link>
-          </div>
+          <Link href="/stock/movimientos" style={actionLink}>Ver historial</Link>
         </div>
         <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "hidden" }}>
           <div style={{ maxHeight: 34 + 6 * 29, overflowY: "auto", overflowX: "auto" }}>
@@ -193,7 +179,7 @@ export default function StockSaldosClient() {
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{op.movimientos_count}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_entradas ?? 0))}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_salidas ?? 0))}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Link href={`/stock/operaciones/${op.stock_operacion_id}`} style={{ textDecoration: "none", color: "inherit", fontSize: 12.5 }}>✏️</Link><button type="button" onClick={() => removeOp(op.stock_operacion_id)} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", fontSize: 12.5 }}>🗑️</button></div></td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><Link href={`/stock/operaciones/${op.stock_operacion_id}`} style={{ textDecoration: "none", color: "inherit", fontSize: 12.5 }}>✏️</Link></td>
                 </tr>
               ))}
               {!loading && opsFmt.length === 0 ? <tr><td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin operaciones.</td></tr> : null}
