@@ -83,8 +83,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [cantidad, setCantidad] = useState("1");
-  const [obligatorio, setObligatorio] = useState(true);
-  const [dirty, setDirty] = useState<Record<number, { cantidad: string; obligatorio: boolean }>>({});
+  const [dirty, setDirty] = useState<Record<number, { cantidad: string }>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
 
   async function loadAll() {
@@ -153,13 +152,12 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
       const r = await fetch(cfg.assocApi(itemComercialId), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ [cfg.itemPayloadKey]: itemId, cantidad: qty, obligatorio }),
+        body: JSON.stringify({ [cfg.itemPayloadKey]: itemId, cantidad: qty }),
       });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       setSelectedId("");
       setCantidad("1");
-      setObligatorio(true);
       await loadAll();
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -168,13 +166,12 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
     }
   }
 
-  function touchRow(r: AssocRow, next: Partial<{ cantidad: string; obligatorio: boolean }>) {
+  function touchRow(r: AssocRow, next: Partial<{ cantidad: string }>) {
     const id = rowAssocId(r);
     setDirty((prev) => ({
       ...prev,
       [id]: {
         cantidad: next.cantidad ?? prev[id]?.cantidad ?? (numOrEmpty(r.cantidad) || "1"),
-        obligatorio: next.obligatorio ?? prev[id]?.obligatorio ?? Boolean(r.obligatorio),
       },
     }));
   }
@@ -191,7 +188,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
       const r0 = await fetch(`${cfg.assocApi(itemComercialId)}/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cantidad: qty, obligatorio: snapshot.obligatorio }),
+        body: JSON.stringify({ cantidad: qty }),
       });
       const j0 = await r0.json().catch(() => null);
       if (!r0.ok || !j0?.ok) throw new Error(j0?.error || `HTTP ${r0.status}`);
@@ -242,7 +239,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
         <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, background: "rgba(255,90,90,0.08)", fontSize: 12, whiteSpace: "pre-wrap" }}>{err}</div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px 86px auto", gap: 10, alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px auto", gap: 10, alignItems: "end" }}>
         <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>{kind === "envases" ? "Item Envase" : "Item Etiqueta"}</label>
           <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: "100%", minWidth: 0 }}>
@@ -257,15 +254,12 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
           <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
           <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: "100%" }} />
         </div>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, opacity: 0.85, minHeight: 36 }}>
-          <input type="checkbox" checked={obligatorio} onChange={(e) => setObligatorio(e.target.checked)} /> Obligatorio
-        </label>
         <button type="button" onClick={() => void addAssoc()} disabled={saving} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1, whiteSpace: "nowrap" }}>{saving ? "Agregando..." : "Agregar"}</button>
       </div>
 
       {selectedOption ? (
         <div style={{ fontSize: 12, opacity: 0.72, display: "flex", gap: 18, flexWrap: "wrap" }}>
-          <div>Ref: {selectedOption.uom ?? ""} {fmtNum(selectedOption.cantidad_referencia, 3)}</div>
+          <div>Ref: {fmtNum(selectedOption.cantidad_referencia, 3)} {selectedOption.uom ?? ""}</div>
           <div>Costo ref.: ARS {fmtMoney(selectedOption.costo_ars)}</div>
           <div>Costo línea: ARS {fmtMoney(selectedLineCost)}</div>
           {kind === "etiquetas" && Number.isFinite(Number(selectedOption.ancho_mm)) && Number.isFinite(Number(selectedOption.largo_mm)) ? (
@@ -284,18 +278,17 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
               <th style={{ padding: "4px 8px" }}>Costo ref.</th>
               <th style={{ padding: "4px 8px" }}>Cantidad</th>
               <th style={{ padding: "4px 8px" }}>Costo línea</th>
-              <th style={{ padding: "4px 8px" }}>Oblig.</th>
               <th style={{ padding: "4px 8px" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {!rows.length ? (
               <tr>
-                <td colSpan={kind === "etiquetas" ? 8 : 7} style={{ padding: "8px 10px", opacity: 0.65 }}>Sin asociaciones.</td>
+                <td colSpan={kind === "etiquetas" ? 7 : 6} style={{ padding: "8px 10px", opacity: 0.65 }}>Sin asociaciones.</td>
               </tr>
             ) : rows.map((r) => {
               const assocId = rowAssocId(r);
-              const current = dirty[assocId] ?? { cantidad: numOrEmpty(r.cantidad) || "1", obligatorio: Boolean(r.obligatorio) };
+              const current = dirty[assocId] ?? { cantidad: numOrEmpty(r.cantidad) || "1" };
               const lineCost = calcLineCost(Number(current.cantidad), r.cantidad_referencia, r.costo_ars);
               return (
                 <tr key={assocId} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -304,16 +297,16 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
                   {kind === "etiquetas" ? <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{Number.isFinite(Number(r.ancho_mm)) && Number.isFinite(Number(r.largo_mm)) ? `${Number(r.ancho_mm)} x ${Number(r.largo_mm)}` : "—"}</td> : null}
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap", fontSize: 12, opacity: 0.8 }}>{`ARS ${fmtMoney(r.costo_ars)} · ${fmtNum(r.cantidad_referencia, 3)} ${r.uom ?? ""}`}</td>
                   <td style={{ padding: "5px 8px", width: 96 }}>
-                    <input value={current.cantidad} onChange={(e) => touchRow(r, { cantidad: e.target.value })} inputMode="decimal" style={{ width: "100%", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "5px 8px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
+                    <input
+                      value={current.cantidad}
+                      onChange={(e) => touchRow(r, { cantidad: e.target.value })}
+                      onBlur={() => void saveRow(r)}
+                      inputMode="decimal"
+                      style={{ width: "100%", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "5px 8px", background: "rgba(255,255,255,0.03)", color: "inherit" }}
+                    />
                   </td>
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{`ARS ${fmtMoney(lineCost)}`}</td>
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <input type="checkbox" checked={current.obligatorio} onChange={(e) => touchRow(r, { obligatorio: e.target.checked })} /> {current.obligatorio ? "Sí" : "No"}
-                    </label>
-                  </td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>
-                    <button type="button" onClick={() => void saveRow(r)} disabled={busyId === assocId} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", marginRight: 8, opacity: busyId === assocId ? 0.7 : 0.9 }}>Guardar</button>
                     <button type="button" onClick={() => void removeRow(r)} disabled={busyId === assocId} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", opacity: busyId === assocId ? 0.7 : 0.9 }}>🗑️</button>
                   </td>
                 </tr>

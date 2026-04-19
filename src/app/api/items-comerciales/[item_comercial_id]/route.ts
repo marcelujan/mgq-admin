@@ -96,16 +96,19 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     const hasCantidad = Object.prototype.hasOwnProperty.call(body, "cantidad");
     const cantidad = hasCantidad ? numOrNull(body?.cantidad) : numOrNull(current.cantidad);
-    if (!Number.isFinite(cantidad as number) || Number(cantidad) <= 0) {
+    if (cantidad !== null && (!Number.isFinite(cantidad as number) || Number(cantidad) <= 0)) {
       return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
     }
 
     const hasUnidad = Object.prototype.hasOwnProperty.call(body, "unidad");
-    const unidad = hasUnidad ? String(body?.unidad ?? "").trim().toUpperCase() : String(current.unidad ?? "").trim().toUpperCase();
-    if (!["GR", "ML", "UN"].includes(unidad)) {
+    const unidadRaw = hasUnidad
+      ? (body?.unidad === null || body?.unidad === undefined || body?.unidad === "" ? null : String(body?.unidad ?? "").trim().toUpperCase())
+      : (current.unidad === null || current.unidad === undefined || current.unidad === "" ? null : String(current.unidad ?? "").trim().toUpperCase());
+    const unidad = unidadRaw as string | null;
+    if (unidad !== null && !["GR", "ML", "UN"].includes(unidad)) {
       return NextResponse.json({ ok: false, error: "unidad inválida" }, { status: 422 });
     }
-    if (unidad === "UN" && !Number.isInteger(Number(cantidad))) {
+    if (unidad === "UN" && cantidad !== null && !Number.isInteger(Number(cantidad))) {
       return NextResponse.json({ ok: false, error: "UN requiere cantidad entera" }, { status: 422 });
     }
 
@@ -115,16 +118,18 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     const proveedor_item_id = hasProveedor ? numOrNull(body?.proveedor_item_id) : numOrNull(current.proveedor_item_id);
     const manual_cost_option_id = hasManual ? numOrNull(body?.manual_cost_option_id) : numOrNull(current.manual_cost_option_id);
     const formulado_item_formulado_id = hasFormulado ? numOrNull(body?.formulado_item_formulado_id) : numOrNull(current.formulado_item_formulado_id);
-    if (countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) !== 1) {
+    if (countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) > 1) {
       return NextResponse.json({ ok: false, error: "origen técnico inválido" }, { status: 422 });
     }
 
     const hasActivo = Object.prototype.hasOwnProperty.call(body, "activo");
     const activo = hasActivo ? Boolean(body?.activo) : Boolean(current.activo);
 
-    const refUom = await resolveOriginRefUom(sql, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id);
-    if (!unitsAreCompatible(unidad, refUom)) {
-      return NextResponse.json({ ok: false, error: "La unidad del Item Comercial es incompatible con la unidad del bulk/origen técnico" }, { status: 422 });
+    if (unidad !== null && countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) === 1) {
+      const refUom = await resolveOriginRefUom(sql, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id);
+      if (!unitsAreCompatible(unidad, refUom)) {
+        return NextResponse.json({ ok: false, error: "La unidad del Item Comercial es incompatible con la unidad del bulk/origen técnico" }, { status: 422 });
+      }
     }
 
     await sql.query(

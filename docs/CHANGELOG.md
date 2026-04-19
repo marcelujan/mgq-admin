@@ -1,12 +1,14 @@
 # CHANGELOG
 
-- Fix: `Items Etiqueta` vuelve a persistir el campo legacy `medidas` junto con `ancho_mm` y `largo_mm` para no violar el `NOT NULL` todavía presente en la base.
+## 2026-04-17
 
-- vNext: `Items Comerciales` pasa a seleccionar origen técnico desde lista buscable y suma edición de asociaciones `Envases` / `Etiquetas` con CRUD inline.
-
-- UX/API: `Items Comerciales` limita la lista visible de origen técnico a 6 filas con scroll, devuelve todos los resultados disponibles cuando no hay filtro y mueve el costeo consolidado al final de la hoja.
-- vNext: se agrega `POST /api/origenes-tecnicos/densidad` para persistir densidad desde `Items Comerciales` cuando la conversión `GR ↔ ML` la exige.
-
-- v43: `Items Comerciales` ajusta terminología de `base` a `bulk`, unifica el selector de bulk con el formato compacto de relaciones, muestra una fila separada de `Bulk seleccionado` y elimina la repetición de `Costo base estimado` fuera del bloque final de `Costeo`.
-
-- v44: `Items Comerciales` recupera el bloque final de `Costeo` en formato horizontal, elimina la línea repetitiva `item_comercial_id` debajo del título y valida compatibilidad estricta de unidad con el bulk/origen técnico: `UN` solo con orígenes `UN`, y `GR`/`ML` solo con orígenes de masa/volumen.
+- `Items Comerciales` pasa a modo borrador/autoguardado:
+  - se puede crear con solo `nombre`
+  - `cantidad`, `unidad` y origen técnico pueden completarse después
+  - la hoja crea el borrador automáticamente y luego sigue editando sobre el mismo registro
+- Se elimina el uso visible de la casilla `Obligatorio` en asociaciones de `Envases` y `Etiquetas`.
+  - En esta etapa, toda asociación de `Envase` o `Etiqueta` se trata como obligatoria por regla del sistema.
+- `Item Comercial` deja de depender del botón `Guardar`.
+  - La pantalla muestra estado `Guardando...` / `Guardado`.
+- Las relaciones de `Envases` y `Etiquetas` pasan a actualizar cantidad con edición directa y guardado al salir del campo.
+- Se agrega migración para permitir borradores en `app.item_comercial` sin exigir todavía `cantidad`, `unidad` ni origen técnico único completo.

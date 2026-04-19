@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import ItemComercialRelaciones from "./item-comercial-relaciones";
 
@@ -54,9 +54,9 @@ function familyOfUom(uom?: string | null): "mass" | "volume" | "unit" | null {
   return null;
 }
 
-function unitsAreCompatible(itemUom: Uom, refUom?: string | null): boolean {
+function unitsAreCompatible(itemUom?: string | null, refUom?: string | null): boolean {
   const fromFamily = familyOfUom(refUom ?? null);
-  const toFamily = familyOfUom(itemUom);
+  const toFamily = familyOfUom(itemUom ?? null);
   if (!fromFamily || !toFamily) return true;
   if (fromFamily === "unit" || toFamily === "unit") return fromFamily === toFamily;
   return true;
@@ -100,27 +100,23 @@ const inputStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
-const buttonGhost: CSSProperties = {
-  border: "1px solid rgba(255,255,255,0.14)",
-  borderRadius: 10,
-  padding: "8px 10px",
-  background: "rgba(255,255,255,0.03)",
-  cursor: "pointer",
-  color: "inherit",
-};
+function normalizeNombre(v: string): string {
+  return v.trim();
+}
 
 export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const router = useRouter();
-  const editing = Number.isFinite(itemId as number) && Number(itemId) > 0;
+  const initialEditing = Number.isFinite(itemId as number) && Number(itemId) > 0;
 
-  const [loading, setLoading] = useState(Boolean(editing));
-  const [saving, setSaving] = useState(false);
+  const [currentId, setCurrentId] = useState<number | null>(initialEditing ? Number(itemId) : null);
+  const [loading, setLoading] = useState(Boolean(initialEditing));
   const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const [cantidad, setCantidad] = useState("1");
+  const [cantidad, setCantidad] = useState("");
   const [unidad, setUnidad] = useState<Uom>("UN");
   const [originType, setOriginType] = useState<OriginType>("MANUAL");
   const [originSearch, setOriginSearch] = useState("");
@@ -133,10 +129,18 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const [envasesSubtotal, setEnvasesSubtotal] = useState(0);
   const [etiquetasSubtotal, setEtiquetasSubtotal] = useState(0);
 
+  const initialLoadedRef = useRef(false);
+  const lastSentKeyRef = useRef("");
+  const createInFlightRef = useRef(false);
+  const persistTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!editing) return;
+      if (!initialEditing) {
+        initialLoadedRef.current = true;
+        return;
+      }
       setLoading(true);
       setErr(null);
       try {
@@ -147,23 +151,24 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         if (cancelled) return;
         setNombre(row.nombre ?? "");
         setDescripcion(row.descripcion ?? "");
-        setCantidad(numOrEmpty(row.cantidad) || "1");
+        setCantidad(numOrEmpty(row.cantidad));
         setUnidad(((row.unidad ?? "UN").toUpperCase() as Uom) || "UN");
         if (row.proveedor_item_id != null) {
           setOriginType("PROVEEDOR");
           setOriginId(String(row.proveedor_item_id));
-          setOriginSearch(String(row.proveedor_item_id));
+          setOriginSearch("");
         } else if (row.formulado_item_formulado_id != null) {
           setOriginType("FORMULADO");
           setOriginId(String(row.formulado_item_formulado_id));
-          setOriginSearch(String(row.formulado_item_formulado_id));
-        } else {
+          setOriginSearch("");
+        } else if (row.manual_cost_option_id != null) {
           setOriginType("MANUAL");
-          const v = row.manual_cost_option_id != null ? String(row.manual_cost_option_id) : "";
-          setOriginId(v);
-          setOriginSearch(v);
+          setOriginId(String(row.manual_cost_option_id));
+          setOriginSearch("");
         }
         setActivo(Boolean(row.activo));
+        setCurrentId(Number(row.item_comercial_id));
+        initialLoadedRef.current = true;
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
       } finally {
@@ -174,7 +179,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     return () => {
       cancelled = true;
     };
-  }, [editing, itemId]);
+  }, [initialEditing, itemId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,7 +189,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         const qp = new URLSearchParams();
         qp.set("tipo", originType);
         qp.set("search", originSearch.trim());
-        qp.set("limit", originSearch.trim() === "" ? "1000" : "120");
+        qp.set("limit", "1000");
         const r = await fetch(`/api/origenes-tecnicos?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
@@ -213,11 +218,6 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     };
   }, [originType, originSearch]);
 
-  useEffect(() => {
-    setOriginId("");
-    setDensidadInput("");
-  }, [originType]);
-
   const selectedOrigin = useMemo(() => {
     const id = Number(originId);
     return originOptions.find((o) => Number(o.id) === id) ?? null;
@@ -238,11 +238,11 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   }, [selectedOrigin, unidad]);
 
   const unitCompatibilityError = useMemo(() => {
-    if (!selectedOrigin) return null;
+    if (!selectedOrigin || !unidad) return null;
     if (unitsAreCompatible(unidad, selectedOrigin.ref_uom ?? null)) return null;
     const ref = String(selectedOrigin.ref_uom ?? "").toUpperCase();
-    if (ref === "UN") return "Si el bulk/origen técnico está en UN, el Item Comercial también debe venderse en UN.";
-    return "Si el bulk/origen técnico está en GR o ML, el Item Comercial no puede venderse en UN.";
+    if (ref === "UN") return "Si el bulk está en UN, el Item Comercial también debe venderse en UN.";
+    return "Si el bulk está en GR o ML, el Item Comercial no puede venderse en UN.";
   }, [selectedOrigin, unidad]);
 
   const densityValue = useMemo(() => {
@@ -250,36 +250,53 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     return Number.isFinite(n) && n > 0 ? n : null;
   }, [densidadInput]);
 
-  const baseCost = useMemo(() => estimateBulkCost(cantidad, unidad, selectedOrigin, densityValue), [cantidad, unidad, selectedOrigin, densityValue]);
+  const bulkCost = useMemo(() => estimateBulkCost(cantidad, unidad, selectedOrigin, densityValue), [cantidad, unidad, selectedOrigin, densityValue]);
   const totalCost = useMemo(() => {
-    const base = Number.isFinite(baseCost as number) ? Number(baseCost) : 0;
+    const base = Number.isFinite(bulkCost as number) ? Number(bulkCost) : 0;
     return base + envasesSubtotal + etiquetasSubtotal;
-  }, [baseCost, envasesSubtotal, etiquetasSubtotal]);
+  }, [bulkCost, envasesSubtotal, etiquetasSubtotal]);
 
-  const title = useMemo(() => (editing ? "Editar Item Comercial" : "Nuevo Item Comercial"), [editing]);
+  const title = currentId ? "Editar Item Comercial" : "Nuevo Item Comercial";
 
   function buildBody() {
+    const nombreNormalized = normalizeNombre(nombre);
+    if (!nombreNormalized) throw new Error("Nombre requerido.");
+
+    const qtyRaw = cantidad.trim();
+    const qty = qtyRaw === "" ? null : Number(qtyRaw);
+    const currentUnidad = String(unidad ?? "").trim().toUpperCase() as Uom;
+    const oid = Number(originId);
+
     const body: any = {
-      nombre: nombre.trim(),
+      nombre: nombreNormalized,
       descripcion: descripcion.trim() || null,
-      cantidad: Number(cantidad),
-      unidad,
+      cantidad: qty,
+      unidad: qtyRaw === "" ? null : currentUnidad,
       proveedor_item_id: null,
       manual_cost_option_id: null,
       formulado_item_formulado_id: null,
       activo,
     };
 
-    const oid = Number(originId);
-    if (!Number.isFinite(oid) || oid <= 0) throw new Error("Seleccioná un bulk/origen técnico válido.");
-    if (originType === "PROVEEDOR") body.proveedor_item_id = oid;
-    else if (originType === "MANUAL") body.manual_cost_option_id = oid;
-    else body.formulado_item_formulado_id = oid;
+    if (Number.isFinite(oid) && oid > 0) {
+      if (originType === "PROVEEDOR") body.proveedor_item_id = oid;
+      else if (originType === "MANUAL") body.manual_cost_option_id = oid;
+      else body.formulado_item_formulado_id = oid;
+    }
 
-    if (!Number.isFinite(body.cantidad) || body.cantidad <= 0) throw new Error("Cantidad inválida.");
-    if (unidad === "UN" && !Number.isInteger(body.cantidad)) throw new Error("UN requiere cantidad entera.");
-    if (selectedOrigin && !unitsAreCompatible(unidad, selectedOrigin.ref_uom ?? null)) throw new Error(unitCompatibilityError || "Unidad incompatible con el bulk/origen técnico.");
-    if (needsDensity && !densityValue) throw new Error("Ingresá una densidad válida para convertir entre GR y ML.");
+    if (qty !== null) {
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Cantidad inválida.");
+      if (!["GR", "ML", "UN"].includes(currentUnidad)) throw new Error("Unidad inválida.");
+      if (currentUnidad === "UN" && !Number.isInteger(qty)) throw new Error("UN requiere cantidad entera.");
+    }
+
+    if (selectedOrigin && qty !== null && body.unidad && !unitsAreCompatible(body.unidad, selectedOrigin.ref_uom ?? null)) {
+      throw new Error(unitCompatibilityError || "Unidad incompatible con el bulk.");
+    }
+
+    if (needsDensity && body.unidad && qty !== null && densityValue === null) {
+      // se permite guardar borrador, pero no costear correctamente todavía
+    }
 
     return body;
   }
@@ -298,37 +315,84 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
   }
 
-  async function save() {
-    setErr(null);
+  const bodyKey = useMemo(() => {
     try {
-      if (!nombre.trim()) throw new Error("Nombre requerido.");
+      return JSON.stringify(buildBody());
+    } catch {
+      return "__invalid__";
+    }
+  }, [nombre, descripcion, cantidad, unidad, originId, originType, activo]);
+
+  async function persistNow() {
+    try {
+      if (!normalizeNombre(nombre)) return;
       const body = buildBody();
-      setSaving(true);
+      if (bodyKey === "__invalid__") return;
+      if (bodyKey === lastSentKeyRef.current && currentId) return;
+      if (createInFlightRef.current) return;
+      setSaveState("saving");
+      setErr(null);
       await persistDensityIfNeeded();
-      const r = await fetch(editing ? `/api/items-comerciales/${itemId}` : "/api/items-comerciales", {
-        method: editing ? "PATCH" : "POST",
+
+      if (!currentId) {
+        createInFlightRef.current = true;
+        const r = await fetch("/api/items-comerciales", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        const id = Number(j?.item_comercial_id ?? 0);
+        if (!Number.isFinite(id) || id <= 0) throw new Error("No se pudo crear el item comercial.");
+        lastSentKeyRef.current = bodyKey;
+        setCurrentId(id);
+        setSaveState("saved");
+        router.replace(`/items-comerciales/${id}`);
+        return;
+      }
+
+      const r = await fetch(`/api/items-comerciales/${currentId}`, {
+        method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      const id = Number(j?.item_comercial_id ?? itemId ?? 0);
-      router.push(id > 0 ? `/items-comerciales/${id}` : "/items-comerciales");
+      lastSentKeyRef.current = bodyKey;
+      setSaveState("saved");
     } catch (e: any) {
       setErr(String(e?.message || e));
+      setSaveState("idle");
     } finally {
-      setSaving(false);
+      createInFlightRef.current = false;
     }
   }
 
+  useEffect(() => {
+    if (!initialLoadedRef.current) return;
+    if (!normalizeNombre(nombre)) {
+      setSaveState("idle");
+      return;
+    }
+    if (bodyKey === "__invalid__") return;
+    if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = window.setTimeout(() => {
+      void persistNow();
+    }, 550);
+    return () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    };
+  }, [bodyKey, currentId, nombre, densidadInput]);
+
   async function remove() {
-    if (!editing) return;
+    if (!currentId) return;
     const ok = confirm("Eliminar definitivamente este ITEM COMERCIAL?\n\nAcción irreversible.");
     if (!ok) return;
     setErr(null);
     setDeleting(true);
     try {
-      const r = await fetch(`/api/items-comerciales/${itemId}`, { method: "DELETE" });
+      const r = await fetch(`/api/items-comerciales/${currentId}`, { method: "DELETE" });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       router.push("/items-comerciales");
@@ -339,23 +403,23 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     }
   }
 
-    return (
+  return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "grid", gap: 4 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{title}</h1>
+          <div style={{ fontSize: 12, opacity: 0.68 }}>
+            {loading ? "Cargando..." : saveState === "saving" ? "Guardando..." : saveState === "saved" ? "Guardado" : currentId ? "Borrador / edición" : "Ingresá el nombre para crear el borrador"}
+          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => router.push("/items-comerciales")} style={{ border: "none", background: "transparent", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9 }}>Volver</button>
-          {editing ? (
-            <button onClick={remove} disabled={deleting || saving || loading} style={{ ...buttonGhost, cursor: deleting || saving || loading ? "default" : "pointer", opacity: deleting || saving || loading ? 0.7 : 1 }}>
+          {currentId ? (
+            <button onClick={remove} disabled={deleting || loading} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", cursor: deleting || loading ? "default" : "pointer", opacity: deleting || loading ? 0.7 : 1 }}>
               {deleting ? "Eliminando..." : "Eliminar"}
             </button>
           ) : null}
-          <button onClick={() => void save()} disabled={saving || deleting || loading || !!unitCompatibilityError} style={{ ...buttonGhost, cursor: saving || deleting || loading || !!unitCompatibilityError ? "default" : "pointer", opacity: saving || deleting || loading || !!unitCompatibilityError ? 0.7 : 1 }}>
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
         </div>
       </div>
 
@@ -398,13 +462,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
               </div>
             ) : null}
           </div>
-          {unitCompatibilityError ? (
-            <div style={{ fontSize: 12, opacity: 0.9, color: "#ffb3b3" }}>{unitCompatibilityError}</div>
-          ) : needsDensity ? (
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
-              La unidad del comercial difiere de la unidad de referencia del origen. Se usará esta densidad para convertir entre GR y ML y, al guardar, se actualizará en el origen técnico correspondiente.
-            </div>
-          ) : null}
+          {unitCompatibilityError ? <div style={{ fontSize: 12, opacity: 0.9, color: "#ffb3b3" }}>{unitCompatibilityError}</div> : null}
 
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: 10 }}>
@@ -442,7 +500,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{o.ref_uom ? `${fmtNum(o.ref_cantidad, 3)} ${o.ref_uom}` : "—"}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{Number.isFinite(Number(o.costo_ref_ars)) ? `ARS ${fmtMoney(o.costo_ref_ars)}` : "—"}</div>
                       <div style={{ textAlign: "right" }}>
-                        <button type="button" onClick={() => setOriginId(String(o.id))} style={{ ...buttonGhost, padding: "6px 8px" }}>{isSelected ? "Elegido" : "Elegir"}</button>
+                        <button type="button" onClick={() => setOriginId(String(o.id))} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "6px 8px", background: "rgba(255,255,255,0.03)", color: "inherit", cursor: "pointer" }}>{isSelected ? "Elegido" : "Elegir"}</button>
                       </div>
                     </div>
                   );
@@ -455,11 +513,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "8px 10px", fontSize: 12, background: "rgba(255,255,255,0.03)" }}>
                 <div style={{ fontWeight: 700, opacity: 0.9 }}>Bulk seleccionado</div>
-                {selectedOrigin ? (
-                  <div style={{ opacity: 0.68 }}>
-                    {needsDensity ? "Completá densidad si necesitás convertir GR ↔ ML." : ""}
-                  </div>
-                ) : null}
+                {selectedOrigin && needsDensity ? <div style={{ opacity: 0.68 }}>Si falta densidad, el item queda guardado como borrador.</div> : null}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "90px minmax(0,1fr) 130px 140px 110px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.02)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                 <div>Item #</div>
@@ -482,18 +536,22 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         </div>
       </div>
 
-      {editing ? (
+      {currentId ? (
         <>
-          <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} />
-          <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} />
+          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} />
+          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} />
         </>
-      ) : null}
+      ) : (
+        <div style={{ border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 14, padding: 14, fontSize: 12, opacity: 0.72 }}>
+          Escribí el nombre comercial para crear el borrador y habilitar la asociación de Envases y Etiquetas.
+        </div>
+      )}
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Costeo</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
           {[
-            ["Bulk", Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"],
+            ["Bulk", Number.isFinite(Number(bulkCost)) ? `ARS ${fmtMoney(bulkCost)}` : "—"],
             ["Envases", `ARS ${fmtMoney(envasesSubtotal)}`],
             ["Etiquetas", `ARS ${fmtMoney(etiquetasSubtotal)}`],
             ["Total parcial", `ARS ${fmtMoney(totalCost)}`],

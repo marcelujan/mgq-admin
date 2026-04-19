@@ -121,31 +121,35 @@ export async function POST(req: NextRequest) {
     const nombre = typeof body?.nombre === "string" ? body.nombre.trim() : "";
     const descripcion = typeof body?.descripcion === "string" ? body.descripcion.trim() : "";
     const cantidad = numOrNull(body?.cantidad);
-    const unidad = String(body?.unidad ?? "").trim().toUpperCase();
+    const unidadRaw = body?.unidad === null || body?.unidad === undefined || body?.unidad === "" ? null : String(body?.unidad ?? "").trim().toUpperCase();
+    const unidad = (unidadRaw as string | null);
     const proveedor_item_id = numOrNull(body?.proveedor_item_id);
     const manual_cost_option_id = numOrNull(body?.manual_cost_option_id);
     const formulado_item_formulado_id = numOrNull(body?.formulado_item_formulado_id);
     const activo = body?.activo === false ? false : true;
 
     if (!nombre) return NextResponse.json({ ok: false, error: "nombre requerido" }, { status: 400 });
-    if (!Number.isFinite(cantidad as number) || Number(cantidad) <= 0) {
+    if (cantidad !== null && (!Number.isFinite(cantidad as number) || Number(cantidad) <= 0)) {
       return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
     }
-    if (!["GR", "ML", "UN"].includes(unidad)) {
+    if (unidad !== null && !["GR", "ML", "UN"].includes(unidad)) {
       return NextResponse.json({ ok: false, error: "unidad inválida" }, { status: 422 });
     }
-    if (unidad === "UN" && !Number.isInteger(Number(cantidad))) {
+    if (unidad === "UN" && cantidad !== null && !Number.isInteger(Number(cantidad))) {
       return NextResponse.json({ ok: false, error: "UN requiere cantidad entera" }, { status: 422 });
     }
-    if (countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) !== 1) {
+    if (countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) > 1) {
       return NextResponse.json({ ok: false, error: "origen técnico inválido" }, { status: 422 });
     }
 
     const sql = db();
-    const refUom = await resolveOriginRefUom(sql, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id);
-    if (!unitsAreCompatible(unidad, refUom)) {
-      return NextResponse.json({ ok: false, error: "La unidad del Item Comercial es incompatible con la unidad del bulk/origen técnico" }, { status: 422 });
+    if (unidad !== null && countOrigins(proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id) === 1) {
+      const refUom = await resolveOriginRefUom(sql, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id);
+      if (!unitsAreCompatible(unidad, refUom)) {
+        return NextResponse.json({ ok: false, error: "La unidad del Item Comercial es incompatible con la unidad del bulk/origen técnico" }, { status: 422 });
+      }
     }
+
     const r: any = await sql.query(
       `
       INSERT INTO app.item_comercial (nombre, descripcion, cantidad, unidad, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id, activo)
