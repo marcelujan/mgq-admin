@@ -18,6 +18,38 @@ function countOrigins(proveedor_item_id: number | null, manual_cost_option_id: n
   return Number(proveedor_item_id !== null) + Number(manual_cost_option_id !== null) + Number(formulado_item_formulado_id !== null);
 }
 
+function familyOfUom(uom: string | null | undefined): "mass" | "volume" | "unit" | null {
+  const x = String(uom ?? "").trim().toUpperCase();
+  if (x === "GR") return "mass";
+  if (x === "ML") return "volume";
+  if (x === "UN") return "unit";
+  return null;
+}
+
+function unitsAreCompatible(itemUom: string, refUom: string | null | undefined): boolean {
+  const fromFamily = familyOfUom(refUom);
+  const toFamily = familyOfUom(itemUom);
+  if (!fromFamily || !toFamily) return true;
+  if (fromFamily === "unit" || toFamily === "unit") return fromFamily === toFamily;
+  return true;
+}
+
+async function resolveOriginRefUom(sql: any, proveedor_item_id: number | null, manual_cost_option_id: number | null, formulado_item_formulado_id: number | null): Promise<string | null> {
+  if (proveedor_item_id !== null) {
+    const r: any = await sql.query(`SELECT uom FROM app.item_seguimiento WHERE item_id = $1`, [proveedor_item_id]);
+    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+  }
+  if (manual_cost_option_id !== null) {
+    const r: any = await sql.query(`SELECT uom FROM app.cost_option WHERE cost_option_id = $1`, [manual_cost_option_id]);
+    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+  }
+  if (formulado_item_formulado_id !== null) {
+    const r: any = await sql.query(`SELECT uom FROM app.item_formulado WHERE item_formulado_id = $1`, [formulado_item_formulado_id]);
+    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+  }
+  return null;
+}
+
 type Ctx = { params: Promise<{ item_comercial_id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
@@ -89,6 +121,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
     const hasActivo = Object.prototype.hasOwnProperty.call(body, "activo");
     const activo = hasActivo ? Boolean(body?.activo) : Boolean(current.activo);
+
+    const refUom = await resolveOriginRefUom(sql, proveedor_item_id, manual_cost_option_id, formulado_item_formulado_id);
+    if (!unitsAreCompatible(unidad, refUom)) {
+      return NextResponse.json({ ok: false, error: "La unidad del Item Comercial es incompatible con la unidad del bulk/origen técnico" }, { status: 422 });
+    }
 
     await sql.query(
       `

@@ -8,3 +8,5 @@
 - vNext: se agrega `POST /api/origenes-tecnicos/densidad` para persistir densidad desde `Items Comerciales` cuando la conversión `GR ↔ ML` la exige.
 
 - v43: `Items Comerciales` ajusta terminología de `base` a `bulk`, unifica el selector de bulk con el formato compacto de relaciones, muestra una fila separada de `Bulk seleccionado` y elimina la repetición de `Costo base estimado` fuera del bloque final de `Costeo`.
+
+- v44: `Items Comerciales` recupera el bloque final de `Costeo` en formato horizontal, elimina la línea repetitiva `item_comercial_id` debajo del título y valida compatibilidad estricta de unidad con el bulk/origen técnico: `UN` solo con orígenes `UN`, y `GR`/`ML` solo con orígenes de masa/volumen.

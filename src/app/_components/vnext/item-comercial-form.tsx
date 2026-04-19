@@ -54,6 +54,14 @@ function familyOfUom(uom?: string | null): "mass" | "volume" | "unit" | null {
   return null;
 }
 
+function unitsAreCompatible(itemUom: Uom, refUom?: string | null): boolean {
+  const fromFamily = familyOfUom(refUom ?? null);
+  const toFamily = familyOfUom(itemUom);
+  if (!fromFamily || !toFamily) return true;
+  if (fromFamily === "unit" || toFamily === "unit") return fromFamily === toFamily;
+  return true;
+}
+
 function normalizeToRefUnit(cantidad: number, unidad: Uom, refUom?: string | null, densidad?: number | null): number | null {
   const ru = String(refUom ?? "").toUpperCase();
   if (!["GR", "ML", "UN"].includes(ru)) return null;
@@ -229,6 +237,14 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     return !!fromFamily && !!toFamily && fromFamily !== toFamily && fromFamily !== "unit" && toFamily !== "unit";
   }, [selectedOrigin, unidad]);
 
+  const unitCompatibilityError = useMemo(() => {
+    if (!selectedOrigin) return null;
+    if (unitsAreCompatible(unidad, selectedOrigin.ref_uom ?? null)) return null;
+    const ref = String(selectedOrigin.ref_uom ?? "").toUpperCase();
+    if (ref === "UN") return "Si el bulk/origen técnico está en UN, el Item Comercial también debe venderse en UN.";
+    return "Si el bulk/origen técnico está en GR o ML, el Item Comercial no puede venderse en UN.";
+  }, [selectedOrigin, unidad]);
+
   const densityValue = useMemo(() => {
     const n = Number(densidadInput);
     return Number.isFinite(n) && n > 0 ? n : null;
@@ -262,6 +278,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
     if (!Number.isFinite(body.cantidad) || body.cantidad <= 0) throw new Error("Cantidad inválida.");
     if (unidad === "UN" && !Number.isInteger(body.cantidad)) throw new Error("UN requiere cantidad entera.");
+    if (selectedOrigin && !unitsAreCompatible(unidad, selectedOrigin.ref_uom ?? null)) throw new Error(unitCompatibilityError || "Unidad incompatible con el bulk/origen técnico.");
     if (needsDensity && !densityValue) throw new Error("Ingresá una densidad válida para convertir entre GR y ML.");
 
     return body;
@@ -327,9 +344,6 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "grid", gap: 4 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{title}</h1>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            {editing ? <>item_comercial_id: <code>{itemId}</code></> : <>Alta mínima del comercial vNext.</>}
-          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -339,7 +353,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
               {deleting ? "Eliminando..." : "Eliminar"}
             </button>
           ) : null}
-          <button onClick={() => void save()} disabled={saving || deleting || loading} style={{ ...buttonGhost, cursor: saving || deleting || loading ? "default" : "pointer", opacity: saving || deleting || loading ? 0.7 : 1 }}>
+          <button onClick={() => void save()} disabled={saving || deleting || loading || !!unitCompatibilityError} style={{ ...buttonGhost, cursor: saving || deleting || loading || !!unitCompatibilityError ? "default" : "pointer", opacity: saving || deleting || loading || !!unitCompatibilityError ? 0.7 : 1 }}>
             {saving ? "Guardando..." : "Guardar"}
           </button>
         </div>
@@ -384,7 +398,9 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
               </div>
             ) : null}
           </div>
-          {needsDensity ? (
+          {unitCompatibilityError ? (
+            <div style={{ fontSize: 12, opacity: 0.9, color: "#ffb3b3" }}>{unitCompatibilityError}</div>
+          ) : needsDensity ? (
             <div style={{ fontSize: 12, opacity: 0.72 }}>
               La unidad del comercial difiere de la unidad de referencia del origen. Se usará esta densidad para convertir entre GR y ML y, al guardar, se actualizará en el origen técnico correspondiente.
             </div>
@@ -471,28 +487,20 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
           <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} />
           <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} />
         </>
-      ) : (
-        <div style={{ border: "1px dashed rgba(255,255,255,0.14)", borderRadius: 14, padding: 14, fontSize: 12, opacity: 0.72 }}>
-          Guardá primero el Item Comercial para asociar envases y etiquetas.
-        </div>
-      )}
+      ) : null}
 
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
         <div style={{ fontSize: 16, fontWeight: 700 }}>Costeo</div>
-        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 180px", gap: 0, padding: "6px 10px", fontSize: 12, opacity: 0.68, background: "rgba(255,255,255,0.03)" }}>
-            <div>Concepto</div>
-            <div style={{ textAlign: "right" }}>Costo (ARS)</div>
-          </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
           {[
             ["Bulk", Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"],
             ["Envases", `ARS ${fmtMoney(envasesSubtotal)}`],
             ["Etiquetas", `ARS ${fmtMoney(etiquetasSubtotal)}`],
             ["Total parcial", `ARS ${fmtMoney(totalCost)}`],
-          ].map(([label, value], idx) => (
-            <div key={String(label)} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 180px", gap: 0, padding: "8px 10px", borderTop: idx === 0 ? "none" : "1px solid rgba(255,255,255,0.06)", fontSize: label === "Total parcial" ? 14 : 13, fontWeight: label === "Total parcial" ? 700 : 500 }}>
-              <div>{label}</div>
-              <div style={{ textAlign: "right" }}>{value}</div>
+          ].map(([label, value]) => (
+            <div key={String(label)} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", display: "grid", gap: 4, background: label === "Total parcial" ? "rgba(255,255,255,0.04)" : "transparent" }}>
+              <div style={{ fontSize: 12, opacity: 0.68 }}>{label}</div>
+              <div style={{ fontSize: label === "Total parcial" ? 16 : 14, fontWeight: label === "Total parcial" ? 700 : 600, whiteSpace: "nowrap" }}>{value}</div>
             </div>
           ))}
         </div>
