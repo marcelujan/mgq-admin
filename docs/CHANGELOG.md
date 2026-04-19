@@ -1,1 +1,1 @@
-- Consolidated stock picker/form type fixes and production null-safety.
+- Fix: restore `deleteStockOperacion` and `listStockOperaciones` exports in `src/lib/stock-v2.ts` for stock routes.
