@@ -684,7 +684,7 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
               saldo,
               faltante_total: 0,
               comerciales_afectados: 0,
-              comerciales_labels: [],
+              comerciales_labels: [] as string[],
             };
             cur.faltante_total += bulk_faltante;
             cur.comerciales_labels.push(String(c.nombre ?? `Item Comercial #${c.item_comercial_id}`));
@@ -713,7 +713,7 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
           saldo: saldoEnv,
           faltante_total: 0,
           comerciales_afectados: 0,
-          comerciales_labels: [],
+          comerciales_labels: [] as string[],
         };
         cur.faltante_total += miss;
         cur.comerciales_labels.push(String(c.nombre ?? `Item Comercial #${c.item_comercial_id}`));
@@ -741,7 +741,7 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
           saldo: saldoEt,
           faltante_total: 0,
           comerciales_afectados: 0,
-          comerciales_labels: [],
+          comerciales_labels: [] as string[],
         };
         cur.faltante_total += miss;
         cur.comerciales_labels.push(String(c.nombre ?? `Item Comercial #${c.item_comercial_id}`));
