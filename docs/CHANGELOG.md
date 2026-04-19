@@ -1,1 +1,1 @@
-- Producción: se eliminan los títulos de tablas “Componentes utilizados” y “Producto obtenido”; se agrega subtítulo “Movimientos Stock” antes de las tablas con ingreso de cantidades reales.
+- Ajustada la hoja Stock · Producción: orden de tablas corregido (selección de formulado, selección de componentes, subtítulo “Movimientos Stock”, tabla de cantidades reales de componentes, tabla de cantidad real de producto obtenido).

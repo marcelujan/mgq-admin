@@ -212,52 +212,21 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
         </div>
       </div>
 
-      <StockTargetPicker
-        allowedTypes={["FORMULADO"]}
-        value={output}
-        onChange={(item) => {
-          const next = item ? { ...item, label: item.label ?? item.nombre } : null;
-          setOutput(next);
-          if (!next) {
-            setCantidadObtenida("");
-            setConsumos([]);
-          }
-        }}
-        label=""
-        placeholder="Buscar formulado..."
-      />
-
-      <div style={{ fontWeight: 700 }}>Movimientos Stock</div>
-
       <div style={{ display: "grid", gap: 8 }}>
-        <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
-            <thead>
-              <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 80 }}>Item #</th>
-                <th style={{ textAlign: "left", padding: "5px 8px" }}>Formulado</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", width: 70 }}>Dens.</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", width: 180 }}>Cantidad real</th>
-              </tr>
-            </thead>
-            <tbody>
-              {outputRows.map((line) => (
-                <tr key={line.key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{line.item.item_ref_id}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={line.item.label}>{line.item.label}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(line.item.densidad_g_ml)}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "center" }}>
-                      <input value={line.cantidad} onChange={(e) => setCantidadObtenida(e.target.value)} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "4px 8px", background: "rgba(255,255,255,0.03)", color: "inherit", textAlign: "right" }} />
-                      <div style={{ fontSize: 12, opacity: 0.8 }}>{line.item.uom ?? ""}</div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!output ? <tr><td colSpan={4} style={{ padding: "8px", opacity: 0.7 }}>Seleccioná un formulado.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
+        <StockTargetPicker
+          allowedTypes={["FORMULADO"]}
+          value={output}
+          onChange={(item) => {
+            const next = item ? { ...item, label: item.label ?? item.nombre } : null;
+            setOutput(next);
+            if (!next) {
+              setCantidadObtenida("");
+              setConsumos([]);
+            }
+          }}
+          label=""
+          placeholder="Buscar formulado..."
+        />
       </div>
 
       <div style={{ display: "grid", gap: 8 }}>
@@ -268,7 +237,11 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
           label=""
           placeholder="Buscar componente..."
           maxVisibleRows={4}
-        />
+        />      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.95 }}>Movimientos Stock</div>
+
+      <div style={{ display: "grid", gap: 8 }}>
         <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
             <thead>
@@ -306,6 +279,38 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
           </table>
         </div>
       </div>
+
+      <div style={{ display: "grid", gap: 8 }}>
+        <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
+            <thead>
+              <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                <th style={{ textAlign: "left", padding: "5px 8px", width: 80 }}>Item #</th>
+                <th style={{ textAlign: "left", padding: "5px 8px" }}>Formulado</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 70 }}>Dens.</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 180 }}>Cantidad real</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outputRows.map((line) => (
+                <tr key={line.key} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{line.item.item_ref_id}</td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={line.item.label}>{line.item.label}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(line.item.densidad_g_ml)}</td>
+                  <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "center" }}>
+                      <input value={line.cantidad} onChange={(e) => setCantidadObtenida(e.target.value)} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "4px 8px", background: "rgba(255,255,255,0.03)", color: "inherit", textAlign: "right" }} />
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>{line.item.uom ?? ""}</div>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!output ? <tr><td colSpan={4} style={{ padding: "8px", opacity: 0.7 }}>Seleccioná un formulado.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
 
       {err ? <div style={{ fontSize: 12, color: "#ffb4b4" }}>{err}</div> : null}
       {msg ? <div style={{ fontSize: 12, color: "#b8f2c8" }}>{msg}</div> : null}
