@@ -12,7 +12,10 @@ type Item = {
   uom: string | null;
   saldo?: number | null;
   costo_ref_ars?: number | null;
+  densidad_g_ml?: number | null;
 };
+
+const tableCell = { padding: "5px 8px", whiteSpace: "nowrap" as const, overflow: "hidden" as const, textOverflow: "ellipsis" as const };
 
 export default function StockTargetPicker({
   allowedTypes,
@@ -20,12 +23,14 @@ export default function StockTargetPicker({
   onChange,
   label,
   placeholder = "Buscar...",
+  maxVisibleRows = 6,
 }: {
   allowedTypes: Tipo[];
   value: Item | null;
   onChange: (item: Item | null) => void;
   label: string;
   placeholder?: string;
+  maxVisibleRows?: number;
 }) {
   const [tipo, setTipo] = useState<Tipo>(allowedTypes[0]);
   const [search, setSearch] = useState("");
@@ -43,7 +48,7 @@ export default function StockTargetPicker({
       setLoading(true);
       setErr(null);
       try {
-        const qp = new URLSearchParams({ tipo, search });
+        const qp = new URLSearchParams({ tipo, search, limit: "1000" });
         const r = await fetch(`/api/stock-objetivos?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
@@ -58,20 +63,40 @@ export default function StockTargetPicker({
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [tipo, search]);
+
+  const maxHeight = 34 + maxVisibleRows * 29;
 
   return (
     <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
       <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
       <div style={{ display: "grid", gridTemplateColumns: "160px minmax(0,1fr)", gap: 8 }}>
-        <select value={tipo} onChange={(e) => { setTipo(e.target.value as Tipo); onChange(null); }} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }}>
-          {allowedTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+        <select
+          value={tipo}
+          onChange={(e) => {
+            setTipo(e.target.value as Tipo);
+            onChange(null);
+          }}
+          style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }}
+        >
+          {allowedTypes.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
         </select>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={placeholder} style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={placeholder}
+          style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }}
+        />
       </div>
       <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ maxHeight: 190, overflowY: "auto" }}>
+        <div style={{ maxHeight, overflowY: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
             <thead>
               <tr style={{ background: "rgba(255,255,255,0.03)" }}>
@@ -79,20 +104,26 @@ export default function StockTargetPicker({
                 <th style={{ textAlign: "left", padding: "5px 8px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Nombre</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", width: 90, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Saldo</th>
                 <th style={{ textAlign: "left", padding: "5px 8px", width: 52, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>UOM</th>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 54, borderBottom: "1px solid rgba(255,255,255,0.08)" }}></th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 64, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Dens.</th>
+                <th style={{ textAlign: "left", padding: "5px 8px", width: 42, borderBottom: "1px solid rgba(255,255,255,0.08)" }}></th>
               </tr>
             </thead>
             <tbody>
               {items.map((it) => (
                 <tr key={`${it.item_tipo}:${it.item_ref_id}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{it.item_ref_id}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={it.label}>{it.label}</td>
-                  <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(it.saldo ?? 0))}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{it.uom ?? ""}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><button type="button" onClick={() => onChange(it)} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9 }}>Elegir</button></td>
+                  <td style={{ ...tableCell, width: 80 }}>{it.item_ref_id}</td>
+                  <td style={tableCell} title={it.label}>{it.label}</td>
+                  <td style={{ ...tableCell, textAlign: "right", width: 90 }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(it.saldo ?? 0))}</td>
+                  <td style={{ ...tableCell, width: 52 }}>{it.uom ?? ""}</td>
+                  <td style={{ ...tableCell, textAlign: "right", width: 64 }}>{it.densidad_g_ml != null ? new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(Number(it.densidad_g_ml)) : ""}</td>
+                  <td style={{ ...tableCell, width: 42 }}><button type="button" onClick={() => onChange(it)} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9, fontSize: 13 }}>+</button></td>
                 </tr>
               ))}
-              {!loading && items.length === 0 ? <tr><td colSpan={5} style={{ padding: "8px", opacity: 0.7 }}>{err ? err : "Sin resultados."}</td></tr> : null}
+              {!loading && items.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: "8px", opacity: 0.7 }}>{err ? err : "Sin resultados."}</td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -106,16 +137,18 @@ export default function StockTargetPicker({
                 <th style={{ textAlign: "left", padding: "5px 8px" }}>Seleccionado</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", width: 90 }}>Saldo</th>
                 <th style={{ textAlign: "left", padding: "5px 8px", width: 52 }}>UOM</th>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 54 }}></th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 64 }}>Dens.</th>
+                <th style={{ textAlign: "left", padding: "5px 8px", width: 42 }}></th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{value.item_ref_id}</td>
-                <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={value.label}>{value.label}</td>
-                <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(value.saldo ?? 0))}</td>
-                <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{value.uom ?? ""}</td>
-                <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><button type="button" onClick={() => onChange(null)} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9 }}>✕</button></td>
+                <td style={{ ...tableCell, width: 80 }}>{value.item_ref_id}</td>
+                <td style={tableCell} title={value.label}>{value.label}</td>
+                <td style={{ ...tableCell, textAlign: "right", width: 90 }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(value.saldo ?? 0))}</td>
+                <td style={{ ...tableCell, width: 52 }}>{value.uom ?? ""}</td>
+                <td style={{ ...tableCell, textAlign: "right", width: 64 }}>{value.densidad_g_ml != null ? new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(Number(value.densidad_g_ml)) : ""}</td>
+                <td style={{ ...tableCell, width: 42 }}><button type="button" onClick={() => onChange(null)} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9 }}>✕</button></td>
               </tr>
             </tbody>
           </table>

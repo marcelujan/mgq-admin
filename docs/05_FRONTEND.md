@@ -160,3 +160,13 @@ La UI usa el mismo patrón visual que el resto de la app:
 - tablas compactas
 - una sola línea por fila
 - selectores buscables con 6 filas visibles y scroll
+
+
+Ajustes posteriores en `Stock`:
+
+- Accesos de acción con tipografía compacta, en el mismo espíritu de `Items`.
+- Tabla de saldos ordenable por click en encabezados; orden inicial por `Nombre`.
+- `Ingreso` y `Ajuste`: la UOM esperada se muestra visualmente junto a la cantidad.
+- `Producción`: al elegir el formulado se sugieren componentes desde la fórmula, pero las cantidades reales quedan totalmente editables.
+- `Producción`: se muestra `densidad_g_ml` cuando existe, tanto en el selector como en las filas.
+- Se agrega edición posterior de operaciones desde la tabla de recientes (`/stock/operaciones/[stock_operacion_id]`).

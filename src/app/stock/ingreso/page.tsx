@@ -6,7 +6,7 @@ export default function StockIngresoPage() {
     <div style={{ padding: 16, display: "grid", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Stock · Ingreso</h1>
-        <Link href="/stock" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "6px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", textDecoration: "none" }}>Volver a Stock</Link>
+        <Link href="/stock" style={{ textDecoration: "none", color: "inherit", fontSize: 12.5, opacity: 0.92 }}>Volver a Stock</Link>
       </div>
       <StockMovimientoForm mode="ingreso" />
     </div>

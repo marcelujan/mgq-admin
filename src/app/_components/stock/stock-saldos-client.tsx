@@ -5,6 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 
 type Row = { item_tipo: string; item_ref_id: string; nombre: string; label: string; uom: string | null; saldo: number | null; };
 type Op = { stock_operacion_id: number; tipo: string; fecha: string; nota: string | null; movimientos_count: number; total_entradas: number; total_salidas: number; };
+type RowSortBy = "item_tipo" | "item_ref_id" | "nombre" | "uom" | "saldo";
+type SortDir = "asc" | "desc";
+type OpSortBy = "stock_operacion_id" | "tipo" | "fecha" | "movimientos_count" | "total_entradas" | "total_salidas";
+
+function sortArrow(active: boolean, dir: SortDir) {
+  if (!active) return "";
+  return dir === "asc" ? " ▲" : " ▼";
+}
 
 export default function StockSaldosClient() {
   const [tipo, setTipo] = useState("");
@@ -13,6 +21,32 @@ export default function StockSaldosClient() {
   const [ops, setOps] = useState<Op[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<RowSortBy>("nombre");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [opSortBy, setOpSortBy] = useState<OpSortBy>("fecha");
+  const [opSortDir, setOpSortDir] = useState<SortDir>("desc");
+
+  function toggleSort(next: RowSortBy) {
+    setSortBy((prev) => {
+      if (prev === next) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setSortDir("asc");
+      return next;
+    });
+  }
+
+  function toggleOpSort(next: OpSortBy) {
+    setOpSortBy((prev) => {
+      if (prev === next) {
+        setOpSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setOpSortDir(next === "fecha" ? "desc" : "asc");
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +71,32 @@ export default function StockSaldosClient() {
     return () => { cancelled = true; };
   }, [tipo, search]);
 
-  const rowsFmt = useMemo(() => rows.map((r) => ({ ...r, saldo_fmt: new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(r.saldo ?? 0)) })), [rows]);
+  const rowsFmt = useMemo(() => {
+    const copy = rows.map((r) => ({ ...r, saldo_fmt: new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(r.saldo ?? 0)) }));
+    copy.sort((a, b) => {
+      const av: any = sortBy === "saldo" ? Number(a.saldo ?? 0) : sortBy === "item_ref_id" ? Number(a.item_ref_id) : String((a as any)[sortBy] ?? "").toLocaleLowerCase();
+      const bv: any = sortBy === "saldo" ? Number(b.saldo ?? 0) : sortBy === "item_ref_id" ? Number(b.item_ref_id) : String((b as any)[sortBy] ?? "").toLocaleLowerCase();
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return copy;
+  }, [rows, sortBy, sortDir]);
+
+  const opsFmt = useMemo(() => {
+    const copy = [...ops];
+    copy.sort((a, b) => {
+      const av: any = opSortBy === "fecha" ? new Date(a.fecha).getTime() : opSortBy === "stock_operacion_id" || opSortBy === "movimientos_count" || opSortBy === "total_entradas" || opSortBy === "total_salidas" ? Number((a as any)[opSortBy] ?? 0) : String((a as any)[opSortBy] ?? "").toLocaleLowerCase();
+      const bv: any = opSortBy === "fecha" ? new Date(b.fecha).getTime() : opSortBy === "stock_operacion_id" || opSortBy === "movimientos_count" || opSortBy === "total_entradas" || opSortBy === "total_salidas" ? Number((b as any)[opSortBy] ?? 0) : String((b as any)[opSortBy] ?? "").toLocaleLowerCase();
+      if (av < bv) return opSortDir === "asc" ? -1 : 1;
+      if (av > bv) return opSortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return copy;
+  }, [ops, opSortBy, opSortDir]);
+
+  const actionLink: React.CSSProperties = { textDecoration: "none", color: "inherit", fontSize: 12.5, opacity: 0.92, whiteSpace: "nowrap" };
+  const thButton = (active: boolean): React.CSSProperties => ({ cursor: "pointer", userSelect: "none", textDecoration: active ? "underline" : "none", textUnderlineOffset: 3 });
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -53,10 +112,10 @@ export default function StockSaldosClient() {
         </select>
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar..." style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", outline: "none", width: 260 }} />
         <div style={{ fontSize: 12, opacity: 0.7 }}>{loading ? "Cargando..." : `${rows.length} saldo(s)`}</div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link href="/stock/ingreso" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "6px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", textDecoration: "none" }}>Ingreso</Link>
-          <Link href="/stock/ajuste" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "6px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", textDecoration: "none" }}>Ajuste</Link>
-          <Link href="/stock/produccion" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "6px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", textDecoration: "none" }}>Producción</Link>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Link href="/stock/ingreso" style={actionLink}>Ingreso</Link>
+          <Link href="/stock/ajuste" style={actionLink}>Ajuste</Link>
+          <Link href="/stock/produccion" style={actionLink}>Producción</Link>
         </div>
       </div>
 
@@ -66,11 +125,11 @@ export default function StockSaldosClient() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "rgba(255,255,255,0.03)" }}>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 110, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Tipo</th>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 90, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Item #</th>
-              <th style={{ textAlign: "left", padding: "5px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Nombre</th>
-              <th style={{ textAlign: "left", padding: "5px 10px", width: 70, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>UOM</th>
-              <th style={{ textAlign: "right", padding: "5px 10px", width: 120, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>Saldo</th>
+              <th onClick={() => toggleSort("item_tipo")} style={{ textAlign: "left", padding: "5px 10px", width: 110, borderBottom: "1px solid rgba(255,255,255,0.08)", ...thButton(sortBy === "item_tipo") }}>Tipo{sortArrow(sortBy === "item_tipo", sortDir)}</th>
+              <th onClick={() => toggleSort("item_ref_id")} style={{ textAlign: "left", padding: "5px 10px", width: 90, borderBottom: "1px solid rgba(255,255,255,0.08)", ...thButton(sortBy === "item_ref_id") }}>Item #{sortArrow(sortBy === "item_ref_id", sortDir)}</th>
+              <th onClick={() => toggleSort("nombre")} style={{ textAlign: "left", padding: "5px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", ...thButton(sortBy === "nombre") }}>Nombre{sortArrow(sortBy === "nombre", sortDir)}</th>
+              <th onClick={() => toggleSort("uom")} style={{ textAlign: "left", padding: "5px 10px", width: 70, borderBottom: "1px solid rgba(255,255,255,0.08)", ...thButton(sortBy === "uom") }}>UOM{sortArrow(sortBy === "uom", sortDir)}</th>
+              <th onClick={() => toggleSort("saldo")} style={{ textAlign: "right", padding: "5px 10px", width: 120, borderBottom: "1px solid rgba(255,255,255,0.08)", ...thButton(sortBy === "saldo") }}>Saldo{sortArrow(sortBy === "saldo", sortDir)}</th>
             </tr>
           </thead>
           <tbody>
@@ -92,9 +151,19 @@ export default function StockSaldosClient() {
         <div style={{ fontWeight: 700 }}>Operaciones recientes</div>
         <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
-            <thead><tr style={{ background: "rgba(255,255,255,0.03)" }}><th style={{ textAlign: "left", padding: "5px 8px", width: 80 }}>Op #</th><th style={{ textAlign: "left", padding: "5px 8px", width: 110 }}>Tipo</th><th style={{ textAlign: "left", padding: "5px 8px", width: 170 }}>Fecha</th><th style={{ textAlign: "right", padding: "5px 8px", width: 90 }}>Mov.</th><th style={{ textAlign: "right", padding: "5px 8px", width: 110 }}>Entradas</th><th style={{ textAlign: "right", padding: "5px 8px", width: 110 }}>Salidas</th><th style={{ textAlign: "left", padding: "5px 8px" }}>Nota</th></tr></thead>
+            <thead>
+              <tr style={{ background: "rgba(255,255,255,0.03)" }}>
+                <th onClick={() => toggleOpSort("stock_operacion_id")} style={{ textAlign: "left", padding: "5px 8px", width: 80, ...thButton(opSortBy === "stock_operacion_id") }}>Op #{sortArrow(opSortBy === "stock_operacion_id", opSortDir)}</th>
+                <th onClick={() => toggleOpSort("tipo")} style={{ textAlign: "left", padding: "5px 8px", width: 110, ...thButton(opSortBy === "tipo") }}>Tipo{sortArrow(opSortBy === "tipo", opSortDir)}</th>
+                <th onClick={() => toggleOpSort("fecha")} style={{ textAlign: "left", padding: "5px 8px", width: 170, ...thButton(opSortBy === "fecha") }}>Fecha{sortArrow(opSortBy === "fecha", opSortDir)}</th>
+                <th onClick={() => toggleOpSort("movimientos_count")} style={{ textAlign: "right", padding: "5px 8px", width: 90, ...thButton(opSortBy === "movimientos_count") }}>Mov.{sortArrow(opSortBy === "movimientos_count", opSortDir)}</th>
+                <th onClick={() => toggleOpSort("total_entradas")} style={{ textAlign: "right", padding: "5px 8px", width: 110, ...thButton(opSortBy === "total_entradas") }}>Entradas{sortArrow(opSortBy === "total_entradas", opSortDir)}</th>
+                <th onClick={() => toggleOpSort("total_salidas")} style={{ textAlign: "right", padding: "5px 8px", width: 110, ...thButton(opSortBy === "total_salidas") }}>Salidas{sortArrow(opSortBy === "total_salidas", opSortDir)}</th>
+                <th style={{ textAlign: "left", padding: "5px 8px", width: 52 }}></th>
+              </tr>
+            </thead>
             <tbody>
-              {ops.map((op) => (
+              {opsFmt.map((op) => (
                 <tr key={op.stock_operacion_id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{op.stock_operacion_id}</td>
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{op.tipo}</td>
@@ -102,10 +171,10 @@ export default function StockSaldosClient() {
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{op.movimientos_count}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_entradas ?? 0))}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(Number(op.total_salidas ?? 0))}</td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={op.nota ?? ""}>{op.nota ?? ""}</td>
+                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><Link href={`/stock/operaciones/${op.stock_operacion_id}`} style={{ textDecoration: "none", color: "inherit", fontSize: 12.5 }}>✏️</Link></td>
                 </tr>
               ))}
-              {!loading && ops.length === 0 ? <tr><td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin operaciones.</td></tr> : null}
+              {!loading && opsFmt.length === 0 ? <tr><td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin operaciones.</td></tr> : null}
             </tbody>
           </table>
         </div>

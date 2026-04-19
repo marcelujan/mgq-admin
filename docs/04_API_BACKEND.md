@@ -102,6 +102,7 @@ Para editar una asociación:
   - `ref_uom`
   - `ref_cantidad`
   - `costo_ref_ars`
+- `densidad_g_ml`
   - `densidad_g_ml`
 - Para `FORMULADO`, puede devolver `producto_id` cuando haga falta persistir densidad.
 - Para `PROVEEDOR`, puede devolver `ref_presentacion` cuando haga falta persistir densidad.
@@ -129,9 +130,12 @@ Primer lote de endpoints propuestos/implementados sobre `stock_operacion` y `sto
 - `GET /api/stock-objetivos?tipo=&search=&limit=`
 - `GET /api/stock-saldos?tipo=&search=&limit=`
 - `GET /api/stock-operaciones?limit=`
+- `GET /api/stock-operaciones/[stock_operacion_id]`
+- `PATCH /api/stock-operaciones/[stock_operacion_id]`
 - `POST /api/stock-operaciones/ingreso`
 - `POST /api/stock-operaciones/ajuste`
 - `POST /api/stock-operaciones/produccion`
+- `GET /api/stock-operaciones/produccion/sugerencia?formulado_item_formulado_id=`
 
 ### `GET /api/stock-objetivos`
 
@@ -156,6 +160,7 @@ Respuesta mínima por fila:
 - `saldo`
 - `cantidad_referencia`
 - `costo_ref_ars`
+- `densidad_g_ml`
 
 ### `GET /api/stock-saldos`
 
@@ -175,8 +180,7 @@ Payload mínimo:
 {
   "item_tipo": "MANUAL",
   "item_ref_id": 123,
-  "cantidad": 10,
-  "nota": "Compra manual"
+  "cantidad": 10
 }
 ```
 
@@ -188,8 +192,7 @@ Payload mínimo:
 {
   "item_tipo": "ENVASE",
   "item_ref_id": 45,
-  "delta_cantidad": -2,
-  "nota": "Rotura"
+  "delta_cantidad": -2
 }
 ```
 
@@ -201,7 +204,6 @@ Payload mínimo:
 {
   "formulado_item_formulado_id": 9,
   "cantidad_obtenida": 5000,
-  "nota": "Producción real",
   "consumos": [
     { "item_tipo": "PROVEEDOR", "item_ref_id": 101, "cantidad": 1200 },
     { "item_tipo": "MANUAL", "item_ref_id": 33, "cantidad": 50 }
@@ -213,3 +215,16 @@ Regla importante:
 
 - la producción registra valores reales consumidos y obtenidos;
 - no se bloquea por diferencias menores respecto de la fórmula teórica.
+
+
+### `GET /api/stock-operaciones/[stock_operacion_id]`
+
+Devuelve una operación completa con sus movimientos normalizados para edición.
+
+### `PATCH /api/stock-operaciones/[stock_operacion_id]`
+
+Reemplaza los movimientos de la operación y actualiza fecha / objetivo(s) / cantidades.
+
+### `GET /api/stock-operaciones/produccion/sugerencia`
+
+Dado un `formulado_item_formulado_id`, devuelve una sugerencia inicial de componentes a consumir basada en `producto_formula_linea_v2` y `producto_formula_v2.lote_ref_g`. La sugerencia es editable y no bloquea la carga de valores reales.
