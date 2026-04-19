@@ -7,7 +7,7 @@ type Tipo = "PROVEEDOR" | "MANUAL" | "FORMULADO" | "ENVASE" | "ETIQUETA" | "PAQU
 type Item = {
   item_tipo: Tipo;
   item_ref_id: number;
-  label: string;
+  label?: string;
   nombre: string;
   uom: string | null;
   saldo?: number | null;
@@ -28,7 +28,7 @@ export default function StockTargetPicker({
   allowedTypes: Tipo[];
   value: Item | null;
   onChange: (item: Item | null) => void;
-  label: string;
+  label?: string;
   placeholder?: string;
   maxVisibleRows?: number;
 }) {
@@ -72,7 +72,7 @@ export default function StockTargetPicker({
 
   return (
     <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
-      <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
+      {label ? <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div> : null}
       <div style={{ display: "grid", gridTemplateColumns: "160px minmax(0,1fr)", gap: 8 }}>
         <select
           value={tipo}

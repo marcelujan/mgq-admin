@@ -170,3 +170,11 @@ Ajustes posteriores en `Stock`:
 - `Producción`: al elegir el formulado se sugieren componentes desde la fórmula, pero las cantidades reales quedan totalmente editables.
 - `Producción`: se muestra `densidad_g_ml` cuando existe, tanto en el selector como en las filas.
 - Se agrega edición posterior de operaciones desde la tabla de recientes (`/stock/operaciones/[stock_operacion_id]`).
+
+
+## Stock
+
+- La hoja `Stock` usa tablas compactas alineadas con `Items`.
+- `Saldos` y `Operaciones recientes` muestran 6 filas visibles y luego scroll vertical.
+- En `Ingreso`, `Ajuste` y `Producción`, la fecha se carga sin hora (`date`) y se sugiere el día actual por defecto.
+- En `Producción`, el selector de formulado y de componentes se muestra sin rótulos redundantes, y las cantidades reales se editan en filas con la UOM pegada al input.

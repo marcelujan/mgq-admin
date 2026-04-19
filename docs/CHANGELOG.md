@@ -19,3 +19,12 @@
 - Producción: se sugieren componentes desde la fórmula del formulado seleccionado, manteniendo edición libre de cantidades reales.
 - Producción: se muestra densidad en selectores y filas cuando existe.
 - Stock: se agrega edición de operaciones recientes mediante `/stock/operaciones/[stock_operacion_id]`.
+
+## 2026-04-19 — Ajustes finos en Stock (UI y formularios)
+
+- `Producción`: la fecha pasa a ser `date` (sin hora), obligatoria y sugerida por defecto con el día actual.
+- `Ajuste` e `Ingreso`: la fecha también pasa a `date` (sin hora), obligatoria y con día actual por defecto.
+- `Producción`: se elimina la columna UOM separada y se deja la unidad solo junto al campo editable de cantidad.
+- `Producción`: se reordena la pantalla para dejar fecha antes de las tablas de cantidades reales.
+- `Stock`: tablas de saldos y operaciones recientes limitadas visualmente a 6 filas con scroll vertical.
+- `StockTargetPicker`: el label pasa a ser opcional para permitir pickers más compactos en Producción.

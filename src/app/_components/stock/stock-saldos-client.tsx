@@ -95,7 +95,7 @@ export default function StockSaldosClient() {
     return copy;
   }, [ops, opSortBy, opSortDir]);
 
-  const actionLink: React.CSSProperties = { textDecoration: "none", color: "inherit", fontSize: 12.5, opacity: 0.92, whiteSpace: "nowrap" };
+  const actionLink: React.CSSProperties = { textDecoration: "none", color: "inherit", fontSize: 12, opacity: 0.92, whiteSpace: "nowrap" };
   const thButton = (active: boolean): React.CSSProperties => ({ cursor: "pointer", userSelect: "none", textDecoration: active ? "underline" : "none", textUnderlineOffset: 3 });
 
   return (
@@ -121,7 +121,8 @@ export default function StockSaldosClient() {
 
       {err ? <div style={{ padding: 12, border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, background: "rgba(255,90,90,0.08)", fontSize: 12 }}>{err}</div> : null}
 
-      <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14 }}>
+      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ maxHeight: 34 + 6 * 29, overflowY: "auto", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "rgba(255,255,255,0.03)" }}>
@@ -145,11 +146,15 @@ export default function StockSaldosClient() {
             {!loading && rowsFmt.length === 0 ? <tr><td colSpan={5} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin resultados.</td></tr> : null}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div style={{ display: "grid", gap: 8 }}>
-        <div style={{ fontWeight: 700 }}>Operaciones recientes</div>
-        <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontWeight: 700 }}>Operaciones recientes</div>
+        </div>
+        <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ maxHeight: 34 + 6 * 29, overflowY: "auto", overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
             <thead>
               <tr style={{ background: "rgba(255,255,255,0.03)" }}>
@@ -177,6 +182,7 @@ export default function StockSaldosClient() {
               {!loading && opsFmt.length === 0 ? <tr><td colSpan={7} style={{ padding: "8px 10px", opacity: 0.7 }}>Sin operaciones.</td></tr> : null}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>

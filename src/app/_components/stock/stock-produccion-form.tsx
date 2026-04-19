@@ -6,12 +6,18 @@ import StockTargetPicker from "./stock-target-picker";
 type Item = { item_tipo: any; item_ref_id: number; label: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
 type Line = { key: string; item: Item; cantidad: string; sugerido?: boolean };
 
-function formatDateTimeInput(v?: string | null) {
+function formatDateInput(v?: string | null) {
   if (!v) return "";
   const d = new Date(v);
   if (!Number.isFinite(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function todayDateInput() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function fmtNum(v: any, max = 4) {
@@ -22,7 +28,7 @@ function fmtNum(v: any, max = 4) {
 export default function StockProduccionForm({ operationId }: { operationId?: number }) {
   const [output, setOutput] = useState<Item | null>(null);
   const [cantidadObtenida, setCantidadObtenida] = useState("");
-  const [fecha, setFecha] = useState("");
+  const [fecha, setFecha] = useState(todayDateInput());
   const [picker, setPicker] = useState<Item | null>(null);
   const [consumos, setConsumos] = useState<Line[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(!!operationId);
@@ -46,7 +52,7 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
         const out = movimientos.find((m: any) => String(m.item_tipo) === "FORMULADO" && Number(m.delta_cantidad) > 0) ?? null;
         const ins = movimientos.filter((m: any) => Number(m.delta_cantidad) < 0);
         if (!cancelled) {
-          setFecha(formatDateTimeInput(op?.fecha));
+          setFecha(formatDateInput(op?.fecha) || todayDateInput());
           if (out) {
             setOutput({
               item_tipo: out.item_tipo,
@@ -87,12 +93,11 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
 
   useEffect(() => {
     if (!output || operationId) return;
-    const outputRefId = output.item_ref_id;
     let cancelled = false;
     async function loadSuggestion() {
       setLoadingSuggestion(true);
       try {
-        const qp = new URLSearchParams({ formulado_item_formulado_id: String(outputRefId) });
+        const qp = new URLSearchParams({ formulado_item_formulado_id: String(output.item_ref_id) });
         const r = await fetch(`/api/stock-operaciones/produccion/sugerencia?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
@@ -135,6 +140,10 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
       setErr("Seleccioná el formulado obtenido.");
       return;
     }
+    if (!fecha) {
+      setErr("La fecha es obligatoria.");
+      return;
+    }
     setSaving(true);
     setErr(null);
     setMsg(null);
@@ -163,7 +172,16 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={setOutput} label="Formulado obtenido" placeholder="Buscar formulado..." />
+      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={setOutput} label="" placeholder="Buscar formulado..." />
+
+      <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={setPicker} label="" placeholder="Buscar componente..." />
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px)", gap: 12 }}>
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 12, opacity: 0.8 }}>Fecha</div>
+          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="date" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
+        </div>
+      </div>
 
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ fontWeight: 700 }}>Producto obtenido</div>
@@ -173,8 +191,7 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
               <tr style={{ background: "rgba(255,255,255,0.03)" }}>
                 <th style={{ textAlign: "left", padding: "5px 8px", width: 80 }}>Item #</th>
                 <th style={{ textAlign: "left", padding: "5px 8px" }}>Formulado</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", width: 120 }}>Cantidad real</th>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 52 }}>UOM</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 160 }}>Cantidad real</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", width: 64 }}>Dens.</th>
               </tr>
             </thead>
@@ -189,26 +206,17 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{line.item.uom ?? ""}</div>
                     </div>
                   </td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{line.item.uom ?? ""}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(line.item.densidad_g_ml)}</td>
                 </tr>
               ))}
-              {!output ? <tr><td colSpan={5} style={{ padding: "8px", opacity: 0.7 }}>Seleccioná un formulado.</td></tr> : null}
+              {!output ? <tr><td colSpan={4} style={{ padding: "8px", opacity: 0.7 }}>Seleccioná un formulado.</td></tr> : null}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px)", gap: 12 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Fecha</div>
-          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="datetime-local" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
-        </div>
-      </div>
-
       <div style={{ display: "grid", gap: 8 }}>
         <div style={{ fontWeight: 700 }}>Componentes utilizados {loadingSuggestion ? <span style={{ fontSize: 12, opacity: 0.7 }}>· sugiriendo fórmula…</span> : null}</div>
-        <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={setPicker} label="Agregar componente" placeholder="Buscar componente..." />
         <div><button type="button" onClick={addConsumo} disabled={!picker} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: !picker ? "default" : "pointer", opacity: 0.95, fontSize: 16 }}>+</button></div>
         <div style={{ overflowX: "auto", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}>
@@ -216,8 +224,7 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
               <tr style={{ background: "rgba(255,255,255,0.03)" }}>
                 <th style={{ textAlign: "left", padding: "5px 8px", width: 80 }}>Item #</th>
                 <th style={{ textAlign: "left", padding: "5px 8px" }}>Componente</th>
-                <th style={{ textAlign: "right", padding: "5px 8px", width: 132 }}>Cantidad real</th>
-                <th style={{ textAlign: "left", padding: "5px 8px", width: 52 }}>UOM</th>
+                <th style={{ textAlign: "right", padding: "5px 8px", width: 160 }}>Cantidad real</th>
                 <th style={{ textAlign: "right", padding: "5px 8px", width: 64 }}>Dens.</th>
                 <th style={{ textAlign: "left", padding: "5px 8px", width: 42 }}></th>
               </tr>
@@ -233,12 +240,11 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{line.item.uom ?? ""}</div>
                     </div>
                   </td>
-                  <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}>{line.item.uom ?? ""}</td>
                   <td style={{ padding: "5px 8px", textAlign: "right", whiteSpace: "nowrap" }}>{fmtNum(line.item.densidad_g_ml)}</td>
                   <td style={{ padding: "5px 8px", whiteSpace: "nowrap" }}><button type="button" onClick={() => setConsumos((prev) => prev.filter((x) => x.key !== line.key))} style={{ background: "transparent", border: "none", padding: 0, color: "inherit", cursor: "pointer", opacity: 0.9 }}>✕</button></td>
                 </tr>
               ))}
-              {consumos.length === 0 ? <tr><td colSpan={6} style={{ padding: "8px", opacity: 0.7 }}>Sin componentes cargados.</td></tr> : null}
+              {consumos.length === 0 ? <tr><td colSpan={5} style={{ padding: "8px", opacity: 0.7 }}>Sin componentes cargados.</td></tr> : null}
             </tbody>
           </table>
         </div>

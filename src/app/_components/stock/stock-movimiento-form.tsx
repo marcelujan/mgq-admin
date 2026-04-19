@@ -7,18 +7,24 @@ type Item = { item_tipo: any; item_ref_id: number; label: string; nombre: string
 
 type Mode = "ingreso" | "ajuste";
 
-function formatDateTimeInput(v?: string | null) {
+function formatDateInput(v?: string | null) {
   if (!v) return "";
   const d = new Date(v);
   if (!Number.isFinite(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function todayDateInput() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export default function StockMovimientoForm({ mode, operationId }: { mode: Mode; operationId?: number }) {
   const [target, setTarget] = useState<Item | null>(null);
   const [cantidad, setCantidad] = useState("");
-  const [fecha, setFecha] = useState("");
+  const [fecha, setFecha] = useState(todayDateInput());
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!!operationId);
   const [msg, setMsg] = useState<string | null>(null);
@@ -49,7 +55,7 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
           });
           const rawDelta = Number(mov.delta_cantidad ?? 0);
           setCantidad(String(mode === "ingreso" ? Math.abs(rawDelta) : rawDelta));
-          setFecha(formatDateTimeInput(op?.fecha));
+          setFecha(formatDateInput(op?.fecha) || todayDateInput());
         }
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -71,6 +77,10 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
   async function submit() {
     if (!target) {
       setErr("Seleccioná un ítem.");
+      return;
+    }
+    if (!fecha) {
+      setErr("La fecha es obligatoria.");
       return;
     }
     setSaving(true);
@@ -120,7 +130,7 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
         </div>
         <div style={{ display: "grid", gap: 6 }}>
           <div style={{ fontSize: 12, opacity: 0.8 }}>Fecha</div>
-          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="datetime-local" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
+          <input value={fecha} onChange={(e) => setFecha(e.target.value)} type="date" style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }} />
         </div>
       </div>
 
