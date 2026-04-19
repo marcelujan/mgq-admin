@@ -36,16 +36,14 @@ function unitsAreCompatible(itemUom: string, refUom: string | null | undefined):
 
 async function resolveOriginRefUom(sql: any, proveedor_item_id: number | null, manual_cost_option_id: number | null, formulado_item_formulado_id: number | null): Promise<string | null> {
   if (proveedor_item_id !== null) {
-    const r: any = await sql.query(`SELECT uom FROM app.item_seguimiento WHERE item_id = $1`, [proveedor_item_id]);
-    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+    return 'GR';
   }
   if (manual_cost_option_id !== null) {
-    const r: any = await sql.query(`SELECT uom FROM app.cost_option WHERE cost_option_id = $1`, [manual_cost_option_id]);
-    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+    const r: any = await sql.query(`SELECT manual_uom FROM app.cost_option WHERE cost_option_id = $1`, [manual_cost_option_id]);
+    return normalizeQueryResult(r)?.[0]?.manual_uom ?? null;
   }
   if (formulado_item_formulado_id !== null) {
-    const r: any = await sql.query(`SELECT uom FROM app.item_formulado WHERE item_formulado_id = $1`, [formulado_item_formulado_id]);
-    return normalizeQueryResult(r)?.[0]?.uom ?? null;
+    return 'GR';
   }
   return null;
 }
