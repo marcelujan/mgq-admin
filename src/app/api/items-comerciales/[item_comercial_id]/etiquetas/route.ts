@@ -14,9 +14,12 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function GET(_: NextRequest, ctx: { params: { item_comercial_id: string } }) {
+type Ctx = { params: Promise<{ item_comercial_id: string; item_comercial_etiqueta_id: string }> };
+
+export async function GET(_: NextRequest, { params }: Ctx) {
   try {
-    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    const { item_comercial_id: itemComercialIdStr } = await params;
+    const item_comercial_id = Number(itemComercialIdStr);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0) {
       return NextResponse.json({ ok: false, error: "item_comercial_id inválido" }, { status: 400 });
     }
@@ -51,9 +54,10 @@ export async function GET(_: NextRequest, ctx: { params: { item_comercial_id: st
   }
 }
 
-export async function POST(req: NextRequest, ctx: { params: { item_comercial_id: string } }) {
+export async function POST(req: NextRequest, { params }: Ctx) {
   try {
-    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    const { item_comercial_id: itemComercialIdStr } = await params;
+    const item_comercial_id = Number(itemComercialIdStr);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0) {
       return NextResponse.json({ ok: false, error: "item_comercial_id inválido" }, { status: 400 });
     }

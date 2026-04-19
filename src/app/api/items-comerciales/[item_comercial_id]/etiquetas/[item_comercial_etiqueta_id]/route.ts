@@ -14,9 +14,12 @@ function numOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: { item_comercial_id: string; item_comercial_etiqueta_id: string } }) {
+type Ctx = { params: Promise<{ item_comercial_id: string; item_comercial_etiqueta_id: string }> };
+
+export async function PATCH(req: NextRequest, { params }: Ctx) {
   try {
-    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    const { item_comercial_id: itemComercialIdStr } = await params;
+    const item_comercial_id = Number(itemComercialIdStr);
     const item_comercial_etiqueta_id = Number(ctx.params.item_comercial_etiqueta_id);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0 || !Number.isFinite(item_comercial_etiqueta_id) || item_comercial_etiqueta_id <= 0) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
@@ -64,9 +67,10 @@ export async function PATCH(req: NextRequest, ctx: { params: { item_comercial_id
   }
 }
 
-export async function DELETE(_: NextRequest, ctx: { params: { item_comercial_id: string; item_comercial_etiqueta_id: string } }) {
+export async function DELETE(_: NextRequest, { params }: Ctx) {
   try {
-    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    const { item_comercial_id: itemComercialIdStr } = await params;
+    const item_comercial_id = Number(itemComercialIdStr);
     const item_comercial_etiqueta_id = Number(ctx.params.item_comercial_etiqueta_id);
     if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0 || !Number.isFinite(item_comercial_etiqueta_id) || item_comercial_etiqueta_id <= 0) {
       return NextResponse.json({ ok: false, error: "id inválido" }, { status: 400 });
