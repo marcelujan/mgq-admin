@@ -183,7 +183,12 @@ Ajustes posteriores en `Stock`:
 - `Stock · Ingreso` y `Stock · Ajuste`: la fila superior concentra `Fecha` y cantidad; el selector del ítem queda debajo.
 
 
-- `/stock/faltantes` (Faltantes / Compras)
-  - lista agregada de faltantes para volver disponibles los comerciales
-  - detalle por `Item Comercial` con estado por color y advertencias
-  - no bloquea por envase / etiqueta: primero informa y sugiere compra
+## Items Comerciales — estado en lista
+
+La lista de `Items Comerciales` muestra una columna de estado por color:
+
+- gris: borrador
+- verde: ofertable
+- rojo: bloqueado
+
+El detalle del estado y las advertencias de envases/etiquetas se abren desde el icono de detalle. La barra de filtros incorpora `Estado`.
