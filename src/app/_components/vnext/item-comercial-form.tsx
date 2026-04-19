@@ -26,6 +26,8 @@ type OriginOption = {
   ref_cantidad?: number | null;
   costo_ref_ars?: number | null;
   densidad_g_ml?: number | null;
+  ref_presentacion?: number | null;
+  producto_id?: number | null;
 };
 
 function numOrEmpty(v: number | null | undefined): string {
@@ -44,6 +46,14 @@ function fmtNum(v: number | null | undefined, digits = 3): string {
   return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 0, maximumFractionDigits: digits }).format(Number(v));
 }
 
+function familyOfUom(uom?: string | null): "mass" | "volume" | "unit" | null {
+  const x = String(uom ?? "").trim().toUpperCase();
+  if (x === "GR") return "mass";
+  if (x === "ML") return "volume";
+  if (x === "UN") return "unit";
+  return null;
+}
+
 function normalizeToRefUnit(cantidad: number, unidad: Uom, refUom?: string | null, densidad?: number | null): number | null {
   const ru = String(refUom ?? "").toUpperCase();
   if (!["GR", "ML", "UN"].includes(ru)) return null;
@@ -56,7 +66,7 @@ function normalizeToRefUnit(cantidad: number, unidad: Uom, refUom?: string | nul
   return null;
 }
 
-function estimateBaseCost(cantidad: string, unidad: Uom, origin: OriginOption | null): number | null {
+function estimateBaseCost(cantidad: string, unidad: Uom, origin: OriginOption | null, densidadOverride: number | null): number | null {
   if (!origin) return null;
   const qty = Number(cantidad);
   const refQty = Number(origin.ref_cantidad ?? NaN);
@@ -64,7 +74,8 @@ function estimateBaseCost(cantidad: string, unidad: Uom, origin: OriginOption | 
   if (!Number.isFinite(qty) || qty <= 0) return null;
   if (!Number.isFinite(refQty) || refQty <= 0) return null;
   if (!Number.isFinite(refCost) || refCost < 0) return null;
-  const qtyInRef = normalizeToRefUnit(qty, unidad, origin.ref_uom ?? null, origin.densidad_g_ml ?? null);
+  const dens = Number.isFinite(Number(densidadOverride)) ? densidadOverride : origin.densidad_g_ml ?? null;
+  const qtyInRef = normalizeToRefUnit(qty, unidad, origin.ref_uom ?? null, dens);
   if (qtyInRef === null || !Number.isFinite(qtyInRef) || qtyInRef <= 0) return null;
   return (qtyInRef / refQty) * refCost;
 }
@@ -109,6 +120,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const [originLoading, setOriginLoading] = useState(false);
   const [originId, setOriginId] = useState("");
   const [activo, setActivo] = useState(true);
+  const [densidadInput, setDensidadInput] = useState("");
 
   const [envasesSubtotal, setEnvasesSubtotal] = useState(0);
   const [etiquetasSubtotal, setEtiquetasSubtotal] = useState(0);
@@ -164,7 +176,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         const qp = new URLSearchParams();
         qp.set("tipo", originType);
         qp.set("search", originSearch.trim());
-        qp.set("limit", "25");
+        qp.set("limit", originSearch.trim() === "" ? "1000" : "120");
         const r = await fetch(`/api/origenes-tecnicos?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
@@ -177,6 +189,8 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             ref_cantidad: x.ref_cantidad ?? null,
             costo_ref_ars: x.costo_ref_ars ?? null,
             densidad_g_ml: x.densidad_g_ml ?? null,
+            ref_presentacion: x.ref_presentacion ?? null,
+            producto_id: x.producto_id ?? null,
           }))
         );
       } catch (e: any) {
@@ -193,6 +207,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
   useEffect(() => {
     setOriginId("");
+    setDensidadInput("");
   }, [originType]);
 
   const selectedOrigin = useMemo(() => {
@@ -200,7 +215,26 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     return originOptions.find((o) => Number(o.id) === id) ?? null;
   }, [originOptions, originId]);
 
-  const baseCost = useMemo(() => estimateBaseCost(cantidad, unidad, selectedOrigin), [cantidad, unidad, selectedOrigin]);
+  useEffect(() => {
+    if (!selectedOrigin) {
+      setDensidadInput("");
+      return;
+    }
+    setDensidadInput(numOrEmpty(selectedOrigin.densidad_g_ml) || "");
+  }, [selectedOrigin?.id]);
+
+  const needsDensity = useMemo(() => {
+    const fromFamily = familyOfUom(selectedOrigin?.ref_uom ?? null);
+    const toFamily = familyOfUom(unidad);
+    return !!fromFamily && !!toFamily && fromFamily !== toFamily && fromFamily !== "unit" && toFamily !== "unit";
+  }, [selectedOrigin, unidad]);
+
+  const densityValue = useMemo(() => {
+    const n = Number(densidadInput);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [densidadInput]);
+
+  const baseCost = useMemo(() => estimateBaseCost(cantidad, unidad, selectedOrigin, densityValue), [cantidad, unidad, selectedOrigin, densityValue]);
   const totalCost = useMemo(() => {
     const base = Number.isFinite(baseCost as number) ? Number(baseCost) : 0;
     return base + envasesSubtotal + etiquetasSubtotal;
@@ -228,8 +262,23 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
     if (!Number.isFinite(body.cantidad) || body.cantidad <= 0) throw new Error("Cantidad inválida.");
     if (unidad === "UN" && !Number.isInteger(body.cantidad)) throw new Error("UN requiere cantidad entera.");
+    if (needsDensity && !densityValue) throw new Error("Ingresá una densidad válida para convertir entre GR y ML.");
 
     return body;
+  }
+
+  async function persistDensityIfNeeded() {
+    if (!needsDensity || !densityValue || !selectedOrigin) return;
+    const payload: any = { tipo: originType, id: selectedOrigin.id, densidad_g_ml: densityValue };
+    if (originType === "PROVEEDOR") payload.ref_presentacion = selectedOrigin.ref_presentacion;
+    if (originType === "FORMULADO") payload.producto_id = selectedOrigin.producto_id;
+    const r = await fetch(`/api/origenes-tecnicos/densidad`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
   }
 
   async function save() {
@@ -238,6 +287,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
       if (!nombre.trim()) throw new Error("Nombre requerido.");
       const body = buildBody();
       setSaving(true);
+      await persistDensityIfNeeded();
       const r = await fetch(editing ? `/api/items-comerciales/${itemId}` : "/api/items-comerciales", {
         method: editing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
@@ -272,6 +322,8 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     }
   }
 
+  const summaryCard: CSSProperties = { border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 10, background: "rgba(255,255,255,0.02)" };
+
   return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -290,7 +342,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             </button>
           ) : null}
           <button onClick={() => void save()} disabled={saving || deleting || loading} style={{ ...buttonGhost, cursor: saving || deleting || loading ? "default" : "pointer", opacity: saving || deleting || loading ? 0.7 : 1 }}>
-            {saving ? "Guardando..." : editing ? "Guardar" : "Guardar y seguir"}
+            {saving ? "Guardando..." : "Guardar"}
           </button>
         </div>
       </div>
@@ -327,7 +379,18 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
                 <option value="UN">UN</option>
               </select>
             </div>
+            {needsDensity ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Densidad (g/mL)</label>
+                <input value={densidadInput} onChange={(e) => setDensidadInput(e.target.value)} inputMode="decimal" placeholder="Ej. 1.05" style={inputStyle} />
+              </div>
+            ) : null}
           </div>
+          {needsDensity ? (
+            <div style={{ fontSize: 12, opacity: 0.72 }}>
+              La unidad del comercial difiere de la unidad de referencia del origen. Se usará esta densidad para convertir entre GR y ML y, al guardar, se actualizará en el origen técnico correspondiente.
+            </div>
+          ) : null}
 
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: 10 }}>
@@ -352,13 +415,13 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
                 <div>Costo ref.</div>
                 <div></div>
               </div>
-              <div style={{ display: "grid" }}>
+              <div style={{ display: "grid", maxHeight: 240, overflowY: "auto" }}>
                 {originLoading ? (
                   <div style={{ padding: 10, fontSize: 12, opacity: 0.7 }}>Buscando...</div>
                 ) : originOptions.length ? originOptions.map((o) => {
                   const isSelected = String(o.id) === originId;
                   return (
-                    <div key={o.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 140px 110px", gap: 0, alignItems: "center", padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", background: isSelected ? "rgba(255,255,255,0.05)" : "transparent", fontSize: 13 }}>
+                    <div key={`${originType}-${o.id}`} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 130px 140px 110px", gap: 0, alignItems: "center", padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)", background: isSelected ? "rgba(255,255,255,0.05)" : "transparent", fontSize: 13 }}>
                       <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={o.label}>{o.label}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{o.ref_uom ? `${fmtNum(o.ref_cantidad, 3)} ${o.ref_uom}` : "—"}</div>
                       <div style={{ fontSize: 12, opacity: 0.8 }}>{Number.isFinite(Number(o.costo_ref_ars)) ? `ARS ${fmtMoney(o.costo_ref_ars)}` : "—"}</div>
@@ -374,24 +437,19 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-              <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 10, background: "rgba(255,255,255,0.02)" }}>
+              <div style={summaryCard}>
                 <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Origen seleccionado</div>
                 <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={selectedOrigin?.label ?? ""}>{selectedOrigin?.label ?? "—"}</div>
                 <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
                   Ref: {selectedOrigin?.ref_uom ? `${fmtNum(selectedOrigin.ref_cantidad, 3)} ${selectedOrigin.ref_uom}` : "—"}
                 </div>
               </div>
-              <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 10, background: "rgba(255,255,255,0.02)" }}>
+              <div style={summaryCard}>
                 <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Costo base estimado</div>
                 <div style={{ fontSize: 16, fontWeight: 700 }}>{Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"}</div>
                 <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
-                  {Number.isFinite(Number(baseCost)) ? "Calculado desde origen técnico." : "Sin cálculo automático con la referencia actual."}
+                  {Number.isFinite(Number(baseCost)) ? "Calculado desde origen técnico." : needsDensity ? "Falta densidad válida para calcular." : "Sin cálculo automático con la referencia actual."}
                 </div>
-              </div>
-              <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, padding: 10, background: "rgba(255,255,255,0.02)" }}>
-                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Costo total parcial</div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>ARS {fmtMoney(totalCost)}</div>
-                <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>Base + envases + etiquetas.</div>
               </div>
             </div>
           </div>
@@ -403,7 +461,33 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
           <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} />
           <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} />
         </>
-      ) : null}
+      ) : (
+        <div style={{ border: "1px dashed rgba(255,255,255,0.14)", borderRadius: 14, padding: 14, fontSize: 12, opacity: 0.72 }}>
+          Guardá primero el Item Comercial para asociar envases y etiquetas.
+        </div>
+      )}
+
+      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Costeo</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          <div style={summaryCard}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Base</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{Number.isFinite(Number(baseCost)) ? `ARS ${fmtMoney(baseCost)}` : "—"}</div>
+          </div>
+          <div style={summaryCard}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Envases</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>ARS {fmtMoney(envasesSubtotal)}</div>
+          </div>
+          <div style={summaryCard}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Etiquetas</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>ARS {fmtMoney(etiquetasSubtotal)}</div>
+          </div>
+          <div style={summaryCard}>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Total parcial</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>ARS {fmtMoney(totalCost)}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

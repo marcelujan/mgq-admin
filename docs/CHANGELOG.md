@@ -1,3 +1,8 @@
-- v40: corregidas firmas de handlers dinámicos y uso de params en asociaciones de envases/etiquetas para compatibilidad con Next TypeScript.
+# CHANGELOG
 
-- v41: Items Comerciales: bloque superior a ancho completo, buscador de origen técnico guiado por lista de resultados, costo base estimado, subtotales de envases/etiquetas y total parcial; asociaciones muestran costo de referencia y costo por línea.
+- Fix: `Items Etiqueta` vuelve a persistir el campo legacy `medidas` junto con `ancho_mm` y `largo_mm` para no violar el `NOT NULL` todavía presente en la base.
+
+- vNext: `Items Comerciales` pasa a seleccionar origen técnico desde lista buscable y suma edición de asociaciones `Envases` / `Etiquetas` con CRUD inline.
+
+- UX/API: `Items Comerciales` limita la lista visible de origen técnico a 6 filas con scroll, devuelve todos los resultados disponibles cuando no hay filtro y mueve el costeo consolidado al final de la hoja.
+- vNext: se agrega `POST /api/origenes-tecnicos/densidad` para persistir densidad desde `Items Comerciales` cuando la conversión `GR ↔ ML` la exige.

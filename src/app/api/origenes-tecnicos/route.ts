@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const tipo = String(searchParams.get("tipo") ?? "").trim().toUpperCase();
     const search = String(searchParams.get("search") ?? "").trim();
-    const limit = intParam(searchParams.get("limit"), 80, 1, 250);
+    const limitDefault = search === "" ? 1000 : 80;
+    const limit = intParam(searchParams.get("limit"), limitDefault, 1, 5000);
 
     if (!["MANUAL", "PROVEEDOR", "FORMULADO"].includes(tipo)) {
       return NextResponse.json({ ok: false, error: "tipo inválido" }, { status: 400 });
@@ -33,9 +34,6 @@ export async function GET(req: NextRequest) {
         SELECT
           co.cost_option_id::bigint as id,
           trim(both ' ' from concat_ws(' · ', 'Manual', coalesce(co.manual_nombre,''), 'ID ' || co.cost_option_id::text)) as label,
-          co.manual_nombre,
-          co.manual_uom as unidad,
-          co.manual_cantidad::float8 as cantidad,
           co.manual_uom as ref_uom,
           co.manual_cantidad::float8 as ref_cantidad,
           co.manual_costo_ars::float8 as costo_ref_ars,
@@ -75,20 +73,27 @@ export async function GET(req: NextRequest) {
            AND ip.presentacion = lr.presentacion
            AND ip.as_of_date = lr.max_date
           ORDER BY lr.item_id, lr.max_date DESC, lr.presentacion ASC
+        ), current_density AS (
+          SELECT DISTINCT ON (co.item_id)
+            co.item_id,
+            co.item_presentacion::float8 as item_presentacion,
+            co.densidad_g_ml::float8 as densidad_g_ml
+          FROM app.cost_option co
+          WHERE co.tipo = 'ITEM_PRESENTACION'
+          ORDER BY co.item_id, co.item_presentacion ASC, co.cost_option_id DESC
         )
         SELECT
           i.item_id::bigint as id,
           trim(both ' ' from concat_ws(' · ', coalesce(pr.nombre,''), nullif(i.descripcion_fuente,''), 'Item #' || i.item_id::text)) as label,
-          coalesce(pr.nombre,'') as proveedor_nombre,
-          coalesce(nullif(i.descripcion_fuente,''), '') as item_nombre,
-          i.item_id::bigint as item_id,
           'GR'::text as ref_uom,
           case when cp.presentacion is not null then greatest(1::float8, cp.presentacion * 1000.0) else null::float8 end as ref_cantidad,
           cp.price_ars::float8 as costo_ref_ars,
-          null::float8 as densidad_g_ml
+          cd.densidad_g_ml::float8 as densidad_g_ml,
+          cp.presentacion::float8 as ref_presentacion
         FROM app.item_seguimiento i
         LEFT JOIN app.proveedor pr ON pr.proveedor_id = i.proveedor_id
         LEFT JOIN current_price cp ON cp.item_id = i.item_id
+        LEFT JOIN current_density cd ON cd.item_id = i.item_id AND (cp.presentacion IS NULL OR cd.item_presentacion = cp.presentacion)
         WHERE i.estado = 'OK'
           AND (
             $1::text = '' OR
@@ -109,12 +114,11 @@ export async function GET(req: NextRequest) {
       SELECT
         f.item_formulado_id::bigint as id,
         trim(both ' ' from concat_ws(' · ', 'Formulado', coalesce(p.nombre,''), 'ID ' || f.item_formulado_id::text)) as label,
-        p.nombre,
-        f.item_formulado_id::bigint as item_formulado_id,
         'GR'::text as ref_uom,
         1000::float8 as ref_cantidad,
         snap.precio_unitario_ars::float8 as costo_ref_ars,
-        p.densidad_producto_g_ml::float8 as densidad_g_ml
+        p.densidad_producto_g_ml::float8 as densidad_g_ml,
+        p.producto_id::bigint as producto_id
       FROM app.item_formulado f
       JOIN app.producto p ON p.producto_id = f.producto_id
       LEFT JOIN LATERAL (

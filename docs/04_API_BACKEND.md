@@ -95,17 +95,28 @@ Para editar una asociación:
 - `Items Paquetería` sigue fuera de la lógica de bloqueo y no entra todavía en estas relaciones.
 - La selección de origen técnico del comercial no debe pedir IDs crudos; debe resolverse mediante lista buscable desde `/api/origenes-tecnicos`.
 
+### `/api/origenes-tecnicos`
 
-## vNext — UX de `Items Comerciales`
+- Si `search` viene vacío, la API debe devolver el universo disponible del tipo solicitado (con límite alto), sin recorte corto por default.
+- Cada origen técnico puede devolver además datos de referencia de costeo:
+  - `ref_uom`
+  - `ref_cantidad`
+  - `costo_ref_ars`
+  - `densidad_g_ml`
+- Para `FORMULADO`, puede devolver `producto_id` cuando haga falta persistir densidad.
+- Para `PROVEEDOR`, puede devolver `ref_presentacion` cuando haga falta persistir densidad.
 
-- El bloque superior de edición de `Items Comerciales` debe usar el mismo ancho útil que las secciones de asociaciones.
-- El buscador de origen técnico no debe depender de un `select` largo como paso principal; debe ofrecer una lista de resultados compacta, con botón de selección y costo/ref. visible.
-- La edición debe mostrar un resumen económico parcial:
-  - costo base estimado desde el origen técnico, cuando la referencia permita calcularlo
-  - subtotal de envases
-  - subtotal de etiquetas
-  - total parcial
-- En las asociaciones de envases y etiquetas se debe mostrar:
-  - costo de referencia del componente
-  - cantidad asociada
-  - costo de línea calculado
+### `POST /api/origenes-tecnicos/densidad`
+
+Endpoint auxiliar para persistir densidad desde la hoja de `Items Comerciales` cuando el cambio de unidad exige conversión `GR ↔ ML`.
+
+Payload mínimo:
+
+- `tipo`: `MANUAL` | `PROVEEDOR` | `FORMULADO`
+- `id`
+- `densidad_g_ml`
+
+Campos extra según origen:
+
+- `FORMULADO`: `producto_id`
+- `PROVEEDOR`: `ref_presentacion`
