@@ -1,1 +1,2 @@
-- Fix TypeScript mismatch between StockTargetPicker and stock forms by normalizing selected item shape and making label optional.
+2026-04-20
+- Fix TypeScript type mismatch between StockTargetPicker and stock forms by exporting shared picker types and removing shadowed local Item types.

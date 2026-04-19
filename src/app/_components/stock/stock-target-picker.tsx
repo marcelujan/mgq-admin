@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-type Tipo = "PROVEEDOR" | "MANUAL" | "FORMULADO" | "ENVASE" | "ETIQUETA" | "PAQUETERIA";
+export type StockTargetTipo = "PROVEEDOR" | "MANUAL" | "FORMULADO" | "ENVASE" | "ETIQUETA" | "PAQUETERIA";
 
-type Item = {
-  item_tipo: Tipo;
+export type StockTargetItem = {
+  item_tipo: StockTargetTipo;
   item_ref_id: number;
   label?: string;
   nombre: string;
@@ -25,16 +25,16 @@ export default function StockTargetPicker({
   placeholder = "Buscar...",
   maxVisibleRows = 6,
 }: {
-  allowedTypes: Tipo[];
-  value: Item | null;
-  onChange: (item: Item | null) => void;
+  allowedTypes: StockTargetTipo[];
+  value: StockTargetItem | null;
+  onChange: (item: StockTargetItem | null) => void;
   label?: string;
   placeholder?: string;
   maxVisibleRows?: number;
 }) {
-  const [tipo, setTipo] = useState<Tipo>(allowedTypes[0]);
+  const [tipo, setTipo] = useState<StockTargetTipo>(allowedTypes[0]);
   const [search, setSearch] = useState("");
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<StockTargetItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -52,7 +52,7 @@ export default function StockTargetPicker({
         const r = await fetch(`/api/stock-objetivos?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-        if (!cancelled) setItems((j.items ?? []) as Item[]);
+        if (!cancelled) setItems((j.items ?? []) as StockTargetItem[]);
       } catch (e: any) {
         if (!cancelled) {
           setItems([]);
@@ -77,7 +77,7 @@ export default function StockTargetPicker({
         <select
           value={tipo}
           onChange={(e) => {
-            setTipo(e.target.value as Tipo);
+            setTipo(e.target.value as StockTargetTipo);
             onChange(null);
           }}
           style={{ width: "100%", minWidth: 0, boxSizing: "border-box", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit" }}

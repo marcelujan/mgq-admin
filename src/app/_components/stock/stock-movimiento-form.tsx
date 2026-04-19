@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import StockTargetPicker from "./stock-target-picker";
-
-type Item = { item_tipo: any; item_ref_id: number; label?: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
+import StockTargetPicker, { type StockTargetItem } from "./stock-target-picker";
 
 type Mode = "ingreso" | "ajuste";
 
@@ -22,7 +20,7 @@ function todayDateInput() {
 }
 
 export default function StockMovimientoForm({ mode, operationId }: { mode: Mode; operationId?: number }) {
-  const [target, setTarget] = useState<Item | null>(null);
+  const [target, setTarget] = useState<StockTargetItem | null>(null);
   const [cantidad, setCantidad] = useState("");
   const [fecha, setFecha] = useState(todayDateInput());
   const [saving, setSaving] = useState(false);
@@ -44,7 +42,7 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
         const mov = Array.isArray(op?.movimientos) ? op.movimientos[0] : null;
         if (!mov) throw new Error("La operación no tiene movimiento editable.");
         if (!cancelled) {
-          setTarget({
+          const nextTarget: StockTargetItem = {
             item_tipo: mov.item_tipo,
             item_ref_id: Number(mov.item_ref_id),
             label: mov.label,
@@ -52,7 +50,8 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
             uom: mov.uom,
             saldo: mov.saldo,
             densidad_g_ml: mov.densidad_g_ml,
-          });
+          };
+          setTarget(nextTarget);
           const rawDelta = Number(mov.delta_cantidad ?? 0);
           setCantidad(String(mode === "ingreso" ? Math.abs(rawDelta) : rawDelta));
           setFecha(formatDateInput(op?.fecha) || todayDateInput());
@@ -115,7 +114,10 @@ export default function StockMovimientoForm({ mode, operationId }: { mode: Mode;
       <StockTargetPicker
         allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO", "ENVASE", "ETIQUETA", "PAQUETERIA"]}
         value={target}
-        onChange={(item) => setTarget(item ? { ...item, label: item.label ?? item.nombre } : null)}
+        onChange={(item) => {
+          const next: StockTargetItem | null = item ? { ...item, label: item.label ?? item.nombre } : null;
+          setTarget(next);
+        }}
         label="Ítem"
         placeholder="Buscar ítem..."
       />

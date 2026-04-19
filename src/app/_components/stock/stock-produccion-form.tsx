@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import StockTargetPicker from "./stock-target-picker";
+import StockTargetPicker, { type StockTargetItem } from "./stock-target-picker";
 
-type Item = { item_tipo: any; item_ref_id: number; label?: string; nombre: string; uom: string | null; saldo?: number | null; densidad_g_ml?: number | null };
-type Line = { key: string; item: Item; cantidad: string; sugerido?: boolean };
+type Line = { key: string; item: StockTargetItem; cantidad: string; sugerido?: boolean };
 
 function formatDateInput(v?: string | null) {
   if (!v) return "";
@@ -26,10 +25,10 @@ function fmtNum(v: any, max = 4) {
 }
 
 export default function StockProduccionForm({ operationId }: { operationId?: number }) {
-  const [output, setOutput] = useState<Item | null>(null);
+  const [output, setOutput] = useState<StockTargetItem | null>(null);
   const [cantidadObtenida, setCantidadObtenida] = useState("");
   const [fecha, setFecha] = useState(todayDateInput());
-  const [picker, setPicker] = useState<Item | null>(null);
+  const [picker, setPicker] = useState<StockTargetItem | null>(null);
   const [consumos, setConsumos] = useState<Line[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(!!operationId);
   const [loadingSuggestion, setLoadingSuggestion] = useState(false);
@@ -54,7 +53,7 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
         if (!cancelled) {
           setFecha(formatDateInput(op?.fecha) || todayDateInput());
           if (out) {
-            setOutput({
+            const nextOutput: StockTargetItem = {
               item_tipo: out.item_tipo,
               item_ref_id: Number(out.item_ref_id),
               label: out.label,
@@ -62,7 +61,8 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
               uom: out.uom,
               saldo: out.saldo,
               densidad_g_ml: out.densidad_g_ml,
-            });
+            };
+          setOutput(nextOutput);
             setCantidadObtenida(String(Math.abs(Number(out.delta_cantidad ?? 0))));
           }
           setConsumos(ins.map((m: any) => ({
@@ -172,9 +172,9 @@ export default function StockProduccionForm({ operationId }: { operationId?: num
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
-      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={(item) => setOutput(item ? { ...item, label: item.label ?? item.nombre } : null)} label="" placeholder="Buscar formulado..." />
+      <StockTargetPicker allowedTypes={["FORMULADO"]} value={output} onChange={(item) => { const next: StockTargetItem | null = item ? { ...item, label: item.label ?? item.nombre } : null; setOutput(next); }} label="" placeholder="Buscar formulado..." />
 
-      <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={(item) => setPicker(item ? { ...item, label: item.label ?? item.nombre } : null)} label="" placeholder="Buscar componente..." />
+      <StockTargetPicker allowedTypes={["MANUAL", "PROVEEDOR", "FORMULADO"]} value={picker} onChange={(item) => { const next: StockTargetItem | null = item ? { ...item, label: item.label ?? item.nombre } : null; setPicker(next); }} label="" placeholder="Buscar componente..." />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,220px)", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>
