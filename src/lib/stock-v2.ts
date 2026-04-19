@@ -126,6 +126,52 @@ export async function insertStockMovimiento(params: { stock_operacion_id: number
   return row ? Number(row.stock_movimiento_id) : null;
 }
 
+
+
+export async function deleteStockOperacion(stock_operacion_id: number) {
+  const sql = db();
+  await sql.query(`DELETE FROM app.stock_operacion WHERE stock_operacion_id = $1`, [stock_operacion_id]);
+}
+
+export type StockOperacionListRow = {
+  stock_operacion_id: number;
+  tipo: string;
+  fecha: string;
+  nota: string | null;
+  referencia_externa: string | null;
+  movimientos_count: number;
+  total_entradas: number;
+  total_salidas: number;
+};
+
+export async function listStockOperaciones(params: { tipo: "" | StockOperacionTipo; search: string; fromDate: string; toDate: string; limit: number; }) {
+  const sql = db();
+  const r: any = await sql.query(
+    `
+    SELECT
+      o.stock_operacion_id,
+      o.tipo,
+      o.fecha,
+      o.nota,
+      o.referencia_externa,
+      COUNT(m.stock_movimiento_id)::int as movimientos_count,
+      COALESCE(SUM(CASE WHEN m.delta_cantidad > 0 THEN m.delta_cantidad ELSE 0 END), 0)::float8 as total_entradas,
+      COALESCE(SUM(CASE WHEN m.delta_cantidad < 0 THEN abs(m.delta_cantidad) ELSE 0 END), 0)::float8 as total_salidas
+    FROM app.stock_operacion o
+    LEFT JOIN app.stock_movimiento m ON m.stock_operacion_id = o.stock_operacion_id
+    WHERE ($1::text = '' OR o.tipo = $1::text)
+      AND ($2::text = '' OR o.stock_operacion_id::text ILIKE '%' || $2::text || '%' OR coalesce(o.nota,'') ILIKE '%' || $2::text || '%' OR coalesce(o.referencia_externa,'') ILIKE '%' || $2::text || '%')
+      AND ($3::date IS NULL OR o.fecha::date >= $3::date)
+      AND ($4::date IS NULL OR o.fecha::date <= $4::date)
+    GROUP BY o.stock_operacion_id, o.tipo, o.fecha, o.nota, o.referencia_externa
+    ORDER BY o.fecha DESC, o.stock_operacion_id DESC
+    LIMIT $5
+    `,
+    [params.tipo, params.search, params.fromDate || null, params.toDate || null, params.limit]
+  );
+  return rowsOf(r) as StockOperacionListRow[];
+}
+
 export async function getStockObjetivoOne(tipo: StockItemTipo, item_ref_id: number): Promise<StockObjetivoRow | null> {
   const items = await listStockObjetivos(tipo, String(item_ref_id), 20);
   const found = items.find((x: any) => Number(x.item_ref_id) === Number(item_ref_id)) ?? null;
