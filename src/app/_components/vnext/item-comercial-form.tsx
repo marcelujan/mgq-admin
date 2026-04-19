@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import ItemComercialRelaciones from "./item-comercial-relaciones";
 
 type OriginType = "PROVEEDOR" | "MANUAL" | "FORMULADO";
 type Uom = "GR" | "ML" | "UN";
 
 type Comercial = {
-  item_comercial_id?: number;
+  item_comercial_id: number;
   nombre: string | null;
   descripcion?: string | null;
   cantidad: number | null;
@@ -23,11 +24,23 @@ type OriginOption = {
   label: string;
 };
 
-function numOrEmpty(v: any): string {
-  if (v === null || v === undefined || v === "") return "";
+function numOrEmpty(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "";
   const n = Number(v);
   return Number.isFinite(n) ? String(n) : "";
 }
+
+const inputStyle: CSSProperties = {
+  border: "1px solid rgba(255,255,255,0.14)",
+  borderRadius: 10,
+  padding: "8px 10px",
+  background: "rgba(255,255,255,0.03)",
+  color: "rgba(255,255,255,0.92)",
+  outline: "none",
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+};
 
 export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const router = useRouter();
@@ -43,10 +56,10 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   const [cantidad, setCantidad] = useState("1");
   const [unidad, setUnidad] = useState<Uom>("UN");
   const [originType, setOriginType] = useState<OriginType>("MANUAL");
-  const [originId, setOriginId] = useState("");
   const [originSearch, setOriginSearch] = useState("");
   const [originOptions, setOriginOptions] = useState<OriginOption[]>([]);
-  const [loadingOrigins, setLoadingOrigins] = useState(false);
+  const [originLoading, setOriginLoading] = useState(false);
+  const [originId, setOriginId] = useState("");
   const [activo, setActivo] = useState(true);
 
   useEffect(() => {
@@ -91,27 +104,28 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
   useEffect(() => {
     let cancelled = false;
     async function loadOrigins() {
-      setLoadingOrigins(true);
+      setOriginLoading(true);
       try {
         const qp = new URLSearchParams();
-        qp.set("kind", originType);
-        if (originSearch.trim()) qp.set("q", originSearch.trim());
-        if (originId) qp.set("selected_id", originId);
+        qp.set("tipo", originType);
+        const effectiveSearch = originSearch.trim() || (editing && originId ? originId : "");
+        qp.set("search", effectiveSearch);
         const r = await fetch(`/api/origenes-tecnicos?${qp.toString()}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
         if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-        if (!cancelled) setOriginOptions((j.items ?? []) as OriginOption[]);
-      } catch {
-        if (!cancelled) setOriginOptions([]);
+        if (cancelled) return;
+        setOriginOptions(((j.items ?? []) as any[]).map((x) => ({ id: Number(x.id), label: String(x.label ?? "") })));
+      } catch (e: any) {
+        if (!cancelled) setErr(String(e?.message || e));
       } finally {
-        if (!cancelled) setLoadingOrigins(false);
+        if (!cancelled) setOriginLoading(false);
       }
     }
     void loadOrigins();
     return () => {
       cancelled = true;
     };
-  }, [originType, originSearch, originId]);
+  }, [originType, originSearch, editing, originId]);
 
   const title = useMemo(() => (editing ? "Editar Item Comercial" : "Nuevo Item Comercial"), [editing]);
 
@@ -141,10 +155,10 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
   async function save() {
     setErr(null);
-    setSaving(true);
     try {
       if (!nombre.trim()) throw new Error("Nombre requerido.");
       const body = buildBody();
+      setSaving(true);
       const r = await fetch(editing ? `/api/items-comerciales/${itemId}` : "/api/items-comerciales", {
         method: editing ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
@@ -152,7 +166,8 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
       });
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      router.push("/items-comerciales");
+      const id = Number(j?.item_comercial_id ?? itemId ?? 0);
+      router.push(id > 0 ? `/items-comerciales/${id}` : "/items-comerciales");
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
@@ -196,7 +211,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             </button>
           ) : null}
           <button onClick={() => void save()} disabled={saving || deleting || loading} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", cursor: saving || deleting || loading ? "default" : "pointer", opacity: saving || deleting || loading ? 0.7 : 1 }}>
-            {saving ? "Guardando..." : "Guardar"}
+            {saving ? "Guardando..." : editing ? "Guardar" : "Guardar y seguir"}
           </button>
         </div>
       </div>
@@ -208,26 +223,26 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         </div>
       ) : null}
 
-      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", maxWidth: 780 }}>
+      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", maxWidth: 860 }}>
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gap: 6 }}>
             <label style={{ fontSize: 12, opacity: 0.7 }}>Nombre</label>
-            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre comercial" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre comercial" style={inputStyle} />
           </div>
 
           <div style={{ display: "grid", gap: 6 }}>
             <label style={{ fontSize: 12, opacity: 0.7 }}>Descripción (opcional)</label>
-            <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", resize: "vertical" }} />
+            <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
-              <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" placeholder="1" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" placeholder="1" style={inputStyle} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Unidad</label>
-              <select value={unidad} onChange={(e) => setUnidad(e.target.value as Uom)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
+              <select value={unidad} onChange={(e) => setUnidad(e.target.value as Uom)} style={inputStyle}>
                 <option value="UN">UN</option>
                 <option value="GR">GR</option>
                 <option value="ML">ML</option>
@@ -235,49 +250,40 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "140px minmax(0, 1fr)", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "160px minmax(0,1fr)", gap: 10 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Origen</label>
-              <select
-                value={originType}
-                onChange={(e) => {
-                  setOriginType(e.target.value as OriginType);
-                  setOriginId("");
-                  setOriginSearch("");
-                }}
-                style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}
-              >
+              <select value={originType} onChange={(e) => { setOriginType(e.target.value as OriginType); setOriginId(""); }} style={inputStyle}>
                 <option value="MANUAL">MANUAL</option>
                 <option value="PROVEEDOR">PROVEEDOR</option>
                 <option value="FORMULADO">FORMULADO</option>
               </select>
             </div>
+
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: 12, opacity: 0.7 }}>Buscar origen técnico</label>
-              <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Buscar por nombre o ID" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }} />
+              <input value={originSearch} onChange={(e) => setOriginSearch(e.target.value)} placeholder="Buscar por nombre o ID..." style={inputStyle} />
             </div>
           </div>
 
           <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: 12, opacity: 0.7 }}>
-              Seleccionar {originType === "MANUAL" ? "manual_cost_option_id" : originType === "PROVEEDOR" ? "proveedor_item_id" : "formulado_item_formulado_id"}
-            </label>
-            <select value={originId} onChange={(e) => setOriginId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none" }}>
-              <option value="">{loadingOrigins ? "Cargando..." : "Seleccionar..."}</option>
-              {originOptions.map((opt) => (
-                <option key={opt.id} value={String(opt.id)}>{opt.label}</option>
+            <label style={{ fontSize: 12, opacity: 0.7 }}>Origen seleccionado</label>
+            <select value={originId} onChange={(e) => setOriginId(e.target.value)} style={inputStyle}>
+              <option value="">{originLoading ? "Cargando..." : "Seleccionar..."}</option>
+              {originOptions.map((o) => (
+                <option key={o.id} value={String(o.id)}>{o.label}</option>
               ))}
             </select>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              Seleccioná un origen existente. Ya no hace falta recordar IDs manualmente.
-            </div>
-          </div>
-
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            En este lote 1 no se editan todavía asociaciones de envases/etiquetas ni densidad desde la hoja comercial.
           </div>
         </div>
       </div>
+
+      {editing ? (
+        <>
+          <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="envases" />
+          <ItemComercialRelaciones itemComercialId={Number(itemId)} kind="etiquetas" />
+        </>
+      ) : null}
     </div>
   );
 }

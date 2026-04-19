@@ -76,3 +76,30 @@ El formulario debe pedir dos campos numéricos separados:
 - `Largo (mm)`
 
 La grilla puede mostrarlo compactado como `ancho x largo`, pero el dato persistido debe quedar separado para evitar ambigüedad al asociar luego el tamaño correcto de BarTender.
+
+
+## Edición de `Items Comerciales`
+
+El alta de `Item Comercial` debe redirigir al detalle editado para continuar con asociaciones.
+
+La hoja de edición debe mostrar, debajo del bloque base del comercial, dos secciones compactas:
+
+- `Envases asociados`
+- `Etiquetas asociadas`
+
+Cada sección debe permitir:
+
+- seleccionar un ítem existente de su lista
+- informar `cantidad`
+- marcar `obligatorio`
+- agregar la relación
+- editar `cantidad` y `obligatorio` inline
+- eliminar la relación
+
+La selección del origen técnico del comercial debe hacerse desde una lista buscable por tipo:
+
+- `MANUAL`
+- `PROVEEDOR`
+- `FORMULADO`
+
+No se deben exponer campos de ID libre para estas selecciones.

@@ -62,3 +62,35 @@ Se descarta el campo libre `medidas` porque no garantiza un formato estable para
 La posibilidad de crear estos ítems desde un motor de proveedor sigue abierta, pero no se implementa todavía en este corte.
 
 En esta iteración se consolida primero el flujo manual con costo y lote de referencia.
+
+
+## vNext — Asociaciones de `Items Comerciales`
+
+Primer corte implementable para relaciones bloqueantes del comercial:
+
+- `GET /api/origenes-tecnicos?tipo=MANUAL|PROVEEDOR|FORMULADO&search=`
+- `GET /api/items-comerciales/[item_comercial_id]/envases`
+- `POST /api/items-comerciales/[item_comercial_id]/envases`
+- `PATCH /api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]`
+- `DELETE /api/items-comerciales/[item_comercial_id]/envases/[item_comercial_envase_id]`
+- `GET /api/items-comerciales/[item_comercial_id]/etiquetas`
+- `POST /api/items-comerciales/[item_comercial_id]/etiquetas`
+- `PATCH /api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]`
+- `DELETE /api/items-comerciales/[item_comercial_id]/etiquetas/[item_comercial_etiqueta_id]`
+
+### Reglas de payload
+
+Para agregar una asociación:
+
+- Envase: `{ item_envase_id, cantidad, obligatorio }`
+- Etiqueta: `{ item_etiqueta_id, cantidad, obligatorio }`
+
+Para editar una asociación:
+
+- `PATCH` parcial con `cantidad` y/o `obligatorio`
+
+### Reglas operativas
+
+- `Items Comerciales` se crean primero y luego se editan para asociar envases y etiquetas.
+- `Items Paquetería` sigue fuera de la lógica de bloqueo y no entra todavía en estas relaciones.
+- La selección de origen técnico del comercial no debe pedir IDs crudos; debe resolverse mediante lista buscable desde `/api/origenes-tecnicos`.

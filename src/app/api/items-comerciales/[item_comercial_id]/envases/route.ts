@@ -1,0 +1,89 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+
+function rowsOf(res: any): any[] {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.rows)) return res.rows;
+  return [];
+}
+
+function numOrNull(v: any): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function GET(_: NextRequest, ctx: { params: { item_comercial_id: string } }) {
+  try {
+    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0) {
+      return NextResponse.json({ ok: false, error: "item_comercial_id inválido" }, { status: 400 });
+    }
+
+    const sql = db();
+    const r: any = await sql.query(
+      `
+      SELECT
+        r.item_comercial_envase_id,
+        r.item_comercial_id,
+        r.item_envase_id,
+        r.cantidad::float8 as cantidad,
+        r.obligatorio,
+        e.nombre,
+        e.uom,
+        e.cantidad_referencia::float8 as cantidad_referencia,
+        e.costo_ars::float8 as costo_ars,
+        e.activo
+      FROM app.item_comercial_envase r
+      JOIN app.item_envase e ON e.item_envase_id = r.item_envase_id
+      WHERE r.item_comercial_id = $1
+      ORDER BY e.nombre ASC, r.item_comercial_envase_id ASC
+      `,
+      [item_comercial_id]
+    );
+
+    return NextResponse.json({ ok: true, items: rowsOf(r) });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest, ctx: { params: { item_comercial_id: string } }) {
+  try {
+    const item_comercial_id = Number(ctx.params.item_comercial_id);
+    if (!Number.isFinite(item_comercial_id) || item_comercial_id <= 0) {
+      return NextResponse.json({ ok: false, error: "item_comercial_id inválido" }, { status: 400 });
+    }
+
+    const body = await req.json().catch(() => ({} as any));
+    const item_envase_id = numOrNull(body?.item_envase_id);
+    const cantidad = numOrNull(body?.cantidad);
+    const obligatorio = body?.obligatorio === false ? false : true;
+
+    if (!Number.isFinite(item_envase_id as number) || Number(item_envase_id) <= 0) {
+      return NextResponse.json({ ok: false, error: "item_envase_id inválido" }, { status: 422 });
+    }
+    if (!Number.isFinite(cantidad as number) || Number(cantidad) <= 0) {
+      return NextResponse.json({ ok: false, error: "cantidad inválida" }, { status: 422 });
+    }
+
+    const sql = db();
+    const r: any = await sql.query(
+      `
+      INSERT INTO app.item_comercial_envase (item_comercial_id, item_envase_id, cantidad, obligatorio)
+      VALUES ($1, $2, $3, $4)
+      RETURNING item_comercial_envase_id
+      `,
+      [item_comercial_id, item_envase_id, cantidad, obligatorio]
+    );
+
+    return NextResponse.json({ ok: true, item_comercial_envase_id: rowsOf(r)?.[0]?.item_comercial_envase_id }, { status: 201 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "error");
+    if (msg.includes("item_comercial_envase_unique")) {
+      return NextResponse.json({ ok: false, error: "el envase ya está asociado" }, { status: 409 });
+    }
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
