@@ -442,28 +442,6 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
-              <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" style={inputStyle} />
-            </div>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: 12, opacity: 0.7 }}>Unidad</label>
-              <select value={unidad} onChange={(e) => setUnidad(e.target.value as Uom)} style={inputStyle}>
-                <option value="GR">GR</option>
-                <option value="ML">ML</option>
-                <option value="UN">UN</option>
-              </select>
-            </div>
-            {needsDensity ? (
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: 12, opacity: 0.7 }}>Densidad (g/mL)</label>
-                <input value={densidadInput} onChange={(e) => setDensidadInput(e.target.value)} inputMode="decimal" placeholder="Ej. 1.05" style={inputStyle} />
-              </div>
-            ) : null}
-          </div>
-          {unitCompatibilityError ? <div style={{ fontSize: 12, opacity: 0.9, color: "#ffb3b3" }}>{unitCompatibilityError}</div> : null}
-
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "180px minmax(0, 1fr)", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
@@ -532,6 +510,28 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
                 </div>
               </div>
             </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
+                <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" style={inputStyle} />
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={{ fontSize: 12, opacity: 0.7 }}>Unidad</label>
+                <select value={unidad} onChange={(e) => setUnidad(e.target.value as Uom)} style={inputStyle}>
+                  <option value="GR">GR</option>
+                  <option value="ML">ML</option>
+                  <option value="UN">UN</option>
+                </select>
+              </div>
+              {needsDensity ? (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <label style={{ fontSize: 12, opacity: 0.7 }}>Densidad (g/mL)</label>
+                  <input value={densidadInput} onChange={(e) => setDensidadInput(e.target.value)} inputMode="decimal" placeholder="Ej. 1.05" style={inputStyle} />
+                </div>
+              ) : null}
+            </div>
+            {unitCompatibilityError ? <div style={{ fontSize: 12, opacity: 0.9, color: "#ffb3b3" }}>{unitCompatibilityError}</div> : null}
           </div>
         </div>
       </div>

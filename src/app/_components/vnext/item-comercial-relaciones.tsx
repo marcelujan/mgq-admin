@@ -82,7 +82,6 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState("");
-  const [cantidad, setCantidad] = useState("1");
   const [dirty, setDirty] = useState<Record<number, { cantidad: string }>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -126,11 +125,6 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
     return options.find((o) => Number(o.id) === id) ?? null;
   }, [options, selectedId]);
 
-  const selectedLineCost = useMemo(() => {
-    if (!selectedOption) return 0;
-    return calcLineCost(Number(cantidad), selectedOption.cantidad_referencia, selectedOption.costo_ars);
-  }, [cantidad, selectedOption]);
-
   const subtotal = useMemo(() => rows.reduce((acc, r) => acc + calcLineCost(r.cantidad, r.cantidad_referencia, r.costo_ars), 0), [rows]);
 
   useEffect(() => {
@@ -145,9 +139,8 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
     setErr(null);
     try {
       const itemId = Number(selectedId);
-      const qty = Number(cantidad);
+      const qty = 1;
       if (!Number.isFinite(itemId) || itemId <= 0) throw new Error("Seleccioná un ítem válido.");
-      if (!Number.isFinite(qty) || qty <= 0) throw new Error("Cantidad inválida.");
       setSaving(true);
       const r = await fetch(cfg.assocApi(itemComercialId), {
         method: "POST",
@@ -157,7 +150,6 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
       const j = await r.json().catch(() => null);
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       setSelectedId("");
-      setCantidad("1");
       await loadAll();
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -239,7 +231,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
         <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, background: "rgba(255,90,90,0.08)", fontSize: 12, whiteSpace: "pre-wrap" }}>{err}</div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 96px auto", gap: 10, alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "end" }}>
         <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <label style={{ fontSize: 12, opacity: 0.7 }}>{kind === "envases" ? "Item Envase" : "Item Etiqueta"}</label>
           <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: "100%", minWidth: 0 }}>
@@ -250,18 +242,14 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
             })}
           </select>
         </div>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Cantidad</label>
-          <input value={cantidad} onChange={(e) => setCantidad(e.target.value)} inputMode="decimal" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "rgba(255,255,255,0.92)", outline: "none", width: "100%" }} />
-        </div>
-        <button type="button" onClick={() => void addAssoc()} disabled={saving} style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,255,255,0.03)", color: "inherit", cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1, whiteSpace: "nowrap" }}>{saving ? "Agregando..." : "Agregar"}</button>
+        <button type="button" onClick={() => void addAssoc()} disabled={saving || !selectedId} title="Agregar" aria-label="Agregar" style={{ border: "1px solid rgba(255,255,255,0.14)", borderRadius: 10, width: 36, height: 36, padding: 0, background: "rgba(255,255,255,0.03)", color: "inherit", cursor: saving || !selectedId ? "default" : "pointer", opacity: saving || !selectedId ? 0.6 : 1, fontSize: 20, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{saving ? "…" : "+"}</button>
       </div>
 
       {selectedOption ? (
         <div style={{ fontSize: 12, opacity: 0.72, display: "flex", gap: 18, flexWrap: "wrap" }}>
           <div>Ref: {fmtNum(selectedOption.cantidad_referencia, 3)} {selectedOption.uom ?? ""}</div>
           <div>Costo ref.: ARS {fmtMoney(selectedOption.costo_ars)}</div>
-          <div>Costo línea: ARS {fmtMoney(selectedLineCost)}</div>
+          <div>Cantidad inicial: 1</div>
           {kind === "etiquetas" && Number.isFinite(Number(selectedOption.ancho_mm)) && Number.isFinite(Number(selectedOption.largo_mm)) ? (
             <div>Medidas: {Number(selectedOption.ancho_mm)} x {Number(selectedOption.largo_mm)}</div>
           ) : null}
