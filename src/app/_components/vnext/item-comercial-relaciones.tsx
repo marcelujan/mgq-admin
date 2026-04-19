@@ -147,7 +147,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind }: { ite
     setDirty((prev) => ({
       ...prev,
       [id]: {
-        cantidad: next.cantidad ?? prev[id]?.cantidad ?? numOrEmpty(r.cantidad) || "1",
+        cantidad: next.cantidad ?? prev[id]?.cantidad ?? (numOrEmpty(r.cantidad) || "1"),
         obligatorio: next.obligatorio ?? prev[id]?.obligatorio ?? Boolean(r.obligatorio),
       },
     }));
