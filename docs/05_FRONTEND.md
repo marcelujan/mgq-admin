@@ -181,3 +181,10 @@ Ajustes posteriores en `Stock`:
 
 - `Stock · Producción`: la fila superior concentra `Fecha` y `Tamaño del lote`; debajo se selecciona el formulado y al final quedan las tablas de `Producto obtenido` y `Componentes utilizados` con cantidades reales editables.
 - `Stock · Ingreso` y `Stock · Ajuste`: la fila superior concentra `Fecha` y cantidad; el selector del ítem queda debajo.
+
+
+### Hoja `Stock · Movimientos`
+
+- Nueva hoja dedicada para historial completo de operaciones de stock.
+- La hoja `Stock` conserva solo un bloque de **Operaciones recientes** y enlaza a **Ver historial**.
+- La tabla de movimientos admite filtros por tipo, búsqueda textual y rango de fechas, además de orden por columnas.

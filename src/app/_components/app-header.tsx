@@ -38,6 +38,8 @@ function labelForSegment(seg: string): string {
       return "Producción";
     case "operaciones":
       return "Operaciones";
+    case "movimientos":
+      return "Movimientos";
     case "jobs-diario":
       return "Corrida diaria";
     case "new":

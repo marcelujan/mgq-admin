@@ -228,3 +228,11 @@ Reemplaza los movimientos de la operación y actualiza fecha / objetivo(s) / can
 ### `GET /api/stock-operaciones/produccion/sugerencia`
 
 Dado un `formulado_item_formulado_id`, devuelve una sugerencia inicial de componentes a consumir basada en `producto_formula_linea_v2` y `producto_formula_v2.lote_ref_g`. La sugerencia es editable y no bloquea la carga de valores reales.
+
+
+### Stock · Movimientos
+
+- `GET /api/stock-operaciones`
+  - filtros admitidos: `tipo`, `search`, `from`, `to`, `limit`
+- `DELETE /api/stock-operaciones/[stock_operacion_id]`
+  - elimina la operación completa y, por cascada, sus movimientos asociados

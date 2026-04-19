@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clearStockMovimientos, ensureTargetExists, getStockOperacionDetail, insertStockMovimiento, isStockItemTipo, numOrNull, parseFechaOrNull, textOrNull, updateStockOperacionMeta } from "@/lib/stock-v2";
+import { clearStockMovimientos, deleteStockOperacion, ensureTargetExists, getStockOperacionDetail, insertStockMovimiento, isStockItemTipo, numOrNull, parseFechaOrNull, textOrNull, updateStockOperacionMeta } from "@/lib/stock-v2";
 
 type Ctx = { params: Promise<{ stock_operacion_id: string }> };
 type ConsumoLine = { item_tipo?: string; item_ref_id?: number | string; cantidad?: number | string };
@@ -111,15 +111,9 @@ export async function DELETE(_: NextRequest, ctx: Ctx) {
     if (!Number.isFinite(stock_operacion_id) || stock_operacion_id <= 0) {
       return NextResponse.json({ ok: false, error: "stock_operacion_id inválido" }, { status: 400 });
     }
-
     const current = await getStockOperacionDetail(stock_operacion_id);
     if (!current) return NextResponse.json({ ok: false, error: "operación no encontrada" }, { status: 404 });
-
-    await clearStockMovimientos(stock_operacion_id);
-    const { db } = await import("@/lib/db");
-    const sql = db();
-    await sql.query(`DELETE FROM app.stock_operacion WHERE stock_operacion_id = $1`, [stock_operacion_id]);
-
+    await deleteStockOperacion(stock_operacion_id);
     return NextResponse.json({ ok: true, stock_operacion_id });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
