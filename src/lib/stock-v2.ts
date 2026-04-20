@@ -474,7 +474,7 @@ export async function getStockOperacionDetail(stock_operacion_id: number) {
   };
 }
 
-export type ComercialEstado = "BORRADOR" | "OFERTABLE" | "BLOQUEADO";
+export type ComercialEstado = "BORRADOR" | "OFERTABLE" | "CON_FALTANTES" | "BLOQUEADO";
 
 export type ComercialDiagnosticoRow = {
   item_comercial_id: number;
@@ -490,6 +490,7 @@ export type ComercialDiagnosticoRow = {
   bulk_requerido: number | null;
   bulk_faltante: number;
   estado: ComercialEstado;
+  estado_detalle: string;
   warnings_envases: number;
   warnings_etiquetas: number;
   warnings_detalle: string[];
@@ -539,7 +540,7 @@ function keyFor(item_tipo: StockItemTipo, item_ref_id: number) {
   return `${item_tipo}:${item_ref_id}`;
 }
 
-export async function listStockFaltantes(search: string, estado: "" | ComercialEstado | "CON_ADVERTENCIAS", limit: number, onlyItemComercialId: number | null = null) {
+export async function listStockFaltantes(search: string, estado: "" | ComercialEstado, limit: number, onlyItemComercialId: number | null = null) {
   const sql = db();
   const rCom: any = await sql.query(
     `
@@ -654,47 +655,13 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
     const origen_uom = textOrNull(c.origen_uom);
     const densidad = numOrNull(c.densidad_g_ml);
     const saldo = Number(numOrNull(c.bulk_saldo) ?? 0);
-    let estado: ComercialEstado = "BORRADOR";
-    let bulk_requerido: number | null = null;
-    let bulk_faltante = 0;
+    let warnings_envases = 0;
+    let warnings_etiquetas = 0;
     const warnings: string[] = [];
 
-    const missingStructure = !textOrNull(c.nombre) || cantidad === null || !unidad || !origen_tipo || origen_ref_id === null;
-    if (!missingStructure) {
-      if (needsDensity(unidad, origen_uom) && !(Number.isFinite(Number(densidad)) && Number(densidad) > 0)) {
-        estado = "BORRADOR";
-      } else {
-        const req = normalizeQtyToOrigin(Number(cantidad), unidad, origen_uom, densidad);
-        if (req === null || !Number.isFinite(req) || req <= 0) {
-          estado = "BORRADOR";
-        } else {
-          bulk_requerido = req;
-          bulk_faltante = Math.max(req - saldo, 0);
-          estado = bulk_faltante > 0 ? "BLOQUEADO" : "OFERTABLE";
-          if (bulk_faltante > 0 && origen_tipo && origen_ref_id !== null) {
-            const k = keyFor(origen_tipo, Number(origen_ref_id));
-            const label = String(c.origen_label ?? c.nombre ?? `${origen_tipo} #${origen_ref_id}`);
-            const cur = comprasMap.get(k) ?? {
-              key: k,
-              item_tipo: origen_tipo,
-              item_ref_id: Number(origen_ref_id),
-              nombre: String(c.origen_label ?? c.nombre ?? `${origen_tipo} #${origen_ref_id}`),
-              label,
-              uom: origen_uom,
-              saldo,
-              faltante_total: 0,
-              comerciales_afectados: 0,
-              comerciales_labels: [] as string[],
-            };
-            cur.faltante_total += bulk_faltante;
-            cur.comerciales_labels.push(String(c.nombre ?? `Item Comercial #${c.item_comercial_id}`));
-            comprasMap.set(k, cur);
-          }
-        }
-      }
-    }
+    const envSeleccionados = (envMap.get(Number(c.item_comercial_id)) ?? []).length;
+    const etSeleccionadas = (etMap.get(Number(c.item_comercial_id)) ?? []).length;
 
-    let warnings_envases = 0;
     for (const e of envMap.get(Number(c.item_comercial_id)) ?? []) {
       const requerida = Number(numOrNull(e.requerida) ?? 0);
       const saldoEnv = Number(numOrNull(e.saldo) ?? 0);
@@ -721,7 +688,6 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
       }
     }
 
-    let warnings_etiquetas = 0;
     for (const e of etMap.get(Number(c.item_comercial_id)) ?? []) {
       const requerida = Number(numOrNull(e.requerida) ?? 0);
       const saldoEt = Number(numOrNull(e.saldo) ?? 0);
@@ -749,6 +715,69 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
       }
     }
 
+    let estado: ComercialEstado = "BORRADOR";
+    let estado_detalle = "Incompleto";
+    let bulk_requerido: number | null = null;
+    let bulk_faltante = 0;
+
+    const missingStructure = !textOrNull(c.nombre) || cantidad === null || !unidad || !origen_tipo || origen_ref_id === null;
+    if (missingStructure) {
+      estado = "BORRADOR";
+      if (!textOrNull(c.nombre)) estado_detalle = "Falta nombre";
+      else if (!origen_tipo || origen_ref_id === null) estado_detalle = "Falta bulk";
+      else estado_detalle = "Falta cantidad o unidad";
+    } else if (needsDensity(unidad, origen_uom) && !(Number.isFinite(Number(densidad)) && Number(densidad) > 0)) {
+      estado = "BORRADOR";
+      estado_detalle = "Falta densidad";
+    } else if (envSeleccionados === 0 || etSeleccionadas === 0) {
+      estado = "BORRADOR";
+      const miss: string[] = [];
+      if (envSeleccionados === 0) miss.push("Falta seleccionar envase");
+      if (etSeleccionadas === 0) miss.push("Falta seleccionar etiqueta");
+      estado_detalle = miss.join(" · ");
+    } else {
+      const req = normalizeQtyToOrigin(Number(cantidad), unidad, origen_uom, densidad);
+      if (req === null || !Number.isFinite(req) || req <= 0) {
+        estado = "BORRADOR";
+        estado_detalle = "No se pudo calcular consumo de bulk";
+      } else {
+        bulk_requerido = req;
+        bulk_faltante = Math.max(req - saldo, 0);
+        if (bulk_faltante > 0) {
+          estado = "BLOQUEADO";
+          estado_detalle = "Falta stock de bulk";
+          if (origen_tipo && origen_ref_id !== null) {
+            const k = keyFor(origen_tipo, Number(origen_ref_id));
+            const label = String(c.origen_label ?? c.nombre ?? `${origen_tipo} #${origen_ref_id}`);
+            const cur = comprasMap.get(k) ?? {
+              key: k,
+              item_tipo: origen_tipo,
+              item_ref_id: Number(origen_ref_id),
+              nombre: String(c.origen_label ?? c.nombre ?? `${origen_tipo} #${origen_ref_id}`),
+              label,
+              uom: origen_uom,
+              saldo,
+              faltante_total: 0,
+              comerciales_afectados: 0,
+              comerciales_labels: [] as string[],
+            };
+            cur.faltante_total += bulk_faltante;
+            cur.comerciales_labels.push(String(c.nombre ?? `Item Comercial #${c.item_comercial_id}`));
+            comprasMap.set(k, cur);
+          }
+        } else if (warnings_envases > 0 || warnings_etiquetas > 0) {
+          estado = "CON_FALTANTES";
+          const parts: string[] = [];
+          if (warnings_envases > 0) parts.push(`${warnings_envases} envase(s) sin stock`);
+          if (warnings_etiquetas > 0) parts.push(`${warnings_etiquetas} etiqueta(s) sin stock`);
+          estado_detalle = parts.join(" · ");
+        } else {
+          estado = "OFERTABLE";
+          estado_detalle = "Completo y con stock disponible";
+        }
+      }
+    }
+
     comerciales.push({
       item_comercial_id: Number(c.item_comercial_id),
       nombre: c.nombre ?? null,
@@ -763,6 +792,7 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
       bulk_requerido,
       bulk_faltante,
       estado,
+      estado_detalle,
       warnings_envases,
       warnings_etiquetas,
       warnings_detalle: warnings,
@@ -780,7 +810,6 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
 
   const filteredComerciales = comerciales.filter((r) => {
     if (estado === "") return true;
-    if (estado === "CON_ADVERTENCIAS") return r.warnings_envases > 0 || r.warnings_etiquetas > 0;
     return r.estado === estado;
   });
 

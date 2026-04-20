@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-type Estado = "BORRADOR" | "OFERTABLE" | "BLOQUEADO";
+type Estado = "BORRADOR" | "OFERTABLE" | "CON_FALTANTES" | "BLOQUEADO";
 
 type OriginInfo = {
   origin_uom: string | null;
@@ -173,15 +173,18 @@ async function loadOriginInfoMaps(sql: any, rows: any[]) {
   return { manualMap, proveedorMap, formuladoMap };
 }
 
-async function loadWarningMaps(sql: any, itemIds: number[]) {
-  const envMap = new Map<number, number>();
-  const etMap = new Map<number, number>();
-  if (!itemIds.length) return { envMap, etMap };
+async function loadRelationStatsMaps(sql: any, itemIds: number[]) {
+  const envWarnMap = new Map<number, number>();
+  const etWarnMap = new Map<number, number>();
+  const envSelMap = new Map<number, number>();
+  const etSelMap = new Map<number, number>();
+  if (!itemIds.length) return { envWarnMap, etWarnMap, envSelMap, etSelMap };
 
   const envR: any = await sql.query(
     `
     SELECT
       r.item_comercial_id,
+      COUNT(*)::int as selected_count,
       COUNT(*) FILTER (WHERE coalesce(s.saldo, 0)::float8 < r.cantidad::float8)::int as faltantes_count
     FROM app.item_comercial_envase r
     LEFT JOIN app.stock_saldo_actual_v s ON s.item_tipo = 'ENVASE' AND s.item_ref_id = r.item_envase_id::text
@@ -190,12 +193,16 @@ async function loadWarningMaps(sql: any, itemIds: number[]) {
     `,
     [itemIds]
   );
-  for (const row of normalizeQueryResult(envR)) envMap.set(Number(row.item_comercial_id), Number(row.faltantes_count ?? 0));
+  for (const row of normalizeQueryResult(envR)) {
+    envSelMap.set(Number(row.item_comercial_id), Number(row.selected_count ?? 0));
+    envWarnMap.set(Number(row.item_comercial_id), Number(row.faltantes_count ?? 0));
+  }
 
   const etR: any = await sql.query(
     `
     SELECT
       r.item_comercial_id,
+      COUNT(*)::int as selected_count,
       COUNT(*) FILTER (WHERE coalesce(s.saldo, 0)::float8 < r.cantidad::float8)::int as faltantes_count
     FROM app.item_comercial_etiqueta r
     LEFT JOIN app.stock_saldo_actual_v s ON s.item_tipo = 'ETIQUETA' AND s.item_ref_id = r.item_etiqueta_id::text
@@ -204,12 +211,15 @@ async function loadWarningMaps(sql: any, itemIds: number[]) {
     `,
     [itemIds]
   );
-  for (const row of normalizeQueryResult(etR)) etMap.set(Number(row.item_comercial_id), Number(row.faltantes_count ?? 0));
+  for (const row of normalizeQueryResult(etR)) {
+    etSelMap.set(Number(row.item_comercial_id), Number(row.selected_count ?? 0));
+    etWarnMap.set(Number(row.item_comercial_id), Number(row.faltantes_count ?? 0));
+  }
 
-  return { envMap, etMap };
+  return { envWarnMap, etWarnMap, envSelMap, etSelMap };
 }
 
-function calcEstado(row: any, origin: OriginInfo | undefined, warnEnv: number, warnEt: number): { estado: Estado; estado_detalle: string; warning_envases_count: number; warning_etiquetas_count: number; bulk_requerido: number | null; bulk_saldo: number | null; origin_uom: string | null; } {
+function calcEstado(row: any, origin: OriginInfo | undefined, warnEnv: number, warnEt: number, envSel: number, etSel: number): { estado: Estado; estado_detalle: string; warning_envases_count: number; warning_etiquetas_count: number; bulk_requerido: number | null; bulk_saldo: number | null; origin_uom: string | null; } {
   const nombre = typeof row?.nombre === "string" ? row.nombre.trim() : "";
   const cantidad = numOrNull(row?.cantidad);
   const unidad = row?.unidad ? String(row.unidad).trim().toUpperCase() : null;
@@ -233,29 +243,26 @@ function calcEstado(row: any, origin: OriginInfo | undefined, warnEnv: number, w
 
   const itemFamily = familyOfUom(unidad);
   const originFamily = familyOfUom(origin.origin_uom);
-  const needsDensity = !!itemFamily && !!originFamily && itemFamily !== originFamily && itemFamily !== "unit" && originFamily !== "unit";
-  if (needsDensity && !(Number(origin.densidad_g_ml ?? 0) > 0)) {
-    return { estado: "BORRADOR", estado_detalle: "Falta densidad", ...resultBase };
+  const densityNeeded = !!itemFamily && !!originFamily && itemFamily !== originFamily && itemFamily !== "unit" && originFamily !== "unit";
+  if (densityNeeded && !(Number(origin.densidad_g_ml ?? 0) > 0)) return { estado: "BORRADOR", estado_detalle: "Falta densidad", ...resultBase };
+  if (envSel <= 0 || etSel <= 0) {
+    const parts: string[] = [];
+    if (envSel <= 0) parts.push("Falta seleccionar envase");
+    if (etSel <= 0) parts.push("Falta seleccionar etiqueta");
+    return { estado: "BORRADOR", estado_detalle: parts.join(" · "), ...resultBase };
   }
 
   const requerido = requiredOriginQty({ cantidad, unidad, origin_uom: origin.origin_uom, densidad_g_ml: origin.densidad_g_ml });
-  if (!(requerido !== null && Number.isFinite(requerido) && requerido > 0)) {
-    return { estado: "BORRADOR", estado_detalle: "No se pudo calcular consumo de bulk", ...resultBase };
-  }
-
-  if (Number(origin.saldo ?? 0) < requerido) {
-    return { estado: "BLOQUEADO", estado_detalle: "Stock insuficiente de bulk", ...resultBase, bulk_requerido: requerido };
-  }
-
-  let detalle = "Listo para ofertar";
+  if (!(requerido !== null && Number.isFinite(requerido) && requerido > 0)) return { estado: "BORRADOR", estado_detalle: "No se pudo calcular consumo de bulk", ...resultBase };
+  if (Number(origin.saldo ?? 0) < requerido) return { estado: "BLOQUEADO", estado_detalle: "Falta stock de bulk", ...resultBase, bulk_requerido: requerido };
   if (warnEnv > 0 || warnEt > 0) {
     const parts: string[] = [];
-    if (warnEnv > 0) parts.push(`${warnEnv} envase(s) con faltante`);
-    if (warnEt > 0) parts.push(`${warnEt} etiqueta(s) con faltante`);
-    detalle = parts.join(" · ");
+    if (warnEnv > 0) parts.push(`${warnEnv} envase(s) sin stock`);
+    if (warnEt > 0) parts.push(`${warnEt} etiqueta(s) sin stock`);
+    return { estado: "CON_FALTANTES", estado_detalle: parts.join(" · "), ...resultBase, bulk_requerido: requerido };
   }
 
-  return { estado: "OFERTABLE", estado_detalle: detalle, ...resultBase, bulk_requerido: requerido };
+  return { estado: "OFERTABLE", estado_detalle: "Completo y con stock disponible", ...resultBase, bulk_requerido: requerido };
 }
 
 export async function GET(req: NextRequest) {
@@ -324,14 +331,21 @@ export async function GET(req: NextRequest) {
     const rows = normalizeQueryResult(r);
     const { manualMap, proveedorMap, formuladoMap } = await loadOriginInfoMaps(sql, rows);
     const itemIds = rows.map((x) => Number(x.item_comercial_id)).filter((x) => Number.isFinite(x) && x > 0);
-    const { envMap, etMap } = await loadWarningMaps(sql, itemIds);
+    const { envWarnMap, etWarnMap, envSelMap, etSelMap } = await loadRelationStatsMaps(sql, itemIds);
 
     const items = rows.map((row) => {
       let origin: OriginInfo | undefined;
       if (row.manual_cost_option_id !== null && row.manual_cost_option_id !== undefined) origin = manualMap.get(Number(row.manual_cost_option_id));
       else if (row.proveedor_item_id !== null && row.proveedor_item_id !== undefined) origin = proveedorMap.get(Number(row.proveedor_item_id));
       else if (row.formulado_item_formulado_id !== null && row.formulado_item_formulado_id !== undefined) origin = formuladoMap.get(Number(row.formulado_item_formulado_id));
-      const estado = calcEstado(row, origin, Number(envMap.get(Number(row.item_comercial_id)) ?? 0), Number(etMap.get(Number(row.item_comercial_id)) ?? 0));
+      const estado = calcEstado(
+        row,
+        origin,
+        Number(envWarnMap.get(Number(row.item_comercial_id)) ?? 0),
+        Number(etWarnMap.get(Number(row.item_comercial_id)) ?? 0),
+        Number(envSelMap.get(Number(row.item_comercial_id)) ?? 0),
+        Number(etSelMap.get(Number(row.item_comercial_id)) ?? 0),
+      );
       return {
         ...row,
         ...estado,

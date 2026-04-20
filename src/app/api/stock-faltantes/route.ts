@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { intParam, listStockFaltantes } from "@/lib/stock-v2";
 import type { ComercialEstado } from "@/lib/stock-v2";
 
-function isEstado(v: string): v is ComercialEstado | "CON_ADVERTENCIAS" {
-  return ["BORRADOR", "OFERTABLE", "BLOQUEADO", "CON_ADVERTENCIAS"].includes(v);
+function isEstado(v: string): v is ComercialEstado {
+  return ["BORRADOR", "OFERTABLE", "CON_FALTANTES", "BLOQUEADO"].includes(v);
 }
 
 export async function GET(req: NextRequest) {

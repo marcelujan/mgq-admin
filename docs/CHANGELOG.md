@@ -38,3 +38,12 @@
 - `StockTargetPicker`: el label pasa a ser opcional para permitir pickers más compactos en Producción.
 
 - Items Comerciales: listado con estado calculado (`BORRADOR | OFERTABLE | BLOQUEADO`), filtro por estado e icono de detalle; advertencias de envases/etiquetas sin bloqueo duro.
+
+
+## 2026-04-21 — Estados simplificados de Items Comerciales
+- `Items Comerciales`: el estado pasa a cuatro colores sin iconos de advertencia en la lista: gris, verde, amarillo y rojo.
+- Gris: incompleto estructural.
+- Verde: completo con stock suficiente.
+- Amarillo: completo con bulk disponible pero faltantes de stock en envases y/o etiquetas seleccionados.
+- Rojo: completo con faltante de bulk.
+- Detalle del comercial: `Estado y faltantes` se mueve al final, debajo del bloque de `Costeo`.

@@ -200,3 +200,22 @@ En la edición de `Item Comercial` se agrega un bloque `Estado y faltantes` con:
 - lista visible de advertencias/faltantes de `Envases` y `Etiquetas`
 
 Ese bloque se refresca al guardar cambios del comercial y también al agregar, editar o eliminar relaciones de `Envases` / `Etiquetas`.
+
+
+## Estados de `Items Comerciales`
+
+La hoja de `Items Comerciales` y el detalle del comercial deben usar exactamente cuatro estados visuales, sin iconos extra de advertencia en la lista:
+
+- **Gris**: incompleto. Falta definir algo estructural (bulk, cantidad, unidad, densidad si aplica, o no se seleccionó envase y/o etiqueta).
+- **Verde**: completo y con stock suficiente de bulk, envases y etiquetas. Se puede ofertar.
+- **Amarillo**: completo y con stock suficiente de bulk, pero con faltantes de stock en envase y/o etiqueta ya seleccionados. Se puede ofertar.
+- **Rojo**: completo, pero con faltante de stock del bulk. No se puede ofertar.
+
+Prioridad de evaluación:
+
+1. Incompleto estructural → gris
+2. Falta stock de bulk → rojo
+3. Faltan envases/etiquetas seleccionados → amarillo
+4. Todo disponible → verde
+
+En el detalle del `Item Comercial`, el bloque **`Estado y faltantes`** debe ir al final de la hoja, debajo del bloque de `Costeo`.
