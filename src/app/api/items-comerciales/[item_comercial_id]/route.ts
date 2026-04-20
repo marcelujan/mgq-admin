@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getComercialDiagnostico } from "@/lib/stock-v2";
 
 function normalizeQueryResult(res: any): any[] {
   if (!res) return [];
@@ -67,7 +68,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     );
     const rows = normalizeQueryResult(r);
     if (!rows.length) return NextResponse.json({ ok: false, error: "no encontrado" }, { status: 404 });
-    return NextResponse.json({ ok: true, item: rows[0] });
+    const diagnostico = await getComercialDiagnostico(item_comercial_id);
+    return NextResponse.json({ ok: true, item: rows[0], diagnostico });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }

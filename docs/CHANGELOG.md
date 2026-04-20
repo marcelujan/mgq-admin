@@ -1,3 +1,4 @@
+- Items Comerciales (detalle): nuevo bloque `Estado y faltantes` con saldo/requerido/faltante de bulk y advertencias visibles de envases/etiquetas; se refresca al guardar el comercial y al cambiar relaciones.
 ## 2026-04-21 — Ajustes de Stock (producción e ingresos)
 - Producción: fecha obligatoria y tamaño de lote pasan a la primera fila, justo debajo del título.
 - Producción: el selector redundante de componentes se elimina de la cabecera y se integra dentro de `Componentes utilizados`.

@@ -19,6 +19,19 @@ type Comercial = {
   activo: boolean;
 };
 
+type ComercialDiagnostico = {
+  estado: "BORRADOR" | "OFERTABLE" | "BLOQUEADO";
+  bulk_requerido: number | null;
+  bulk_saldo: number | null;
+  bulk_faltante: number;
+  origin_uom: string | null;
+  origen_label: string | null;
+  estado_detalle: string;
+  warnings_envases: number;
+  warnings_etiquetas: number;
+  warnings_detalle: string[];
+};
+
 type OriginOption = {
   id: number;
   label: string;
@@ -128,6 +141,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
 
   const [envasesSubtotal, setEnvasesSubtotal] = useState(0);
   const [etiquetasSubtotal, setEtiquetasSubtotal] = useState(0);
+  const [diagnostico, setDiagnostico] = useState<ComercialDiagnostico | null>(null);
 
   const initialLoadedRef = useRef(false);
   const lastSentKeyRef = useRef("");
@@ -168,6 +182,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         }
         setActivo(Boolean(row.activo));
         setCurrentId(Number(row.item_comercial_id));
+        setDiagnostico((j?.diagnostico ?? null) as ComercialDiagnostico | null);
         initialLoadedRef.current = true;
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -255,6 +270,28 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
     const base = Number.isFinite(bulkCost as number) ? Number(bulkCost) : 0;
     return base + envasesSubtotal + etiquetasSubtotal;
   }, [bulkCost, envasesSubtotal, etiquetasSubtotal]);
+
+  async function refreshDiagnostico(idArg?: number | null) {
+    const id = Number(idArg ?? currentId ?? 0);
+    if (!(Number.isFinite(id) && id > 0)) {
+      setDiagnostico(null);
+      return;
+    }
+    try {
+      const r = await fetch(`/api/items-comerciales/${id}`, { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      setDiagnostico((j?.diagnostico ?? null) as ComercialDiagnostico | null);
+    } catch {
+      setDiagnostico(null);
+    }
+  }
+
+  function estadoColor(estado?: string | null): string {
+    if (estado === "OFERTABLE") return "#29c36a";
+    if (estado === "BLOQUEADO") return "#ff6b6b";
+    return "rgba(255,255,255,0.45)";
+  }
 
   const title = currentId ? "Editar Item Comercial" : "Nuevo Item Comercial";
 
@@ -348,6 +385,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
         lastSentKeyRef.current = bodyKey;
         setCurrentId(id);
         setSaveState("saved");
+        void refreshDiagnostico(id);
         router.replace(`/items-comerciales/${id}`);
         return;
       }
@@ -361,6 +399,7 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       lastSentKeyRef.current = bodyKey;
       setSaveState("saved");
+      void refreshDiagnostico(currentId);
     } catch (e: any) {
       setErr(String(e?.message || e));
       setSaveState("idle");
@@ -537,9 +576,44 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
       </div>
 
       {currentId ? (
+        <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Estado y faltantes</div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <span title={diagnostico?.estado ?? "BORRADOR"} style={{ display: "inline-flex", width: 10, height: 10, borderRadius: 999, background: estadoColor(diagnostico?.estado), boxShadow: `0 0 0 1px ${estadoColor(diagnostico?.estado)}66 inset` }} />
+              <span style={{ opacity: 0.85 }}>{diagnostico?.estado_detalle ?? "Pendiente de completar"}</span>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+            {[
+              ["Bulk", diagnostico?.origen_label ?? selectedOrigin?.label ?? "—"],
+              ["Saldo bulk", diagnostico?.bulk_saldo !== null && diagnostico?.bulk_saldo !== undefined ? `${fmtNum(diagnostico.bulk_saldo, 3)} ${diagnostico?.origin_uom ?? ""}`.trim() : "—"],
+              ["Requerido", diagnostico?.bulk_requerido !== null && diagnostico?.bulk_requerido !== undefined ? `${fmtNum(diagnostico.bulk_requerido, 3)} ${diagnostico?.origin_uom ?? ""}`.trim() : "—"],
+              ["Faltante bulk", diagnostico && diagnostico.bulk_faltante > 0 ? `${fmtNum(diagnostico.bulk_faltante, 3)} ${diagnostico?.origin_uom ?? ""}`.trim() : "—"],
+            ].map(([label, value]) => (
+              <div key={String(label)} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", display: "grid", gap: 4 }}>
+                <div style={{ fontSize: 12, opacity: 0.68 }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={String(value ?? "")}>{value}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Faltantes visibles</div>
+            {diagnostico?.warnings_detalle?.length ? (
+              <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4, fontSize: 12, opacity: 0.9 }}>
+                {diagnostico.warnings_detalle.map((x, idx) => <li key={`${idx}-${x}`}>{x}</li>)}
+              </ul>
+            ) : (
+              <div style={{ fontSize: 12, opacity: 0.72 }}>Sin advertencias de envases ni etiquetas.</div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {currentId ? (
         <>
-          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} />
-          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} />
+          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="envases" onSubtotalChange={setEnvasesSubtotal} onChanged={() => { void refreshDiagnostico(currentId); }} />
+          <ItemComercialRelaciones itemComercialId={Number(currentId)} kind="etiquetas" onSubtotalChange={setEtiquetasSubtotal} onChanged={() => { void refreshDiagnostico(currentId); }} />
         </>
       ) : (
         <div style={{ border: "1px dashed rgba(255,255,255,0.12)", borderRadius: 14, padding: 14, fontSize: 12, opacity: 0.72 }}>

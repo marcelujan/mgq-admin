@@ -192,3 +192,11 @@ La lista de `Items Comerciales` muestra una columna de estado por color:
 - rojo: bloqueado
 
 El detalle del estado y las advertencias de envases/etiquetas se abren desde el icono de detalle. La barra de filtros incorpora `Estado`.
+
+En la edición de `Item Comercial` se agrega un bloque `Estado y faltantes` con:
+- color de estado
+- saldo y requerido de bulk
+- faltante de bulk cuando exista
+- lista visible de advertencias/faltantes de `Envases` y `Etiquetas`
+
+Ese bloque se refresca al guardar cambios del comercial y también al agregar, editar o eliminar relaciones de `Envases` / `Etiquetas`.

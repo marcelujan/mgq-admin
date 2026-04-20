@@ -74,7 +74,7 @@ function calcLineCost(cantidad: number | null | undefined, refCantidad: number |
   return (qty / refQty) * refCost;
 }
 
-export default function ItemComercialRelaciones({ itemComercialId, kind, onSubtotalChange }: { itemComercialId: number; kind: Kind; onSubtotalChange?: (subtotal: number) => void }) {
+export default function ItemComercialRelaciones({ itemComercialId, kind, onSubtotalChange, onChanged }: { itemComercialId: number; kind: Kind; onSubtotalChange?: (subtotal: number) => void; onChanged?: () => void }) {
   const cfg = CFG[kind];
   const [rows, setRows] = useState<AssocRow[]>([]);
   const [options, setOptions] = useState<Option[]>([]);
@@ -151,6 +151,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
       if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       setSelectedId("");
       await loadAll();
+      onChanged?.();
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
@@ -190,6 +191,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
         return cp;
       });
       await loadAll();
+      onChanged?.();
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
@@ -213,6 +215,7 @@ export default function ItemComercialRelaciones({ itemComercialId, kind, onSubto
         return cp;
       });
       await loadAll();
+      onChanged?.();
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {

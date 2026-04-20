@@ -539,7 +539,7 @@ function keyFor(item_tipo: StockItemTipo, item_ref_id: number) {
   return `${item_tipo}:${item_ref_id}`;
 }
 
-export async function listStockFaltantes(search: string, estado: "" | ComercialEstado | "CON_ADVERTENCIAS", limit: number) {
+export async function listStockFaltantes(search: string, estado: "" | ComercialEstado | "CON_ADVERTENCIAS", limit: number, onlyItemComercialId: number | null = null) {
   const sql = db();
   const rCom: any = await sql.query(
     `
@@ -785,4 +785,11 @@ export async function listStockFaltantes(search: string, estado: "" | ComercialE
   });
 
   return { comerciales: filteredComerciales, compras };
+}
+
+
+export async function getComercialDiagnostico(item_comercial_id: number): Promise<ComercialDiagnosticoRow | null> {
+  if (!(Number.isFinite(item_comercial_id) && item_comercial_id > 0)) return null;
+  const { comerciales } = await listStockFaltantes("", "", 1, item_comercial_id);
+  return comerciales.find((x) => Number(x.item_comercial_id) === Number(item_comercial_id)) ?? null;
 }
