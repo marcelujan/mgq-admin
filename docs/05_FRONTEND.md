@@ -1,20 +1,22 @@
-# Frontend – Publicaciones
+# Frontend – Navegación principal
 
-## Hojas nuevas
-- `/publicaciones`
-- `/publicaciones/new`
-- `/publicaciones/[publicacion_id]`
+Se agrega `Publicaciones` al flujo principal de navegación.
 
-## Criterio visual
-- tabla compacta
-- una línea por fila
-- acciones inline
-- filtros simples
-- estado por color:
-  - gris = borrador
-  - amarillo = lista
-  - verde = publicada
-  - rojo = pausada
+## Header
+Orden actualizado:
 
-## Nota
-En este corte no se integró todavía la hoja al header ni al inicio para evitar tocar archivos muy sensibles de navegación. Se puede probar por ruta directa.
+- Items
+- Items Manuales
+- Items Formulados
+- Items Proveedores
+- Items Comerciales
+- Items Envases
+- Items Etiqueta
+- Items Paquetería
+- Publicaciones
+- Stock
+- Dólar Histórico
+- Jobs manual
+
+## Inicio
+La hoja Inicio refleja el mismo orden que el header.

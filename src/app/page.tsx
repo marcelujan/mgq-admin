@@ -12,6 +12,7 @@ export default function Home() {
         <li><Link href="/items-envases">Items Envases</Link></li>
         <li><Link href="/items-etiqueta">Items Etiqueta</Link></li>
         <li><Link href="/items-paqueteria">Items Paquetería</Link></li>
+        <li><Link href="/publicaciones">Publicaciones</Link></li>
         <li><Link href="/stock">Stock</Link></li>
         <li><Link href="/dolar-historico">Dólar Histórico</Link></li>
         <li><Link href="/jobs">Jobs manual</Link></li>

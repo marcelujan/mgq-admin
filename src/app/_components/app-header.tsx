@@ -28,6 +28,8 @@ function labelForSegment(seg: string): string {
       return "Items Etiqueta";
     case "items-paqueteria":
       return "Items Paquetería";
+    case "publicaciones":
+      return "Publicaciones";
     case "stock":
       return "Stock";
     case "ingreso":
@@ -36,18 +38,14 @@ function labelForSegment(seg: string): string {
       return "Ajuste";
     case "produccion":
       return "Producción";
-    case "movimientos":
-      return "Movimientos";
     case "operaciones":
       return "Operaciones";
+    case "movimientos":
+      return "Movimientos";
     case "faltantes":
       return "Faltantes";
-    case "jobs-diario":
-      return "Corrida diaria";
     case "new":
       return "Nuevo";
-    case "insumos":
-      return "Insumos";
     case "dolar-historico":
       return "Dólar Histórico";
     default:
@@ -86,6 +84,7 @@ export default function AppHeader() {
     { href: "/items-envases", label: "Items Envases" },
     { href: "/items-etiqueta", label: "Items Etiqueta" },
     { href: "/items-paqueteria", label: "Items Paquetería" },
+    { href: "/publicaciones", label: "Publicaciones" },
     { href: "/stock", label: "Stock" },
     { href: "/dolar-historico", label: "Dólar Histórico" },
     { href: "/jobs", label: "Jobs manual" },
