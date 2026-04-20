@@ -1,67 +1,62 @@
-# Capa mínima de Publicaciones
+# Base de datos – pricing mínimo por canal
 
-## Objetivo
-Separar claramente:
+## Criterio de trabajo
 
-- **Item Comercial** = objeto listo para ofrecer operativamente
-- **Publicación** = salida concreta a un canal de venta
+Se propone separar:
 
-Relación propuesta:
+- **costo operativo** del `Item Comercial`
+- **pricing comercial**
+- **precios finales por canal**
 
-- `item_comercial` **1:N** `publicacion`
+## Estructura mínima propuesta
 
-## Tabla mínima propuesta: `app.publicacion`
+### Tabla orientativa: `app.item_comercial_pricing`
+Relación:
+- `item_comercial 1:1 item_comercial_pricing`
 
 Campos mínimos:
 
-- `publicacion_id` BIGSERIAL PK
-- `item_comercial_id` BIGINT NOT NULL FK -> `app.item_comercial(item_comercial_id)`
-- `canal` TEXT NOT NULL CHECK (`canal in ('WEB','MERCADO_LIBRE')`)
-- `titulo` TEXT NOT NULL
-- `descripcion` TEXT NULL
-- `precio_venta_ars` NUMERIC(18,2) NULL
-- `activa_manual` BOOLEAN NOT NULL DEFAULT false
-- `canal_external_id` TEXT NULL
-- `estado_publicacion` TEXT NOT NULL DEFAULT 'BORRADOR'
-- `created_at` TIMESTAMPTZ NOT NULL DEFAULT now()
-- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT now()
+- `item_comercial_pricing_id`
+- `item_comercial_id`
+- `costo_referencia_ars`
+- `margen_referencia_pct`
+- `precio_sin_impuestos`
+- `precio_directo`
+- `precio_web`
+- `precio_ml`
+- `updated_at`
 
-Checks mínimos:
+## Interpretación de campos
 
-- `estado_publicacion in ('BORRADOR','LISTA','PUBLICADA','PAUSADA')`
-- `precio_venta_ars is null or precio_venta_ars >= 0`
+### `costo_referencia_ars`
+No reemplaza el costeo operativo.
+Es una foto útil para pricing.
 
-Índices mínimos:
+### `margen_referencia_pct`
+Campo opcional de ayuda.
+No debería imponerse como restricción dura.
 
-- `(item_comercial_id)`
-- `(canal)`
-- `(estado_publicacion)`
-- `UNIQUE(item_comercial_id, canal)` para la primera versión
+### `precio_sin_impuestos`
+Precio de referencia.
+No es estrictamente un canal, pero se conserva porque resulta útil para cálculos y control.
 
-## Regla de dependencia operativa
+### `precio_directo`
+Precio para ventas directas:
+- mostrador
+- transferencia
+- WhatsApp
+- conocidos
 
-`publicacion` **no** porta stock propio.  
-La posibilidad real de oferta sigue viniendo desde `item_comercial`.
+### `precio_web`
+Precio final para la web propia.
 
-Regla de publicación mínima:
+### `precio_ml`
+Precio final para Mercado Libre.
 
-- `gris` en comercial → no publicable
-- `rojo` en comercial → no publicable
-- `amarillo` en comercial → publicable con advertencias
-- `verde` en comercial → publicable
+## Primera decisión práctica
 
-## Contenido base vs contenido por publicación
-
-Esto queda **postergado** para una etapa posterior.
-
-Dirección futura aceptada:
-
-- más adelante separar:
-  - **contenido base** (texto e imágenes comunes del producto)
-  - **contenido específico de publicación** (texto/imágenes de un canal concreto)
-
-En esta primera versión mínima, `publicacion` guarda solo:
-- `titulo`
-- `descripcion`
-
-sin introducir todavía una capa de imágenes ni de contenido base.
+En primera versión:
+- todos los precios por canal son **editables**
+- `costo_referencia_ars` puede venir sugerido desde el costeo actual
+- `margen_referencia_pct` puede ser editable u opcional
+- no se automatiza todavía el cálculo fino de Mercado Libre

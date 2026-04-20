@@ -1,22 +1,19 @@
-# Frontend – Navegación principal
+# Frontend – pricing por canal en Item Comercial
 
-Se agrega `Publicaciones` al flujo principal de navegación.
+## Ubicación
+El bloque `Pricing por canal` debe vivir en el detalle de `Item Comercial`,
+debajo del costeo y antes de `Estado y faltantes`.
 
-## Header
-Orden actualizado:
+## Campos visibles
+- Costo referencia ARS
+- Margen referencia %
+- Precio sin impuestos
+- Precio directo
+- Precio web
+- Precio ML
 
-- Items
-- Items Manuales
-- Items Formulados
-- Items Proveedores
-- Items Comerciales
-- Items Envases
-- Items Etiqueta
-- Items Paquetería
-- Publicaciones
-- Stock
-- Dólar Histórico
-- Jobs manual
-
-## Inicio
-La hoja Inicio refleja el mismo orden que el header.
+## Comportamiento
+- bloque compacto
+- editable
+- guardado explícito con botón
+- sin mezclar todavía lógica fina de Mercado Libre

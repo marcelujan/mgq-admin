@@ -1,33 +1,18 @@
-# API backend – Publicaciones
+# API backend – pricing por canal implementable
 
-## Endpoints implementados
+## Endpoints mínimos
+- `GET /api/items-comerciales/[item_comercial_id]/pricing`
+- `PATCH /api/items-comerciales/[item_comercial_id]/pricing`
 
-### Colección
-- `GET /api/publicaciones`
-- `POST /api/publicaciones`
+## Campos manejados
+- `costo_referencia_ars`
+- `margen_referencia_pct`
+- `precio_sin_impuestos`
+- `precio_directo`
+- `precio_web`
+- `precio_ml`
 
-### Por id
-- `GET /api/publicaciones/[publicacion_id]`
-- `PATCH /api/publicaciones/[publicacion_id]`
-- `DELETE /api/publicaciones/[publicacion_id]`
-
-## Filtros soportados en GET
-
-- `q`
-- `canal`
-- `estado`
-
-## Payload mínimo
-
-```json
-{
-  "item_comercial_id": 123,
-  "canal": "WEB",
-  "titulo": "Lavandina 1 L",
-  "descripcion": "Opcional",
-  "precio_venta_ars": 2500,
-  "activa_manual": false,
-  "canal_external_id": "",
-  "estado_publicacion": "BORRADOR"
-}
-```
+## Reglas de primera versión
+- todos los precios quedan editables
+- `costo_referencia_ars` puede venir sugerido desde el costeo actual
+- `precio_ml` sigue siendo manual

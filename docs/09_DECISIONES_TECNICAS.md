@@ -1,39 +1,28 @@
-# Decisiones técnicas – Publicaciones
+# Decisiones técnicas – pricing por canal
 
-## Decisión
-Se crea una capa mínima separada llamada **Publicaciones**.
+## Decisión 1
+Se acepta el siguiente bloque mínimo de pricing:
 
-### Regla
-- `Item Comercial` = producto listo para ofrecer operativamente
-- `Publicación` = salida concreta a un canal de venta
+- `costo_referencia_ars`
+- `margen_referencia_pct`
+- `precio_sin_impuestos`
+- `precio_directo`
+- `precio_web`
+- `precio_ml`
 
-### Relación
-- un `Item Comercial` puede tener **0 o más** publicaciones
-- en la primera versión, como máximo **una publicación por canal**
+## Decisión 2
+En la primera versión, los precios por canal serán **editables**, no estrictamente calculados.
 
-## Estados de publicación acordados
+## Decisión 3
+`costo_referencia_ars` se tratará como dato sugerido desde el costeo del `Item Comercial`, no como una segunda fuente de verdad.
 
-- **Borrador** = gris
-- **Lista** = amarillo
-- **Publicada** = verde
-- **Pausada** = rojo
+## Decisión 4
+Mercado Libre queda inicialmente como precio manual:
+- sin recargo fijo rígido
+- sin automatización obligatoria
+- con posibilidad futura de simulación por API
 
-## Alcance de esta primera versión
-
-Sí incluye:
-- canal
-- título
-- descripción
-- precio
-- estado
-- activación manual
-
-No incluye todavía:
-- sincronización real con Mercado Libre
-- imágenes
-- separación de contenido base vs contenido por canal
-- métricas de performance de publicación
-
-## Regla importante
-La publicación no gobierna stock.  
-La disponibilidad operativa sigue viniendo del `Item Comercial`.
+## Decisión 5
+El pricing debe separarse del estado operativo:
+- `Item Comercial` dice si se puede ofertar
+- `Pricing` dice a qué precio conviene hacerlo por canal
