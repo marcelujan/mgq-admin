@@ -2,7 +2,7 @@ import PublicacionForm from "@/app/_components/vnext/publicacion-form";
 
 type Props = { params: Promise<{ publicacion_id: string }> };
 
-export default async function EditarPublicacionPage({ params }: Props) {
+export default async function EditarCanalDeVentaPage({ params }: Props) {
   const { publicacion_id } = await params;
   const id = Number(publicacion_id);
 

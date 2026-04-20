@@ -21,7 +21,7 @@ function normalizeEstado(v: any): string {
 
 function normalizeCanal(v: any): string | null {
   const s = typeof v === "string" ? v.trim().toUpperCase() : "";
-  return ["WEB", "MERCADO_LIBRE"].includes(s) ? s : null;
+  return ["WEB", "MERCADO_LIBRE", "DIRECTO"].includes(s) ? s : null;
 }
 
 type Ctx = { params: Promise<{ publicacion_id: string }> };

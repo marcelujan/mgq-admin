@@ -24,7 +24,7 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
   const router = useRouter();
   const [form, setForm] = useState<Publicacion>({
     item_comercial_id: "",
-    canal: "WEB",
+    canal: "DIRECTO",
     titulo: "",
     descripcion: "",
     precio_venta_ars: "",
@@ -66,7 +66,7 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
         if (done) return;
         setForm({
           item_comercial_id: String(it.item_comercial_id ?? ""),
-          canal: it.canal ?? "WEB",
+          canal: it.canal ?? "DIRECTO",
           titulo: it.titulo ?? "",
           descripcion: it.descripcion ?? "",
           precio_venta_ars: it.precio_venta_ars == null ? "" : String(it.precio_venta_ars),
@@ -125,7 +125,7 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
 
   async function remove() {
     if (!publicacionId) return;
-    if (!confirm("¿Eliminar publicación?")) return;
+    if (!confirm("¿Eliminar canal de venta?")) return;
     setSaving(true);
     setErr("");
     try {
@@ -182,6 +182,7 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
           <div>
             <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Canal</div>
             <select value={form.canal} onChange={(e) => setForm((f) => ({ ...f, canal: e.target.value }))} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 13 }}>
+              <option value="DIRECTO">DIRECTO</option>
               <option value="WEB">WEB</option>
               <option value="MERCADO_LIBRE">MERCADO_LIBRE</option>
             </select>
@@ -203,7 +204,8 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
 
         <div style={{ display: "grid", gap: 10 }}>
           <div>
-            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Precio venta ARS</div>
+            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Precio final ARS</div>
+            <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 6 }}>Este valor pertenece al canal de venta seleccionado.</div>
             <input value={form.precio_venta_ars} onChange={(e) => setForm((f) => ({ ...f, precio_venta_ars: e.target.value }))} inputMode="decimal" style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 13 }} />
           </div>
           <div>
@@ -226,7 +228,7 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
       {err ? <div style={{ color: "#ff8a80", fontSize: 13 }}>{err}</div> : null}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div style={{ opacity: 0.7, fontSize: 12 }}>{publicacionId ? `Publicación #${publicacionId}` : "Nueva publicación"}</div>
+        <div style={{ opacity: 0.7, fontSize: 12 }}>{publicacionId ? `Canal de venta #${publicacionId}` : "Nuevo canal de venta"}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {publicacionId ? (
             <button type="button" onClick={remove} disabled={saving} style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 13, cursor: "pointer" }}>

@@ -1,19 +1,21 @@
-# Frontend – Canales de venta y pricing
+# Frontend – Canales de venta
 
-## Renombre de UI
-La hoja visible `Publicaciones` pasa a llamarse **Canales de venta** en la interfaz.
+## Renombre visible
+La sección antes llamada `Publicaciones` se muestra en la UI como **Canales de venta**.
 
 Por ahora se conserva:
 - la ruta `/publicaciones`
-- la tabla / entidad `publicacion`
+- la tabla `publicacion`
 
-para evitar un refactor más riesgoso en esta etapa.
+para evitar un refactor más riesgoso.
 
 ## Pricing
-Se retira el bloque `Pricing por canal` del detalle principal de `Item Comercial`.
+El precio final queda en la hoja de **Canales de venta**, no en `Item Comercial`.
 
-Criterio aceptado:
-- `Item Comercial` no debe cargar el precio final por canal
-- el precio por canal pertenece a la capa visible de **Canales de venta**
+Campo operativo principal:
+- `precio_venta_ars` (visible como **Precio final ARS**)
 
-Si más adelante se conserva un precio de referencia interno, deberá quedar fuera del flujo principal de edición del `Item Comercial`.
+## Canales habilitados en esta etapa
+- `DIRECTO`
+- `WEB`
+- `MERCADO_LIBRE`

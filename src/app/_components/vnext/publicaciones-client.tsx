@@ -74,6 +74,7 @@ export default function PublicacionesClient() {
           style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 13 }}
         >
           <option value="">Todos los canales</option>
+          <option value="DIRECTO">DIRECTO</option>
           <option value="WEB">WEB</option>
           <option value="MERCADO_LIBRE">MERCADO_LIBRE</option>
         </select>
@@ -98,7 +99,7 @@ export default function PublicacionesClient() {
           href="/publicaciones/new"
           style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 13, textDecoration: "none", color: "inherit" }}
         >
-          Nueva
+          Nuevo
         </Link>
       </div>
 

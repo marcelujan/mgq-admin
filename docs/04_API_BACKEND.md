@@ -1,18 +1,19 @@
-# API backend – pricing por canal implementable
+# API backend – Canales de venta
 
-## Endpoints mínimos
-- `GET /api/items-comerciales/[item_comercial_id]/pricing`
-- `PATCH /api/items-comerciales/[item_comercial_id]/pricing`
+## Endpoints
+- `GET /api/publicaciones`
+- `POST /api/publicaciones`
+- `GET /api/publicaciones/[publicacion_id]`
+- `PATCH /api/publicaciones/[publicacion_id]`
+- `DELETE /api/publicaciones/[publicacion_id]`
 
-## Campos manejados
-- `costo_referencia_ars`
-- `margen_referencia_pct`
-- `precio_sin_impuestos`
-- `precio_directo`
-- `precio_web`
-- `precio_ml`
+## Canales admitidos
+- `DIRECTO`
+- `WEB`
+- `MERCADO_LIBRE`
 
-## Reglas de primera versión
-- todos los precios quedan editables
-- `costo_referencia_ars` puede venir sugerido desde el costeo actual
-- `precio_ml` sigue siendo manual
+## Pricing
+En esta etapa el precio final por canal se guarda en:
+- `precio_venta_ars`
+
+No se usa todavía automatización fina por canal.
