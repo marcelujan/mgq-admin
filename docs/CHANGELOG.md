@@ -1,5 +1,5 @@
 # CHANGELOG
 
-## v82
-- Se agrega una hoja específica de `Pricing por canal` para `Item Comercial`.
-- Se mantiene el panel reutilizable de pricing sin forzar todavía una integración riesgosa dentro del formulario principal.
+## v83
+- Se integra el bloque `Pricing por canal` dentro del detalle de `Item Comercial`.
+- El bloque queda ubicado debajo del costeo y antes de `Estado y faltantes`.

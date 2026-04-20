@@ -1,16 +1,10 @@
-# Frontend – Pricing por canal
+# Frontend – Pricing por canal integrado
 
-## Hoja de trabajo segura
-Para evitar regresiones en el formulario principal de `Item Comercial`, se agrega una hoja específica:
+## Detalle de Item Comercial
+El bloque `Pricing por canal` se integra en el detalle de `Item Comercial`:
 
-- `/items-comerciales/[item_comercial_id]/pricing`
-
-Esta hoja usa el mismo panel de pricing por canal ya preparado y permite trabajar pricing sin tocar todavía el detalle principal si se quiere avanzar por etapas.
+- debajo del costeo
+- antes de `Estado y faltantes`
 
 ## Regla práctica
-Primero validar:
-- guardado de pricing
-- lectura de pricing
-- sugerencia de costo de referencia
-
-Luego, si el flujo queda bien, integrar el mismo bloque dentro de `Editar Item Comercial`.
+La hoja específica `/items-comerciales/[item_comercial_id]/pricing` puede seguir existiendo como acceso alternativo o de trabajo separado, pero el flujo principal ya queda integrado en `Editar Item Comercial`.
