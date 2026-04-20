@@ -1,112 +1,67 @@
-# 03_BASE_DE_DATOS.md
-## Base de Datos – Mapa Estructural Core (v2)
+# Capa mínima de Publicaciones
 
-Este archivo es el “mapa curado” del esquema (orientado a decisiones de producto/arquitectura). El snapshot exhaustivo está en `/docs/db/schema_app.md`.
+## Objetivo
+Separar claramente:
 
-## Tablas core (dominio)
+- **Item Comercial** = objeto listo para ofrecer operativamente
+- **Publicación** = salida concreta a un canal de venta
 
-- `app.producto`: entidad central (técnica + comercial).
-- `app.item_formulado`: representación formulada reutilizable (incluye BULK).
-- `app.producto_formula_v2` / `app.producto_formula_linea_v2`: fórmula v2.
-- `app.offers`: ofertas comerciales (URL + motor + presentación).
+Relación propuesta:
 
-## Tablas operativas (pricing)
+- `item_comercial` **1:N** `publicacion`
 
-- `app.pricing_daily_runs`: corrida diaria (por fecha).
-- `app.pricing_daily_run_items`: detalle por oferta (PENDING/OK/FAIL, attempts, last_error).
-- `app.item_price_daily_pres`: precios diarios por presentación (upsert).
+## Tabla mínima propuesta: `app.publicacion`
 
-## Invariantes DB relevantes
+Campos mínimos:
 
-- Bulk reutilizable: `item_formulado.tipo='BULK' and activo=true`.
-- Oferta elegible para pricing: `offers.estado='OK'`.
-- Mismatch de presentación es una causa esperable de FAIL: `last_error like 'no_or_invalid_price_for_presentacion:%'`.
+- `publicacion_id` BIGSERIAL PK
+- `item_comercial_id` BIGINT NOT NULL FK -> `app.item_comercial(item_comercial_id)`
+- `canal` TEXT NOT NULL CHECK (`canal in ('WEB','MERCADO_LIBRE')`)
+- `titulo` TEXT NOT NULL
+- `descripcion` TEXT NULL
+- `precio_venta_ars` NUMERIC(18,2) NULL
+- `activa_manual` BOOLEAN NOT NULL DEFAULT false
+- `canal_external_id` TEXT NULL
+- `estado_publicacion` TEXT NOT NULL DEFAULT 'BORRADOR'
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT now()
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT now()
 
+Checks mínimos:
 
----
+- `estado_publicacion in ('BORRADOR','LISTA','PUBLICADA','PAUSADA')`
+- `precio_venta_ars is null or precio_venta_ars >= 0`
 
-## Propuesta vNext — Capa comercial nueva (2026-04-14)
+Índices mínimos:
 
-Se propone **no reutilizar** `app.producto_oferta*` ni `app.packaging_item` como base conceptual de la nueva comercialización. La base viva actual permanece en:
+- `(item_comercial_id)`
+- `(canal)`
+- `(estado_publicacion)`
+- `UNIQUE(item_comercial_id, canal)` para la primera versión
 
-- `app.item_seguimiento` (PROVEEDOR)
-- `app.cost_option` (MANUAL)
-- `app.item_formulado` (FORMULADO)
+## Regla de dependencia operativa
 
-Sobre esa base se agrega una capa nueva mínima:
+`publicacion` **no** porta stock propio.  
+La posibilidad real de oferta sigue viniendo desde `item_comercial`.
 
-- `app.item_comercial`
-- `app.item_envase`
-- `app.item_etiqueta`
-- `app.item_paqueteria`
-- `app.item_comercial_envase`
-- `app.item_comercial_etiqueta`
+Regla de publicación mínima:
 
-### Reglas estructurales fijadas
+- `gris` en comercial → no publicable
+- `rojo` en comercial → no publicable
+- `amarillo` en comercial → publicable con advertencias
+- `verde` en comercial → publicable
 
-- `item_comercial` nace de **un único origen técnico**.
-- Un origen técnico posible es exactamente uno de:
-  - `app.item_seguimiento.item_id`
-  - `app.cost_option.cost_option_id`
-  - `app.item_formulado.item_formulado_id`
-- `item_envase`, `item_etiqueta` e `item_paqueteria` nacen de un origen `PROVEEDOR` o `MANUAL`.
-- No se crea relación fija `item_comercial_paqueteria` en esta fase.
-- `item_comercial` **no** almacena stock propio.
-- Las unidades internas oficiales siguen siendo `GR`, `ML` y `UN`.
+## Contenido base vs contenido por publicación
 
-### Script listo para correr
+Esto queda **postergado** para una etapa posterior.
 
-Ver: `docs/db/2026_04_14_item_comercial_vnext.sql`
+Dirección futura aceptada:
 
+- más adelante separar:
+  - **contenido base** (texto e imágenes comunes del producto)
+  - **contenido específico de publicación** (texto/imágenes de un canal concreto)
 
----
+En esta primera versión mínima, `publicacion` guarda solo:
+- `titulo`
+- `descripcion`
 
-## Propuesta siguiente — Stock real mínimo para ofertabilidad y faltantes (2026-04-19)
-
-Diagnóstico: en el esquema actual existe costo de referencia en `app.cost_option` (`manual_uom`, `manual_cantidad`, `manual_costo_ars`) y en los catálogos nuevos (`uom`, `cantidad_referencia`, `costo_ars`), pero **no existe una capa de stock real** para ninguno de los ítems que después deben intervenir en la ofertabilidad de `Items Comerciales`.
-
-Por eso, antes de calcular automáticamente `Borrador / Ofertable / Bloqueado`, lista de faltantes y compras sugeridas, se propone agregar una única tabla mínima de movimientos:
-
-- `app.stock_movimiento`
-
-### Cobertura de `app.stock_movimiento`
-
-Un movimiento puede apuntar a exactamente uno de estos seis tipos de ítem con stock real:
-
-- `PROVEEDOR` → `app.item_seguimiento.item_id`
-- `MANUAL` → `app.cost_option.cost_option_id`
-- `FORMULADO` → `app.item_formulado.item_formulado_id`
-- `ENVASE` → `app.item_envase.item_envase_id`
-- `ETIQUETA` → `app.item_etiqueta.item_etiqueta_id`
-- `PAQUETERIA` → `app.item_paqueteria.item_paqueteria_id`
-
-### Estructura mínima acordada
-
-Se evoluciona la propuesta anterior a dos piezas:
-
-- `app.stock_operacion`
-- `app.stock_movimiento`
-
-`stock_operacion` agrupa el evento de negocio. `stock_movimiento` contiene las líneas con `delta_cantidad` positivo o negativo.
-
-### Tipos mínimos de operación
-
-- `INGRESO`
-- `VENTA`
-- `PRODUCCION`
-- `AJUSTE`
-
-`AJUSTE` absorbe consumos internos, regalos, mermas y correcciones manuales.
-
-### Invariantes nuevas
-
-- El stock real **nunca** vive en `app.item_comercial`.
-- No existe “stock inicial” como caso especial; todo parte de `0` y nace de movimientos.
-- `PRODUCCION` es una operación agrupada con egresos de componentes e ingreso del formulado obtenido.
-- La producción acepta cantidades reales utilizadas/obtenidas aunque difieran de la fórmula.
-- `Items Paquetería` no bloquea oferta, pero sí participa del stock real.
-- `Envases` y `Etiquetas` participarán inicialmente como advertencia de faltantes, no como bloqueo duro.
-
-### Script listo para revisión
-
-Ver: `docs/db/2026_04_20_stock_operaciones_v2.sql`
+sin introducir todavía una capa de imágenes ni de contenido base.

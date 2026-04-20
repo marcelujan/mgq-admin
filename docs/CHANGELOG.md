@@ -1,6 +1,11 @@
 # CHANGELOG
 
-## v73
-- Se documenta la primera propuesta de capa de `Publicaciones` separada de `Item Comercial`.
-- Se fija la relación sugerida 1:N entre `Item Comercial` y `Publicación`.
-- Se definen estados mínimos de publicación y la regla de herencia de publicabilidad desde `Item Comercial`.
+## v74
+- Se define la capa mínima de `Publicaciones` separada de `Item Comercial`.
+- Se fija la relación `item_comercial` 1:N `publicacion`.
+- Se documentan los estados visuales de publicación:
+  - gris = borrador
+  - amarillo = lista
+  - verde = publicada
+  - rojo = pausada
+- Se deja explícitamente postergada la separación entre contenido base e imágenes/textos específicos de publicación.
