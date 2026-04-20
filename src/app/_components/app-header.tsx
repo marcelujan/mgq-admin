@@ -29,7 +29,7 @@ function labelForSegment(seg: string): string {
     case "items-paqueteria":
       return "Items Paquetería";
     case "publicaciones":
-      return "Publicaciones";
+      return "Canales de venta";
     case "stock":
       return "Stock";
     case "ingreso":
@@ -84,7 +84,7 @@ export default function AppHeader() {
     { href: "/items-envases", label: "Items Envases" },
     { href: "/items-etiqueta", label: "Items Etiqueta" },
     { href: "/items-paqueteria", label: "Items Paquetería" },
-    { href: "/publicaciones", label: "Publicaciones" },
+    { href: "/publicaciones", label: "Canales de venta" },
     { href: "/stock", label: "Stock" },
     { href: "/dolar-historico", label: "Dólar Histórico" },
     { href: "/jobs", label: "Jobs manual" },

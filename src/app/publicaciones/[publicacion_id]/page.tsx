@@ -8,7 +8,7 @@ export default async function EditarPublicacionPage({ params }: Props) {
 
   return (
     <div style={{ padding: 16, display: "grid", gap: 12 }}>
-      <h1 style={{ fontSize: 22, margin: 0 }}>Editar Publicación</h1>
+      <h1 style={{ fontSize: 22, margin: 0 }}>Editar canal de venta</h1>
       <PublicacionForm publicacionId={id} />
     </div>
   );

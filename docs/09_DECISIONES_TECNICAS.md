@@ -1,28 +1,20 @@
-# Decisiones técnicas – pricing por canal
+# Decisiones técnicas – Canales de venta y pricing
 
 ## Decisión 1
-Se acepta el siguiente bloque mínimo de pricing:
-
-- `costo_referencia_ars`
-- `margen_referencia_pct`
-- `precio_sin_impuestos`
-- `precio_directo`
-- `precio_web`
-- `precio_ml`
+La UI deja de mostrar `Publicaciones` y pasa a mostrar **Canales de venta**.
 
 ## Decisión 2
-En la primera versión, los precios por canal serán **editables**, no estrictamente calculados.
+En esta etapa no se renombra la ruta ni la tabla:
+- ruta conservada: `/publicaciones`
+- tabla conservada: `publicacion`
+
+Eso reduce riesgo de regresión.
 
 ## Decisión 3
-`costo_referencia_ars` se tratará como dato sugerido desde el costeo del `Item Comercial`, no como una segunda fuente de verdad.
+El pricing final por canal no debe vivir en el formulario principal de `Item Comercial`.
 
 ## Decisión 4
-Mercado Libre queda inicialmente como precio manual:
-- sin recargo fijo rígido
-- sin automatización obligatoria
-- con posibilidad futura de simulación por API
+La capa correcta para precios finales es **Canales de venta**.
 
 ## Decisión 5
-El pricing debe separarse del estado operativo:
-- `Item Comercial` dice si se puede ofertar
-- `Pricing` dice a qué precio conviene hacerlo por canal
+Si más adelante se usa un precio de referencia interno, no deberá ocupar el centro del flujo de edición del `Item Comercial`.

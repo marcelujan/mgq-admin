@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import ItemComercialRelaciones from "./item-comercial-relaciones";
-import ItemComercialPricingPanel from "./item-comercial-pricing-panel";
 
 type OriginType = "PROVEEDOR" | "MANUAL" | "FORMULADO";
 type Uom = "GR" | "ML" | "UN";
@@ -603,10 +602,6 @@ export default function ItemComercialForm({ itemId }: { itemId?: number }) {
             </div>
           ))}
         </div>
-      </div>
-
-      <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.02)", display: "grid", gap: 10 }}>
-        <ItemComercialPricingPanel itemComercialId={currentId ?? null} disabled={!currentId} />
       </div>
 
       {currentId ? (
