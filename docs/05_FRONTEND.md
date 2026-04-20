@@ -1,19 +1,16 @@
-# Frontend – pricing por canal en Item Comercial
+# Frontend – Pricing por canal
 
-## Ubicación
-El bloque `Pricing por canal` debe vivir en el detalle de `Item Comercial`,
-debajo del costeo y antes de `Estado y faltantes`.
+## Hoja de trabajo segura
+Para evitar regresiones en el formulario principal de `Item Comercial`, se agrega una hoja específica:
 
-## Campos visibles
-- Costo referencia ARS
-- Margen referencia %
-- Precio sin impuestos
-- Precio directo
-- Precio web
-- Precio ML
+- `/items-comerciales/[item_comercial_id]/pricing`
 
-## Comportamiento
-- bloque compacto
-- editable
-- guardado explícito con botón
-- sin mezclar todavía lógica fina de Mercado Libre
+Esta hoja usa el mismo panel de pricing por canal ya preparado y permite trabajar pricing sin tocar todavía el detalle principal si se quiere avanzar por etapas.
+
+## Regla práctica
+Primero validar:
+- guardado de pricing
+- lectura de pricing
+- sugerencia de costo de referencia
+
+Luego, si el flujo queda bien, integrar el mismo bloque dentro de `Editar Item Comercial`.

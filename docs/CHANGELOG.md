@@ -1,6 +1,5 @@
 # CHANGELOG
 
-## v81
-- Se prepara la primera implementación real de pricing por canal para `Item Comercial`.
-- Se agregan endpoints `GET/PATCH` de pricing por item comercial.
-- Se entrega un panel reutilizable de `Pricing por canal` para integrar en el detalle del item comercial.
+## v82
+- Se agrega una hoja específica de `Pricing por canal` para `Item Comercial`.
+- Se mantiene el panel reutilizable de pricing sin forzar todavía una integración riesgosa dentro del formulario principal.
