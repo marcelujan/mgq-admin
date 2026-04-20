@@ -1,87 +1,94 @@
 # 09_DECISIONES_TECNICAS
 
-## Corrección de modelo para `Items Envases`, `Items Etiqueta` e `Items Paquetería`
+## Capa de Publicaciones / Comercialización (propuesta v1)
 
-Queda descartada la interpretación donde estas hojas eran wrappers con FKs visibles a `MANUAL` o `PROVEEDOR`.
+### Separación de responsabilidades
+- `Item Comercial` sigue siendo el objeto preparado para ofrecer.
+- `Publicación` representa la salida a un canal de venta concreto.
+- No se mezclan datos de canal dentro del dominio técnico ni dentro del stock.
 
-También queda descartada la interpretación donde eran catálogos autónomos sin costo.
+### Regla principal
+Un mismo `Item Comercial` puede tener cero o más publicaciones.
 
-### Regla vigente
+Ejemplos:
+- una publicación en Web
+- una publicación en Mercado Libre
+- futuras publicaciones en otros canales
 
-`Items Envases`, `Items Etiqueta` e `Items Paquetería` son **ítems propios con costo**.
+### Relación sugerida
+- `Item Comercial` 1:N `Publicación`
 
-Cada uno debe guardar directamente:
+### Campos mínimos recomendados para `Publicación`
+- `publicacion_id`
+- `item_comercial_id`
+- `canal`
+- `titulo`
+- `descripcion`
+- `precio_venta_ars`
+- `activa_manual`
+- `canal_external_id` (opcional, para Mercado Libre u otro canal)
+- `canal_status` (opcional)
+- `created_at`
+- `updated_at`
 
-- `nombre`
-- `uom`
-- `cantidad_referencia`
-- `costo_ars`
+### Qué NO debería duplicar `Publicación`
+- stock real
+- densidad
+- bulk
+- envases
+- etiquetas
+- costo técnico
+- costo de componentes
 
-Y solo `Items Etiqueta` agrega:
+Todo eso sigue viviendo en:
+- origen técnico
+- `Item Comercial`
+- stock real y movimientos
 
-- `ancho_mm`
-- `largo_mm`
+### Disponibilidad para publicar
+La publicación no debería tener una lógica independiente de stock.
 
-### Qué se conserva
+Debe heredar la posibilidad de oferta del `Item Comercial`:
+- gris → no publicable
+- rojo → no publicable
+- amarillo → publicable con advertencias
+- verde → publicable
 
-- `Items Comerciales` sigue naciendo de un único origen técnico
-- `Items Comerciales` después selecciona `Items Envases` y `Items Etiqueta`
-- `Items Paquetería` sigue fuera de la lógica de bloqueo de oferta
-- la app sigue usando `GR`, `ML` y `UN`
+### Estados sugeridos de `Publicación`
+Para no complejizar demasiado, la primera versión puede usar solo:
+- `BORRADOR`
+- `LISTA`
+- `PUBLICADA`
+- `PAUSADA`
 
-### Qué se descarta
+#### BORRADOR
+Falta:
+- título
+- precio
+- o el `Item Comercial` todavía no está en estado publicable
 
-- `descripcion` en estas tres hojas
-- `material` en `Items Etiqueta`
-- inputs libres de `manual_cost_option_id`
-- inputs libres de `proveedor_item_id`
+#### LISTA
+- tiene título
+- tiene precio
+- el `Item Comercial` está amarillo o verde
+- todavía no fue enviada/sincronizada a un canal
 
-### Estado de implementación
+#### PUBLICADA
+- ya existe en el canal
 
-La migración anterior que dejó estos catálogos sin costo queda superada.
+#### PAUSADA
+- se pausó manualmente
+- o el `Item Comercial` cayó en rojo o gris
 
-El nuevo corte correcto agrega costo y lote/cantidad de referencia directamente en las tablas propias de:
+### Orden recomendado de implementación
+1. Crear hoja `Publicaciones`
+2. Crear entidad mínima `Publicación`
+3. Preparar publicaciones sin conexión real a Mercado Libre
+4. Recién después abrir sincronización real con canal
 
-- `app.item_envase`
-- `app.item_etiqueta`
-- `app.item_paqueteria`
-
-
-## Decisión adicional sobre medidas de `Items Etiqueta`
-
-Se abandona el campo textual único `medidas` como entrada principal.
-
-La UI y la API de `Items Etiqueta` deben trabajar con dos campos numéricos separados:
-
-- `ancho_mm`
-- `largo_mm`
-
-Motivo:
-
-- evita formatos ambiguos con o sin espacios;
-- evita depender de validaciones de texto frágiles;
-- deja el tamaño listo para mapearlo luego a un formato/modelo de BarTender.
-
-La presentación en tabla puede seguir viéndose como `ancho x largo`, pero el almacenamiento debe quedar separado.
-
-
-## Stock real v2 — decisiones cerradas
-
-- el stock arranca en `0`
-- no existe caso especial de “stock inicial”
-- todo stock nace de movimientos
-- tipos mínimos de operación:
-  - `INGRESO`
-  - `VENTA`
-  - `PRODUCCION`
-  - `AJUSTE`
-- `AJUSTE` puede ser positivo o negativo
-- `PRODUCCION` no se bloquea por pequeñas diferencias entre fórmula teórica y producción real
-- el stock real pertenece a:
-  - `MANUAL`
-  - `PROVEEDOR`
-  - `FORMULADO`
-  - `ITEM_ENVASE`
-  - `ITEM_ETIQUETA`
-  - `ITEM_PAQUETERIA`
-- `ITEM_COMERCIAL` no porta stock real
+### Motivación
+Esto mantiene separadas:
+- preparación operativa
+- ofertabilidad
+- publicación por canal
+- sincronización externa
