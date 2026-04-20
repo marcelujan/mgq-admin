@@ -1,6 +1,6 @@
-# API backend – Publicaciones (propuesta mínima)
+# API backend – Publicaciones
 
-## Endpoints mínimos
+## Endpoints implementados
 
 ### Colección
 - `GET /api/publicaciones`
@@ -11,7 +11,13 @@
 - `PATCH /api/publicaciones/[publicacion_id]`
 - `DELETE /api/publicaciones/[publicacion_id]`
 
-## Payload mínimo de alta
+## Filtros soportados en GET
+
+- `q`
+- `canal`
+- `estado`
+
+## Payload mínimo
 
 ```json
 {
@@ -20,36 +26,8 @@
   "titulo": "Lavandina 1 L",
   "descripcion": "Opcional",
   "precio_venta_ars": 2500,
-  "activa_manual": false
+  "activa_manual": false,
+  "canal_external_id": "",
+  "estado_publicacion": "BORRADOR"
 }
 ```
-
-## Reglas mínimas
-
-- `item_comercial_id` obligatorio
-- `canal` obligatorio
-- `titulo` obligatorio
-- `descripcion` opcional
-- `precio_venta_ars` opcional al crear, pero si existe debe ser >= 0
-- `activa_manual` opcional; default `false`
-
-## Estado de publicación
-
-Estados aceptados:
-
-- `BORRADOR`
-- `LISTA`
-- `PUBLICADA`
-- `PAUSADA`
-
-Mapeo visual acordado:
-
-- **Borrador** = gris
-- **Lista** = amarillo
-- **Publicada** = verde
-- **Pausada** = rojo
-
-## Regla de negocio
-
-`publicacion` no decide stock.  
-Solo hereda si el `item_comercial` puede o no puede ofertarse operativamente.
