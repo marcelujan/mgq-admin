@@ -146,4 +146,4 @@ export async function disconnectMeliAuth() {
     WHERE is_active = true
     `
   );
-}\n
+}
