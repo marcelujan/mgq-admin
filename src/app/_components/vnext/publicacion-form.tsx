@@ -129,6 +129,20 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
     return items.filter((it) => `${it.item_comercial_id} ${it.nombre || ""}`.toLowerCase().includes(needle)).slice(0, 100);
   }, [items, q]);
 
+
+const selectedItem = useMemo(() => {
+  if (!form.item_comercial_id) return null;
+  return items.find((it) => String(it.item_comercial_id) === String(form.item_comercial_id)) ?? null;
+}, [items, form.item_comercial_id]);
+
+function chooseItem(it: ItemComercial) {
+  setForm((f) => ({
+    ...f,
+    item_comercial_id: String(it.item_comercial_id),
+    titulo: f.titulo.trim() ? f.titulo : (it.nombre ?? `Item Comercial #${it.item_comercial_id}`),
+  }));
+}
+
   const marginPct = useMemo(() => {
     const precio = Number(form.precio_venta_ars);
     const costo = Number(ctx?.costo_referencia_ars);
@@ -210,13 +224,13 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
                 {filtered.map((it) => {
                   const selected = form.item_comercial_id === String(it.item_comercial_id);
                   return (
-                    <tr key={it.item_comercial_id} style={{ background: selected ? "rgba(255,255,255,0.06)" : "transparent" }}>
+                    <tr key={it.item_comercial_id} style={{ background: selected ? "rgba(255,255,255,0.10)" : "transparent", outline: selected ? "1px solid rgba(255,255,255,0.18)" : "none" }}>
                       <td style={{ padding: "6px 8px", borderTop: "1px solid rgba(255,255,255,0.06)", whiteSpace: "nowrap" }}>#{it.item_comercial_id}</td>
                       <td style={{ padding: "6px 8px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>{it.nombre || `Item Comercial #${it.item_comercial_id}`}</td>
                       <td style={{ padding: "6px 8px", borderTop: "1px solid rgba(255,255,255,0.06)", textAlign: "right" }}>
                         <button
                           type="button"
-                          onClick={() => setForm((f) => ({ ...f, item_comercial_id: String(it.item_comercial_id) }))}
+                          onClick={() => chooseItem(it)}
                           style={{ padding: "5px 8px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12, cursor: "pointer" }}
                         >
                           Elegir
@@ -228,6 +242,16 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
               </tbody>
             </table>
           </div>
+
+<div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", fontSize: 12.5 }}>
+  {selectedItem ? (
+    <span>
+      Seleccionado: <strong>#{selectedItem.item_comercial_id}</strong> · {selectedItem.nombre || `Item Comercial #${selectedItem.item_comercial_id}`}
+    </span>
+  ) : (
+    <span style={{ opacity: 0.7 }}>Ningún item comercial seleccionado.</span>
+  )}
+</div>
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
