@@ -38,4 +38,4 @@ export async function GET(_: NextRequest) {
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "error" }, { status: 500 });
   }
-}\n
+}

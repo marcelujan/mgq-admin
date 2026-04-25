@@ -87,4 +87,4 @@ export async function GET(req: NextRequest) {
   } catch (e: any) {
     return NextResponse.redirect(new URL(`/mercadolibre/auth?error=${encodeURIComponent(e?.message ?? "error")}`, req.url));
   }
-}\n
+}

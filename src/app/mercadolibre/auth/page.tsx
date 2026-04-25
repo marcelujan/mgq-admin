@@ -101,4 +101,4 @@ export default function MercadoLibreAuthPage() {
       </div>
     </div>
   );
-}\n
+}
