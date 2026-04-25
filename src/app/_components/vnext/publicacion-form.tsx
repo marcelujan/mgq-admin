@@ -150,6 +150,13 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
     return ((precio - costo) / costo) * 100;
   }, [form.precio_venta_ars, ctx?.costo_referencia_ars]);
 
+  const grossGainArs = useMemo(() => {
+    const precio = Number(form.precio_venta_ars);
+    const costo = Number(ctx?.costo_referencia_ars);
+    if (!Number.isFinite(precio) || !Number.isFinite(costo)) return null;
+    return precio - costo;
+  }, [form.precio_venta_ars, ctx?.costo_referencia_ars]);
+
   function chooseItem(it: ItemComercial) {
     setForm((f) => ({
       ...f,
@@ -317,6 +324,10 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
           <div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>ML</div>
             <div style={{ fontSize: 13 }}>{money(ctx?.precios?.MERCADO_LIBRE)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Ganancia bruta estimada</div>
+            <div style={{ fontSize: 13 }}>{grossGainArs == null ? "—" : money(grossGainArs)}</div>
           </div>
           <div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>Margen bruto estimado</div>
