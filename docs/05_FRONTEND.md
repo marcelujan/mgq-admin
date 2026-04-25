@@ -1,7 +1,10 @@
-# Frontend – Referencia de pricing en Canales de venta
+# Frontend – autenticación mínima Mercado Libre
 
-## Ajuste
-El bloque `Referencia de pricing` ahora:
-- muestra el costo actual estimado del `Item Comercial`
-- desactiva los botones de copia cuando todavía no existen precios guardados en otros canales
-- informa explícitamente cuando aún no hay canales previos cargados para reutilizar precios
+## Hoja nueva
+- `/mercadolibre/auth`
+
+## Qué permite
+- ver estado de conexión
+- conectar Mercado Libre
+- desconectar
+- revisar user_id / nickname / expiración del token\n

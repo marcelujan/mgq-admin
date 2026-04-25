@@ -1,16 +1,18 @@
-# Decisiones técnicas – Canales de venta y pricing
+# Decisiones técnicas – autenticación mínima Mercado Libre
 
 ## Decisión 1
-La UI muestra **Canales de venta** como nombre visible de la sección.
+Antes de simular costos o publicar en ML se resuelve una capa mínima de autenticación OAuth.
 
 ## Decisión 2
-El precio final por canal pertenece a `Canales de venta`, no al flujo principal de `Item Comercial`.
+En la primera versión se trabaja con una sola cuenta ML conectada para toda la app.
 
 ## Decisión 3
-Se habilitan tres canales operativos en esta etapa:
-- `DIRECTO`
-- `WEB`
-- `MERCADO_LIBRE`
+La app guarda:
+- access_token
+- refresh_token
+- expires_at
+- user_id
+- nickname
 
 ## Decisión 4
-`precio_venta_ars` se interpreta como precio final del canal seleccionado.
+La renovación automática del token queda para el siguiente bloque.\n

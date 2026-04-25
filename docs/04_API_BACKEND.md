@@ -1,9 +1,19 @@
-# API backend – pricing-context
+# API backend – autenticación mínima Mercado Libre
 
-## Ajuste
-`GET /api/publicaciones/pricing-context` ahora:
-- calcula `costo_referencia_ars` desde el costeo actual del `Item Comercial`
-  - bulk
-  - envases
-  - etiquetas
-- sigue devolviendo los precios ya guardados en DIRECTO / WEB / MERCADO_LIBRE
+## Endpoints
+- `GET /api/ml/auth/start`
+- `GET /api/ml/auth/callback`
+- `GET /api/ml/auth/status`
+- `POST /api/ml/auth/disconnect`
+
+## Variables de entorno
+- `MELI_APP_ID`
+- `MELI_CLIENT_SECRET`
+- `MELI_REDIRECT_URI`
+- `MELI_USE_PKCE` (opcional)
+
+## Objetivo
+Resolver una autenticación mínima OAuth antes de:
+- simulación ML
+- publicación real
+- consulta de costos de venta y envío\n
