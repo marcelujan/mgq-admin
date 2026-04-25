@@ -31,7 +31,7 @@ type PricingContext = {
 
 function money(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(Number(v))) return "—";
-  return String(v);
+  return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v));
 }
 
 export default function PublicacionForm({ publicacionId }: { publicacionId?: number }) {
@@ -66,13 +66,18 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
       }
     }
     loadItems();
-    return () => { done = true; };
+    return () => {
+      done = true;
+    };
   }, []);
 
   useEffect(() => {
     let done = false;
     async function loadOne() {
-      if (!publicacionId) { setLoading(false); return; }
+      if (!publicacionId) {
+        setLoading(false);
+        return;
+      }
       try {
         const r = await fetch(`/api/publicaciones/${publicacionId}`, { cache: "no-store" });
         const j = await r.json().catch(() => null);
@@ -96,7 +101,9 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
       }
     }
     loadOne();
-    return () => { done = true; };
+    return () => {
+      done = true;
+    };
   }, [publicacionId]);
 
   useEffect(() => {
@@ -120,7 +127,9 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
       }
     }
     loadPricingContext();
-    return () => { done = true; };
+    return () => {
+      done = true;
+    };
   }, [form.item_comercial_id, form.canal]);
 
   const filtered = useMemo(() => {
@@ -129,19 +138,10 @@ export default function PublicacionForm({ publicacionId }: { publicacionId?: num
     return items.filter((it) => `${it.item_comercial_id} ${it.nombre || ""}`.toLowerCase().includes(needle)).slice(0, 100);
   }, [items, q]);
 
-
-const selectedItem = useMemo(() => {
-  if (!form.item_comercial_id) return null;
-  return items.find((it) => String(it.item_comercial_id) === String(form.item_comercial_id)) ?? null;
-}, [items, form.item_comercial_id]);
-
-function chooseItem(it: ItemComercial) {
-  setForm((f) => ({
-    ...f,
-    item_comercial_id: String(it.item_comercial_id),
-    titulo: f.titulo.trim() ? f.titulo : (it.nombre ?? `Item Comercial #${it.item_comercial_id}`),
-  }));
-}
+  const selectedItem = useMemo(() => {
+    if (!form.item_comercial_id) return null;
+    return items.find((it) => String(it.item_comercial_id) === String(form.item_comercial_id)) ?? null;
+  }, [items, form.item_comercial_id]);
 
   const marginPct = useMemo(() => {
     const precio = Number(form.precio_venta_ars);
@@ -149,6 +149,14 @@ function chooseItem(it: ItemComercial) {
     if (!Number.isFinite(precio) || !Number.isFinite(costo) || costo <= 0) return null;
     return ((precio - costo) / costo) * 100;
   }, [form.precio_venta_ars, ctx?.costo_referencia_ars]);
+
+  function chooseItem(it: ItemComercial) {
+    setForm((f) => ({
+      ...f,
+      item_comercial_id: String(it.item_comercial_id),
+      titulo: f.titulo.trim() ? f.titulo : it.nombre ?? `Item Comercial #${it.item_comercial_id}`,
+    }));
+  }
 
   function copyPriceFrom(channel: keyof PricingContext["precios"]) {
     const v = ctx?.precios?.[channel];
@@ -243,15 +251,15 @@ function chooseItem(it: ItemComercial) {
             </table>
           </div>
 
-<div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", fontSize: 12.5 }}>
-  {selectedItem ? (
-    <span>
-      Seleccionado: <strong>#{selectedItem.item_comercial_id}</strong> · {selectedItem.nombre || `Item Comercial #${selectedItem.item_comercial_id}`}
-    </span>
-  ) : (
-    <span style={{ opacity: 0.7 }}>Ningún item comercial seleccionado.</span>
-  )}
-</div>
+          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)", fontSize: 12.5 }}>
+            {selectedItem ? (
+              <span>
+                Seleccionado: <strong>#{selectedItem.item_comercial_id}</strong> · {selectedItem.nombre || `Item Comercial #${selectedItem.item_comercial_id}`}
+              </span>
+            ) : (
+              <span style={{ opacity: 0.7 }}>Ningún item comercial seleccionado.</span>
+            )}
+          </div>
         </div>
 
         <div style={{ display: "grid", gap: 10 }}>
@@ -317,16 +325,37 @@ function chooseItem(it: ItemComercial) {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => copyPriceFrom("DIRECTO")} style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: "pointer" }}>
+          <button
+            type="button"
+            onClick={() => copyPriceFrom("DIRECTO")}
+            disabled={ctx?.precios?.DIRECTO == null}
+            style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: ctx?.precios?.DIRECTO == null ? "not-allowed" : "pointer", opacity: ctx?.precios?.DIRECTO == null ? 0.5 : 1 }}
+          >
             Copiar desde DIRECTO
           </button>
-          <button type="button" onClick={() => copyPriceFrom("WEB")} style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: "pointer" }}>
+          <button
+            type="button"
+            onClick={() => copyPriceFrom("WEB")}
+            disabled={ctx?.precios?.WEB == null}
+            style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: ctx?.precios?.WEB == null ? "not-allowed" : "pointer", opacity: ctx?.precios?.WEB == null ? 0.5 : 1 }}
+          >
             Copiar desde WEB
           </button>
-          <button type="button" onClick={() => copyPriceFrom("MERCADO_LIBRE")} style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: "pointer" }}>
+          <button
+            type="button"
+            onClick={() => copyPriceFrom("MERCADO_LIBRE")}
+            disabled={ctx?.precios?.MERCADO_LIBRE == null}
+            style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)", fontSize: 12.5, cursor: ctx?.precios?.MERCADO_LIBRE == null ? "not-allowed" : "pointer", opacity: ctx?.precios?.MERCADO_LIBRE == null ? 0.5 : 1 }}
+          >
             Copiar desde ML
           </button>
         </div>
+
+        {ctx?.precios?.DIRECTO == null && ctx?.precios?.WEB == null && ctx?.precios?.MERCADO_LIBRE == null ? (
+          <div style={{ fontSize: 12, opacity: 0.65 }}>
+            Todavía no hay otros canales guardados para este item comercial. Guardá un canal con precio y luego vas a poder reutilizarlo.
+          </div>
+        ) : null}
       </div>
 
       <div>

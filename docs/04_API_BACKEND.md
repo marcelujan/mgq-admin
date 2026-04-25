@@ -1,14 +1,9 @@
-# API backend – ayuda de pricing en Canales de venta
+# API backend – pricing-context
 
-## Endpoint nuevo
-- `GET /api/publicaciones/pricing-context?item_comercial_id=...`
-
-## Qué devuelve
-- `costo_referencia_ars` si existe como referencia
-- precios ya cargados para el mismo `Item Comercial` en:
-  - `DIRECTO`
-  - `WEB`
-  - `MERCADO_LIBRE`
-
-## Objetivo
-Ayudar a fijar el `precio_venta_ars` del canal actual sin automatizar todavía la lógica fina de Mercado Libre.
+## Ajuste
+`GET /api/publicaciones/pricing-context` ahora:
+- calcula `costo_referencia_ars` desde el costeo actual del `Item Comercial`
+  - bulk
+  - envases
+  - etiquetas
+- sigue devolviendo los precios ya guardados en DIRECTO / WEB / MERCADO_LIBRE

@@ -1,22 +1,7 @@
-# Frontend – ayuda de pricing en Canales de venta
+# Frontend – Referencia de pricing en Canales de venta
 
-## Nuevo bloque
-En la edición de `Canales de venta` se agrega un bloque:
-
-- `Referencia de pricing`
-
-## Qué muestra
-- costo actual de referencia
-- precio actual DIRECTO
-- precio actual WEB
-- precio actual ML
-- margen bruto estimado sobre el precio final cargado
-
-## Acciones rápidas
-- Copiar desde DIRECTO
-- Copiar desde WEB
-- Copiar desde ML
-
-## Criterio
-Es una ayuda operativa.
-No reemplaza todavía una simulación fina de Mercado Libre.
+## Ajuste
+El bloque `Referencia de pricing` ahora:
+- muestra el costo actual estimado del `Item Comercial`
+- desactiva los botones de copia cuando todavía no existen precios guardados en otros canales
+- informa explícitamente cuando aún no hay canales previos cargados para reutilizar precios
