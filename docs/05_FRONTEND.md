@@ -1,21 +1,22 @@
-# Frontend – Canales de venta
+# Frontend – ayuda de pricing en Canales de venta
 
-## Renombre visible
-La sección antes llamada `Publicaciones` se muestra en la UI como **Canales de venta**.
+## Nuevo bloque
+En la edición de `Canales de venta` se agrega un bloque:
 
-Por ahora se conserva:
-- la ruta `/publicaciones`
-- la tabla `publicacion`
+- `Referencia de pricing`
 
-para evitar un refactor más riesgoso.
+## Qué muestra
+- costo actual de referencia
+- precio actual DIRECTO
+- precio actual WEB
+- precio actual ML
+- margen bruto estimado sobre el precio final cargado
 
-## Pricing
-El precio final queda en la hoja de **Canales de venta**, no en `Item Comercial`.
+## Acciones rápidas
+- Copiar desde DIRECTO
+- Copiar desde WEB
+- Copiar desde ML
 
-Campo operativo principal:
-- `precio_venta_ars` (visible como **Precio final ARS**)
-
-## Canales habilitados en esta etapa
-- `DIRECTO`
-- `WEB`
-- `MERCADO_LIBRE`
+## Criterio
+Es una ayuda operativa.
+No reemplaza todavía una simulación fina de Mercado Libre.

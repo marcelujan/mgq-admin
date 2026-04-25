@@ -1,19 +1,14 @@
-# API backend – Canales de venta
+# API backend – ayuda de pricing en Canales de venta
 
-## Endpoints
-- `GET /api/publicaciones`
-- `POST /api/publicaciones`
-- `GET /api/publicaciones/[publicacion_id]`
-- `PATCH /api/publicaciones/[publicacion_id]`
-- `DELETE /api/publicaciones/[publicacion_id]`
+## Endpoint nuevo
+- `GET /api/publicaciones/pricing-context?item_comercial_id=...`
 
-## Canales admitidos
-- `DIRECTO`
-- `WEB`
-- `MERCADO_LIBRE`
+## Qué devuelve
+- `costo_referencia_ars` si existe como referencia
+- precios ya cargados para el mismo `Item Comercial` en:
+  - `DIRECTO`
+  - `WEB`
+  - `MERCADO_LIBRE`
 
-## Pricing
-En esta etapa el precio final por canal se guarda en:
-- `precio_venta_ars`
-
-No se usa todavía automatización fina por canal.
+## Objetivo
+Ayudar a fijar el `precio_venta_ars` del canal actual sin automatizar todavía la lógica fina de Mercado Libre.
